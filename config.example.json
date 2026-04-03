@@ -1,0 +1,13 @@
+{
+  "server": {
+    "listen": ":8080"
+  },
+  "admin": {
+    "username": "admin",
+    "password": "admin123"
+  },
+  "storage": {
+    "sqlite_path": "./sqlite.db",
+    "flush_interval": 60
+  }
+}

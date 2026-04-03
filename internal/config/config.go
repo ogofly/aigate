@@ -5,18 +5,26 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
 type Config struct {
 	Server    ServerConfig     `json:"server"`
 	Auth      AuthConfig       `json:"auth"`
+	Admin     AdminConfig      `json:"admin"`
 	Providers []ProviderConfig `json:"providers"`
 	Models    []ModelConfig    `json:"models"`
+	Storage   StorageConfig    `json:"storage"`
 }
 
 type ServerConfig struct {
 	Listen string `json:"listen"`
+}
+
+type AdminConfig struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type AuthConfig struct {
@@ -34,7 +42,7 @@ type KeyConfig struct {
 type ProviderConfig struct {
 	Name           string `json:"name"`
 	BaseURL        string `json:"base_url"`
-	APIKey         string `json:"api_key"`
+	APIKeyRef      string `json:"api_key_ref"`
 	TimeoutSeconds int    `json:"timeout"`
 }
 
@@ -42,6 +50,11 @@ type ModelConfig struct {
 	PublicName   string `json:"public_name"`
 	Provider     string `json:"provider"`
 	UpstreamName string `json:"upstream_name"`
+}
+
+type StorageConfig struct {
+	SQLitePath           string `json:"sqlite_path"`
+	FlushIntervalSeconds int    `json:"flush_interval"`
 }
 
 func Load(path string) (*Config, error) {
@@ -59,6 +72,8 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	cfg.resolvePaths(path)
+
 	return &cfg, nil
 }
 
@@ -66,8 +81,11 @@ func (c *Config) Validate() error {
 	if c.Server.Listen == "" {
 		return errors.New("server.listen is required")
 	}
-	if len(c.Auth.Keys) == 0 {
-		return errors.New("auth.keys is required")
+	if c.Admin.Username == "" {
+		return errors.New("admin.username is required")
+	}
+	if c.Admin.Password == "" {
+		return errors.New("admin.password is required")
 	}
 	seenKeys := make(map[string]struct{}, len(c.Auth.Keys))
 	for _, key := range c.Auth.Keys {
@@ -79,11 +97,11 @@ func (c *Config) Validate() error {
 		}
 		seenKeys[key.Key] = struct{}{}
 	}
-	if len(c.Providers) == 0 {
-		return errors.New("providers is required")
+	if c.Storage.SQLitePath == "" {
+		return errors.New("storage.sqlite_path is required")
 	}
-	if len(c.Models) == 0 {
-		return errors.New("models is required")
+	if c.Storage.FlushIntervalSeconds <= 0 {
+		c.Storage.FlushIntervalSeconds = 60
 	}
 
 	seenProviders := make(map[string]struct{}, len(c.Providers))
@@ -94,8 +112,8 @@ func (c *Config) Validate() error {
 		if p.BaseURL == "" {
 			return fmt.Errorf("provider %q base_url is required", p.Name)
 		}
-		if p.APIKey == "" {
-			return fmt.Errorf("provider %q api_key is required", p.Name)
+		if p.APIKeyRef == "" {
+			return fmt.Errorf("provider %q api_key_ref is required", p.Name)
 		}
 		if _, ok := seenProviders[p.Name]; ok {
 			return fmt.Errorf("duplicate provider %q", p.Name)
@@ -130,6 +148,14 @@ func expandEnv(input string) string {
 	return os.Expand(input, func(name string) string {
 		return strings.TrimSpace(os.Getenv(name))
 	})
+}
+
+func (c *Config) resolvePaths(configPath string) {
+	if c.Storage.SQLitePath == "" || filepath.IsAbs(c.Storage.SQLitePath) {
+		return
+	}
+	configDir := filepath.Dir(configPath)
+	c.Storage.SQLitePath = filepath.Clean(filepath.Join(configDir, c.Storage.SQLitePath))
 }
 
 func (k *KeyConfig) UnmarshalJSON(data []byte) error {

@@ -3,15 +3,23 @@ package auth
 import (
 	"net/http"
 	"strings"
+	"sync"
 
 	"aigate/internal/config"
 )
 
 type Auth struct {
+	mu   sync.RWMutex
 	keys map[string]Principal
 }
 
 func New(keys []config.KeyConfig) *Auth {
+	a := &Auth{}
+	a.Update(keys)
+	return a
+}
+
+func (a *Auth) Update(keys []config.KeyConfig) {
 	set := make(map[string]Principal, len(keys))
 	for _, key := range keys {
 		if key.Key == "" {
@@ -25,7 +33,9 @@ func New(keys []config.KeyConfig) *Auth {
 			Admin:   key.Admin,
 		}
 	}
-	return &Auth{keys: set}
+	a.mu.Lock()
+	a.keys = set
+	a.mu.Unlock()
 }
 
 func (a *Auth) Authenticate(r *http.Request) (Principal, bool) {
@@ -39,6 +49,8 @@ func (a *Auth) Authenticate(r *http.Request) (Principal, bool) {
 		return Principal{}, false
 	}
 
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	principal, exists := a.keys[token]
 	return principal, exists
 }

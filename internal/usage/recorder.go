@@ -43,8 +43,36 @@ type Summary struct {
 type Recorder struct {
 	mu         sync.RWMutex
 	summaries  map[string]*Summary
+	pending    map[RollupKey]*Rollup
 	records    []Record
 	maxRecords int
+}
+
+type RollupKey struct {
+	BucketStart   time.Time
+	APIKey        string
+	Endpoint      string
+	Provider      string
+	PublicModel   string
+	UpstreamModel string
+}
+
+type Rollup struct {
+	BucketStart    time.Time
+	APIKey         string
+	KeyName        string
+	Owner          string
+	Purpose        string
+	Endpoint       string
+	Provider       string
+	PublicModel    string
+	UpstreamModel  string
+	RequestCount   int64
+	SuccessCount   int64
+	ErrorCount     int64
+	RequestTokens  int64
+	ResponseTokens int64
+	TotalTokens    int64
 }
 
 func New(maxRecords int) *Recorder {
@@ -53,6 +81,7 @@ func New(maxRecords int) *Recorder {
 	}
 	return &Recorder{
 		summaries:  make(map[string]*Summary),
+		pending:    make(map[RollupKey]*Rollup),
 		maxRecords: maxRecords,
 	}
 }
@@ -87,6 +116,39 @@ func (r *Recorder) Record(record Record) {
 	summary.RequestTokens += int64(record.RequestTokens)
 	summary.ResponseTokens += int64(record.ResponseTokens)
 	summary.TotalTokens += int64(record.TotalTokens)
+
+	key := RollupKey{
+		BucketStart:   record.Timestamp.UTC().Truncate(time.Hour),
+		APIKey:        record.APIKey,
+		Endpoint:      record.Endpoint,
+		Provider:      record.Provider,
+		PublicModel:   record.PublicModel,
+		UpstreamModel: record.UpstreamModel,
+	}
+	rollup, ok := r.pending[key]
+	if !ok {
+		rollup = &Rollup{
+			BucketStart:   key.BucketStart,
+			APIKey:        record.APIKey,
+			KeyName:       record.KeyName,
+			Owner:         record.Owner,
+			Purpose:       record.Purpose,
+			Endpoint:      record.Endpoint,
+			Provider:      record.Provider,
+			PublicModel:   record.PublicModel,
+			UpstreamModel: record.UpstreamModel,
+		}
+		r.pending[key] = rollup
+	}
+	rollup.RequestCount++
+	if record.Success {
+		rollup.SuccessCount++
+	} else {
+		rollup.ErrorCount++
+	}
+	rollup.RequestTokens += int64(record.RequestTokens)
+	rollup.ResponseTokens += int64(record.ResponseTokens)
+	rollup.TotalTokens += int64(record.TotalTokens)
 }
 
 func (r *Recorder) Summaries() []Summary {
@@ -112,6 +174,62 @@ func (r *Recorder) SummaryByKey(key string) (Summary, bool) {
 		return Summary{}, false
 	}
 	return *summary, true
+}
+
+func (r *Recorder) SeedSummaries(summaries []Summary) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, summary := range summaries {
+		copySummary := summary
+		r.summaries[summary.APIKey] = &copySummary
+	}
+}
+
+func (r *Recorder) DrainPending() []Rollup {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]Rollup, 0, len(r.pending))
+	for _, rollup := range r.pending {
+		out = append(out, *rollup)
+	}
+	r.pending = make(map[RollupKey]*Rollup)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].APIKey == out[j].APIKey {
+			return out[i].BucketStart.Before(out[j].BucketStart)
+		}
+		return out[i].APIKey < out[j].APIKey
+	})
+	return out
+}
+
+func (r *Recorder) RestorePending(rollups []Rollup) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, rollup := range rollups {
+		key := RollupKey{
+			BucketStart:   rollup.BucketStart,
+			APIKey:        rollup.APIKey,
+			Endpoint:      rollup.Endpoint,
+			Provider:      rollup.Provider,
+			PublicModel:   rollup.PublicModel,
+			UpstreamModel: rollup.UpstreamModel,
+		}
+		existing, ok := r.pending[key]
+		if !ok {
+			copyRollup := rollup
+			r.pending[key] = &copyRollup
+			continue
+		}
+		existing.RequestCount += rollup.RequestCount
+		existing.SuccessCount += rollup.SuccessCount
+		existing.ErrorCount += rollup.ErrorCount
+		existing.RequestTokens += rollup.RequestTokens
+		existing.ResponseTokens += rollup.ResponseTokens
+		existing.TotalTokens += rollup.TotalTokens
+	}
 }
 
 func NewRecord(principal auth.Principal, endpoint, provider, publicModel, upstreamModel string, success bool, requestTokens, responseTokens, totalTokens, statusCode int, latency time.Duration) Record {

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -32,11 +33,15 @@ func NewOpenAILike(cfg config.ProviderConfig) (*OpenAILikeProvider, error) {
 	if cfg.TimeoutSeconds > 0 {
 		timeout = time.Duration(cfg.TimeoutSeconds) * time.Second
 	}
+	apiKey := strings.TrimSpace(os.Getenv(cfg.APIKeyRef))
+	if apiKey == "" {
+		return nil, fmt.Errorf("provider %q api key env %q is empty", cfg.Name, cfg.APIKeyRef)
+	}
 
 	return &OpenAILikeProvider{
 		name:    cfg.Name,
 		baseURL: baseURL,
-		apiKey:  cfg.APIKey,
+		apiKey:  apiKey,
 		client: &http.Client{
 			Timeout: timeout,
 		},

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -16,6 +17,7 @@ import (
 	"aigate/internal/httpapi"
 	"aigate/internal/provider"
 	"aigate/internal/router"
+	"aigate/internal/store"
 	"aigate/internal/usage"
 )
 
@@ -59,6 +61,19 @@ func (s *stubProvider) Embed(_ context.Context, req provider.EmbeddingRequest, u
 	return s.embedResp, nil
 }
 
+func newHandler(t *testing.T, keys []config.KeyConfig, rt *router.Router, recorder *usage.Recorder) http.Handler {
+	t.Helper()
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeysIfEmpty() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	return httpapi.New(auth.New(keys), config.AdminConfig{Username: "admin", Password: "pass"}, rt, recorder, sqliteStore, []string{"openai"})
+}
+
 func TestChatCompletionsRoutesToExpectedProviderModel(t *testing.T) {
 	resp := provider.ChatResponse{
 		"id": "chatcmpl-test",
@@ -77,7 +92,7 @@ func TestChatCompletionsRoutesToExpectedProviderModel(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := httpapi.New(auth.New([]config.KeyConfig{{Key: "sk-app-001"}}), rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
 
 	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
@@ -110,7 +125,7 @@ func TestModelsRequiresAuth(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := httpapi.New(auth.New([]config.KeyConfig{{Key: "sk-app-001"}}), rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rr := httptest.NewRecorder()
 
@@ -140,7 +155,7 @@ func TestModelsReturnsConfiguredModels(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := httpapi.New(auth.New([]config.KeyConfig{{Key: "sk-app-001"}}), rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	req.Header.Set("Authorization", "Bearer sk-app-001")
 	rr := httptest.NewRecorder()
@@ -183,7 +198,7 @@ func TestChatCompletionsStream(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := httpapi.New(auth.New([]config.KeyConfig{{Key: "sk-app-001"}}), rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
 	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"stream":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
 	req.Header.Set("Authorization", "Bearer sk-app-001")
@@ -224,7 +239,7 @@ func TestChatCompletionsStreamUpstreamError(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := httpapi.New(auth.New([]config.KeyConfig{{Key: "sk-app-001"}}), rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
 	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"stream":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
 	req.Header.Set("Authorization", "Bearer sk-app-001")
@@ -259,7 +274,7 @@ func TestEmbeddingsRoutesToExpectedProviderModel(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := httpapi.New(auth.New([]config.KeyConfig{{Key: "sk-app-001"}}), rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
 	body := bytes.NewBufferString(`{"model":"text-embedding-3-small","input":"hello"}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", body)
 	req.Header.Set("Authorization", "Bearer sk-app-001")
@@ -294,7 +309,7 @@ func TestEmbeddingsRequiresModel(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := httpapi.New(auth.New([]config.KeyConfig{{Key: "sk-app-001"}}), rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
 	body := bytes.NewBufferString(`{"input":"hello"}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", body)
 	req.Header.Set("Authorization", "Bearer sk-app-001")
@@ -328,7 +343,7 @@ func TestUsageSummaryTracksChatTokens(t *testing.T) {
 	}
 
 	recorder := usage.New(100)
-	handler := httpapi.New(auth.New([]config.KeyConfig{{Key: "sk-app-001", Name: "alice", Purpose: "debug"}}), rt, recorder)
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001", Name: "alice", Purpose: "debug"}}, rt, recorder)
 
 	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
@@ -385,7 +400,7 @@ func TestAdminUsageRequiresAdminKey(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := httpapi.New(auth.New([]config.KeyConfig{{Key: "sk-app-001"}}), rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
 	req := httptest.NewRequest(http.MethodGet, "/admin/usage", nil)
 	req.Header.Set("Authorization", "Bearer sk-app-001")
 	rr := httptest.NewRecorder()
@@ -410,7 +425,7 @@ func TestAdminUsageReturnsAllSummaries(t *testing.T) {
 	recorder.Record(usage.NewRecord(auth.Principal{Key: "sk-user-1", Name: "user1"}, "chat.completions", "openai", "gpt-4o-mini", "gpt-4o-mini", true, 1, 2, 3, http.StatusOK, 0))
 	recorder.Record(usage.NewRecord(auth.Principal{Key: "sk-user-2", Name: "user2"}, "embeddings", "openai", "text-embedding-3-small", "text-embedding-3-small", true, 2, 0, 2, http.StatusOK, 0))
 
-	handler := httpapi.New(auth.New([]config.KeyConfig{{Key: "sk-admin-001", Admin: true}}), rt, recorder)
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-admin-001", Admin: true}}, rt, recorder)
 	req := httptest.NewRequest(http.MethodGet, "/admin/usage", nil)
 	req.Header.Set("Authorization", "Bearer sk-admin-001")
 	rr := httptest.NewRecorder()
@@ -443,7 +458,7 @@ func TestChatCompletionsPassesThroughUnknownFields(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := httpapi.New(auth.New([]config.KeyConfig{{Key: "sk-app-001"}}), rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
 	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"high","thinking":{"type":"enabled"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
 	req.Header.Set("Authorization", "Bearer sk-app-001")
@@ -466,5 +481,91 @@ func TestChatCompletionsPassesThroughUnknownFields(t *testing.T) {
 	}
 	if got, ok := thinking["type"].(string); !ok || got != "enabled" {
 		t.Fatalf("thinking.type = %#v, want %q", thinking["type"], "enabled")
+	}
+}
+
+func TestAdminKeysSaveReloadsAuth(t *testing.T) {
+	rt, err := router.New(map[string]provider.Provider{
+		"openai": &stubProvider{name: "openai"},
+	}, []config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-admin-001", Admin: true}}, rt, usage.New(100))
+
+	loginBody := bytes.NewBufferString("username=admin&password=pass")
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+
+	if loginRR.Code != http.StatusSeeOther {
+		t.Fatalf("login status = %d, want %d", loginRR.Code, http.StatusSeeOther)
+	}
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	saveBody := bytes.NewBufferString("key=sk-user-001&name=user1&purpose=test")
+	saveReq := httptest.NewRequest(http.MethodPost, "/admin/keys", saveBody)
+	saveReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	saveReq.AddCookie(cookies[0])
+	saveRR := httptest.NewRecorder()
+	handler.ServeHTTP(saveRR, saveReq)
+
+	if saveRR.Code != http.StatusSeeOther {
+		t.Fatalf("save status = %d, want %d", saveRR.Code, http.StatusSeeOther)
+	}
+
+	modelsReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	modelsReq.Header.Set("Authorization", "Bearer sk-user-001")
+	modelsRR := httptest.NewRecorder()
+	handler.ServeHTTP(modelsRR, modelsReq)
+
+	if modelsRR.Code != http.StatusOK {
+		t.Fatalf("models status = %d, want %d", modelsRR.Code, http.StatusOK)
+	}
+}
+
+func TestAdminKeysPageMasksKeyByDefault(t *testing.T) {
+	rt, err := router.New(map[string]provider.Provider{
+		"openai": &stubProvider{name: "openai"},
+	}, []config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-admin-001", Admin: true}, {Key: "sk-user-001", Name: "user1"}}, rt, usage.New(100))
+
+	loginBody := bytes.NewBufferString("username=admin&password=pass")
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	pageReq := httptest.NewRequest(http.MethodGet, "/admin/keys?"+url.Values{"flash": []string{"ok"}}.Encode(), nil)
+	pageReq.AddCookie(cookies[0])
+	pageRR := httptest.NewRecorder()
+	handler.ServeHTTP(pageRR, pageReq)
+
+	if pageRR.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", pageRR.Code, http.StatusOK)
+	}
+	body := pageRR.Body.String()
+	if !strings.Contains(body, ">****<") {
+		t.Fatalf("body missing masked key: %q", body)
+	}
+	if !strings.Contains(body, ">Show<") || !strings.Contains(body, ">Copy<") {
+		t.Fatalf("body missing show/copy buttons: %q", body)
 	}
 }

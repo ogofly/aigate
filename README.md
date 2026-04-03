@@ -1,6 +1,6 @@
 # aigate
 
-Minimal Go gateway for OpenAI-like LLM APIs with static multi-provider routing.
+Minimal Go gateway for OpenAI-like LLM APIs.
 
 ## Features
 
@@ -8,33 +8,51 @@ Minimal Go gateway for OpenAI-like LLM APIs with static multi-provider routing.
 - Supports non-stream and `stream=true`
 - OpenAI-compatible `POST /v1/embeddings`
 - OpenAI-compatible `GET /v1/models`
-- Static model-to-provider mapping
+- Configurable model-to-provider mapping
 - Client API key authentication
 - Basic stdout logs for request routing and upstream errors
-- In-memory usage stats by key
+- SQLite-backed provider/model/auth-key config
+- SQLite-backed aggregated usage persistence
+- Simple web admin for full provider/model/auth-key config and usage view
 
 ## Quick Start
 
-1. Prepare env vars.
-
-You can use shell env vars directly, or copy `.env.example` to `.env` for local development.
+1. Prepare local env.
 
 ```bash
 cp .env.example .env
 ```
 
-```bash
-export OPENAI_API_KEY=your-openai-key
-export DEEPSEEK_API_KEY=your-deepseek-key
-```
-
 2. Start the server.
 
 ```bash
-go run ./cmd/aigate -config configs/aigate.example.json
+go run ./cmd/aigate -config config.example.json
 ```
 
-3. Call the gateway.
+3. Open the admin.
+
+```text
+http://localhost:8080/admin/login
+```
+
+Default example credentials:
+
+```text
+username: admin
+password: admin123
+```
+
+4. Add one provider, one model, and one key in the admin UI.
+
+Use these fields:
+- Provider: `name`, `base_url`, `api_key_ref`, `timeout`
+- Model: `public_name`, `provider`, `upstream_name`
+- Key: `key`, `name`, `owner` optional, `purpose`, `admin`
+
+`api_key_ref` is the environment variable name, not the real secret.
+Example: `OPENAI_API_KEY`.
+
+5. Call the gateway.
 
 ```bash
 curl http://localhost:8080/v1/chat/completions \
@@ -48,7 +66,7 @@ curl http://localhost:8080/v1/chat/completions \
   }'
 ```
 
-4. Stream mode.
+6. Stream mode.
 
 ```bash
 curl http://localhost:8080/v1/chat/completions \
@@ -63,7 +81,7 @@ curl http://localhost:8080/v1/chat/completions \
   }'
 ```
 
-5. Embeddings.
+7. Embeddings.
 
 ```bash
 curl http://localhost:8080/v1/embeddings \
@@ -75,14 +93,14 @@ curl http://localhost:8080/v1/embeddings \
   }'
 ```
 
-6. Read usage for the current key.
+8. Read usage for the current key.
 
 ```bash
 curl http://localhost:8080/v1/usage \
   -H 'Authorization: Bearer sk-app-001'
 ```
 
-7. Read usage for all keys with an admin key.
+9. Read usage for all keys with an admin key.
 
 ```bash
 curl http://localhost:8080/admin/usage \
@@ -91,7 +109,7 @@ curl http://localhost:8080/admin/usage \
 
 ## Config
 
-Config is JSON for now. Example: [configs/aigate.example.json](/Users/liuyc/code/aigate/configs/aigate.example.json)
+Config is JSON for now. Example: [config.example.json](./config.example.json)
 
 The server loads `.env` if present, but existing process environment variables win.
 
@@ -108,6 +126,11 @@ The server loads `.env` if present, but existing process environment variables w
 ```
 
 `owner` is optional.
+
+Admin credentials are configured in `admin.username` and `admin.password`.
+
+SQLite storage is configured in `storage.sqlite_path`.
+`storage.flush_interval` uses seconds and controls how often aggregated usage is flushed to SQLite.
 
 Each public model maps to exactly one provider:
 
@@ -127,6 +150,10 @@ Each public model maps to exactly one provider:
 - `GET /v1/models`
 - `GET /v1/usage`
 - `GET /admin/usage`
+- `GET /admin/login`
+- `GET /admin/keys`
+- `GET /admin/models`
+- `GET /admin/usage/view`
 - `POST /v1/chat/completions`
 - `POST /v1/embeddings`
 

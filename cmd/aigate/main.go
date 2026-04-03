@@ -1,21 +1,24 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"aigate/internal/auth"
 	"aigate/internal/config"
 	"aigate/internal/httpapi"
 	"aigate/internal/provider"
 	"aigate/internal/router"
+	"aigate/internal/store"
 	"aigate/internal/usage"
 )
 
 func main() {
-	configPath := flag.String("config", "configs/aigate.example.json", "path to config file")
+	configPath := flag.String("config", "config.example.json", "path to config file")
 	flag.Parse()
 
 	if err := config.LoadDotEnv(".env"); err != nil {
@@ -27,23 +30,60 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	providers := make(map[string]provider.Provider, len(cfg.Providers))
-	for _, pc := range cfg.Providers {
+	sqliteStore, err := store.NewSQLite(cfg.Storage.SQLitePath)
+	if err != nil {
+		log.Fatalf("init sqlite: %v", err)
+	}
+	defer sqliteStore.Close()
+
+	ctx := context.Background()
+	if err := sqliteStore.SeedProvidersIfEmpty(ctx, cfg.Providers); err != nil {
+		log.Fatalf("seed providers: %v", err)
+	}
+	if err := sqliteStore.SeedModelsIfEmpty(ctx, cfg.Models); err != nil {
+		log.Fatalf("seed models: %v", err)
+	}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(ctx, cfg.Auth.Keys); err != nil {
+		log.Fatalf("seed auth keys: %v", err)
+	}
+	providerConfigs, err := sqliteStore.ListProviders(ctx)
+	if err != nil {
+		log.Fatalf("load providers: %v", err)
+	}
+	providers := make(map[string]provider.Provider, len(providerConfigs))
+	providerNames := make([]string, 0, len(providerConfigs))
+	for _, pc := range providerConfigs {
 		p, err := provider.NewOpenAILike(pc)
 		if err != nil {
 			log.Fatalf("init provider %q: %v", pc.Name, err)
 		}
 		providers[pc.Name] = p
+		providerNames = append(providerNames, pc.Name)
+	}
+	models, err := sqliteStore.ListModels(ctx)
+	if err != nil {
+		log.Fatalf("load models: %v", err)
+	}
+	keyConfigs, err := sqliteStore.ListAuthKeys(ctx)
+	if err != nil {
+		log.Fatalf("load auth keys: %v", err)
 	}
 
-	rt, err := router.New(providers, cfg.Models)
+	rt, err := router.New(providers, models)
 	if err != nil {
 		log.Fatalf("init router: %v", err)
 	}
 
-	authenticator := auth.New(cfg.Auth.Keys)
+	authenticator := auth.New(keyConfigs)
 	recorder := usage.New(1000)
-	handler := httpapi.New(authenticator, rt, recorder)
+	summaries, err := sqliteStore.UsageSummaries(ctx)
+	if err != nil {
+		log.Fatalf("load usage summaries: %v", err)
+	}
+	recorder.SeedSummaries(summaries)
+
+	usage.StartFlushLoop(ctx, recorder, sqliteStore, time.Duration(cfg.Storage.FlushIntervalSeconds)*time.Second)
+	handler := httpapi.New(authenticator, cfg.Admin, rt, recorder, sqliteStore, providerNames)
 
 	server := &http.Server{
 		Addr:    cfg.Server.Listen,
