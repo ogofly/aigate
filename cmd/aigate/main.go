@@ -11,6 +11,7 @@ import (
 	"aigate/internal/httpapi"
 	"aigate/internal/provider"
 	"aigate/internal/router"
+	"aigate/internal/usage"
 )
 
 func main() {
@@ -41,7 +42,8 @@ func main() {
 	}
 
 	authenticator := auth.New(cfg.Auth.Keys)
-	handler := httpapi.New(authenticator, rt)
+	recorder := usage.New(1000)
+	handler := httpapi.New(authenticator, rt, recorder)
 
 	server := &http.Server{
 		Addr:    cfg.Server.Listen,

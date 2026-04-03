@@ -4,7 +4,17 @@
   },
   "auth": {
     "keys": [
-      "sk-app-001"
+      {
+        "key": "sk-app-001",
+        "name": "default",
+        "purpose": "local-dev"
+      },
+      {
+        "key": "sk-admin-001",
+        "name": "admin",
+        "purpose": "ops",
+        "admin": true
+      }
     ]
   },
   "providers": [

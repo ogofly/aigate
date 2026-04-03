@@ -20,7 +20,15 @@ type ServerConfig struct {
 }
 
 type AuthConfig struct {
-	Keys []string `json:"keys"`
+	Keys []KeyConfig `json:"keys"`
+}
+
+type KeyConfig struct {
+	Key     string `json:"key"`
+	Name    string `json:"name"`
+	Owner   string `json:"owner,omitempty"`
+	Purpose string `json:"purpose,omitempty"`
+	Admin   bool   `json:"admin,omitempty"`
 }
 
 type ProviderConfig struct {
@@ -60,6 +68,16 @@ func (c *Config) Validate() error {
 	}
 	if len(c.Auth.Keys) == 0 {
 		return errors.New("auth.keys is required")
+	}
+	seenKeys := make(map[string]struct{}, len(c.Auth.Keys))
+	for _, key := range c.Auth.Keys {
+		if key.Key == "" {
+			return errors.New("auth.keys[].key is required")
+		}
+		if _, ok := seenKeys[key.Key]; ok {
+			return fmt.Errorf("duplicate auth key %q", key.Key)
+		}
+		seenKeys[key.Key] = struct{}{}
 	}
 	if len(c.Providers) == 0 {
 		return errors.New("providers is required")
@@ -112,4 +130,20 @@ func expandEnv(input string) string {
 	return os.Expand(input, func(name string) string {
 		return strings.TrimSpace(os.Getenv(name))
 	})
+}
+
+func (k *KeyConfig) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err == nil {
+		k.Key = raw
+		return nil
+	}
+
+	type alias KeyConfig
+	var out alias
+	if err := json.Unmarshal(data, &out); err != nil {
+		return err
+	}
+	*k = KeyConfig(out)
+	return nil
 }

@@ -6,18 +6,21 @@ import (
 
 	"aigate/internal/auth"
 	"aigate/internal/router"
+	"aigate/internal/usage"
 )
 
 type Handler struct {
 	auth   *auth.Auth
 	router *router.Router
+	usage  *usage.Recorder
 	mux    *http.ServeMux
 }
 
-func New(authenticator *auth.Auth, rt *router.Router) http.Handler {
+func New(authenticator *auth.Auth, rt *router.Router, recorder *usage.Recorder) http.Handler {
 	h := &Handler{
 		auth:   authenticator,
 		router: rt,
+		usage:  recorder,
 		mux:    http.NewServeMux(),
 	}
 
@@ -30,6 +33,8 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /v1/models", h.handleModels)
 	h.mux.HandleFunc("POST /v1/chat/completions", h.handleChatCompletions)
 	h.mux.HandleFunc("POST /v1/embeddings", h.handleEmbeddings)
+	h.mux.HandleFunc("GET /v1/usage", h.handleUsage)
+	h.mux.HandleFunc("GET /admin/usage", h.handleAdminUsage)
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -5,13 +5,18 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"time"
 
+	"aigate/internal/auth"
 	"aigate/internal/provider"
+	"aigate/internal/usage"
 )
 
 func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	log.Printf("method=%s path=%s op=chat_completions", r.Method, r.URL.Path)
-	if !h.auth.Check(r) {
+	principal, ok := h.auth.Authenticate(r)
+	if !ok {
 		log.Printf("method=%s path=%s op=chat_completions auth=failed", r.Method, r.URL.Path)
 		writeError(w, http.StatusUnauthorized, "invalid_api_key", "invalid api key")
 		return
@@ -25,6 +30,7 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 	if req.Model == "" {
 		log.Printf("method=%s path=%s op=chat_completions error=model_required", r.Method, r.URL.Path)
+		h.recordUsage(principal, "chat.completions", "", req.Model, "", false, 0, 0, 0, http.StatusBadRequest, time.Since(start))
 		writeError(w, http.StatusBadRequest, "model_required", "model is required")
 		return
 	}
@@ -32,6 +38,7 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	target, err := h.router.Resolve(req.Model)
 	if err != nil {
 		log.Printf("method=%s path=%s op=chat_completions model=%s error=model_not_found", r.Method, r.URL.Path, req.Model)
+		h.recordUsage(principal, "chat.completions", "", req.Model, "", false, 0, 0, 0, http.StatusBadRequest, time.Since(start))
 		writeError(w, http.StatusBadRequest, "model_not_found", "model not found")
 		return
 	}
@@ -41,6 +48,7 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		stream, err := target.Provider.ChatStream(r.Context(), &req, target.UpstreamModel)
 		if err != nil {
 			log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s error=%v", r.Method, r.URL.Path, req.Model, target.ProviderName, err)
+			h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 			writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 			return
 		}
@@ -62,6 +70,7 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		flusher.Flush()
+		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, true, 0, 0, 0, http.StatusOK, time.Since(start))
 		log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s status=%d stream=%t", r.Method, r.URL.Path, req.Model, target.ProviderName, http.StatusOK, true)
 		return
 	}
@@ -69,10 +78,20 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	resp, err := target.Provider.Chat(r.Context(), &req, target.UpstreamModel)
 	if err != nil {
 		log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s error=%v", r.Method, r.URL.Path, req.Model, target.ProviderName, err)
+		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 		writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 		return
 	}
 
+	requestTokens, responseTokens, totalTokens := usage.ExtractUsage(map[string]any(*resp))
+	h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, true, requestTokens, responseTokens, totalTokens, http.StatusOK, time.Since(start))
 	writeJSON(w, http.StatusOK, resp)
 	log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s status=%d stream=%t", r.Method, r.URL.Path, req.Model, target.ProviderName, http.StatusOK, false)
+}
+
+func (h *Handler) recordUsage(principal auth.Principal, endpoint, providerName, publicModel, upstreamModel string, success bool, requestTokens, responseTokens, totalTokens, statusCode int, latency time.Duration) {
+	if h.usage == nil {
+		return
+	}
+	h.usage.Record(usage.NewRecord(principal, endpoint, providerName, publicModel, upstreamModel, success, requestTokens, responseTokens, totalTokens, statusCode, latency))
 }
