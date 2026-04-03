@@ -1,0 +1,41 @@
+{
+  "server": {
+    "listen": ":8080"
+  },
+  "auth": {
+    "keys": [
+      "sk-app-001"
+    ]
+  },
+  "providers": [
+    {
+      "name": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "${OPENAI_API_KEY}",
+      "timeout": 60
+    },
+    {
+      "name": "deepseek",
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": "${DEEPSEEK_API_KEY}",
+      "timeout": 60
+    }
+  ],
+  "models": [
+    {
+      "public_name": "gpt-4o-mini",
+      "provider": "openai",
+      "upstream_name": "gpt-4o-mini"
+    },
+    {
+      "public_name": "deepseek-chat",
+      "provider": "deepseek",
+      "upstream_name": "deepseek-chat"
+    },
+    {
+      "public_name": "text-embedding-3-small",
+      "provider": "openai",
+      "upstream_name": "text-embedding-3-small"
+    }
+  ]
+}
