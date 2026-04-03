@@ -553,3 +553,80 @@ func TestAdminKeysPageMasksKeyByDefault(t *testing.T) {
 		t.Fatalf("body missing show/copy buttons: %q", body)
 	}
 }
+
+func TestAdminPlaygroundRequiresSession(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), &stubProvider{})
+	req := httptest.NewRequest(http.MethodGet, "/admin/playground", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusSeeOther)
+	}
+}
+
+func TestAdminPlaygroundChatWorks(t *testing.T) {
+	resp := provider.ChatResponse{
+		"choices": []map[string]any{
+			{
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": "hello from upstream",
+				},
+			},
+		},
+	}
+	p := &stubProvider{response: &resp}
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "openai/gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001", Name: "alice"}}, rt, usage.New(100), p)
+
+	loginBody := bytes.NewBufferString("username=admin&password=pass")
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	form := url.Values{
+		"api_key": {"sk-app-001"},
+		"model":   {"openai/gpt-4o-mini"},
+		"message": {"hi"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/admin/playground/chat", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "hello from upstream") {
+		t.Fatalf("playground body missing chat output: %q", body)
+	}
+	if !strings.Contains(body, "API Base URL") || !strings.Contains(body, "openai/gpt-4o-mini") {
+		t.Fatalf("playground body missing connect settings: %q", body)
+	}
+	if p.lastModel != "gpt-4o-mini" {
+		t.Fatalf("lastModel = %q, want %q", p.lastModel, "gpt-4o-mini")
+	}
+	if p.lastChat == nil || len(p.lastChat.Messages) == 0 {
+		t.Fatalf("unexpected chat request: %#v", p.lastChat)
+	}
+}

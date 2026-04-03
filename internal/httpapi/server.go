@@ -68,6 +68,8 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /admin/models", h.handleAdminModelsPage)
 	h.mux.HandleFunc("POST /admin/models", h.handleAdminModelsSave)
 	h.mux.HandleFunc("POST /admin/models/delete", h.handleAdminModelsDelete)
+	h.mux.HandleFunc("GET /admin/playground", h.handleAdminPlaygroundPage)
+	h.mux.HandleFunc("POST /admin/playground/chat", h.handleAdminPlaygroundChat)
 	h.mux.HandleFunc("GET /admin/usage/view", h.handleAdminUsagePage)
 }
 
