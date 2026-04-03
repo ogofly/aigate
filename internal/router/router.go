@@ -6,27 +6,22 @@ import (
 	"sync"
 
 	"aigate/internal/config"
-	"aigate/internal/provider"
 )
 
 type RouteTarget struct {
-	Provider      provider.Provider
 	ProviderName  string
 	UpstreamModel string
 	PublicModel   string
 }
 
 type Router struct {
-	mu        sync.RWMutex
-	providers map[string]provider.Provider
-	routes    map[string]RouteTarget
-	models    []string
+	mu     sync.RWMutex
+	routes map[string]RouteTarget
+	models []string
 }
 
-func New(providers map[string]provider.Provider, models []config.ModelConfig) (*Router, error) {
-	rt := &Router{
-		providers: providers,
-	}
+func New(models []config.ModelConfig) (*Router, error) {
+	rt := &Router{}
 	if err := rt.UpdateModels(models); err != nil {
 		return nil, err
 	}
@@ -34,27 +29,11 @@ func New(providers map[string]provider.Provider, models []config.ModelConfig) (*
 }
 
 func (r *Router) UpdateModels(models []config.ModelConfig) error {
-	r.mu.RLock()
-	providers := r.providers
-	r.mu.RUnlock()
-	return r.update(models, providers)
-}
-
-func (r *Router) UpdateProvidersAndModels(providers map[string]provider.Provider, models []config.ModelConfig) error {
-	return r.update(models, providers)
-}
-
-func (r *Router) update(models []config.ModelConfig, providers map[string]provider.Provider) error {
 	routes := make(map[string]RouteTarget, len(models))
 	publicModels := make([]string, 0, len(models))
 
 	for _, model := range models {
-		p, ok := providers[model.Provider]
-		if !ok {
-			return fmt.Errorf("unknown provider %q for model %q", model.Provider, model.PublicName)
-		}
 		routes[model.PublicName] = RouteTarget{
-			Provider:      p,
 			ProviderName:  model.Provider,
 			UpstreamModel: model.UpstreamName,
 			PublicModel:   model.PublicName,
@@ -65,7 +44,6 @@ func (r *Router) update(models []config.ModelConfig, providers map[string]provid
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.providers = providers
 	r.routes = routes
 	r.models = publicModels
 	return nil

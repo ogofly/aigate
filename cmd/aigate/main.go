@@ -11,7 +11,6 @@ import (
 	"aigate/internal/auth"
 	"aigate/internal/config"
 	"aigate/internal/httpapi"
-	"aigate/internal/provider"
 	"aigate/internal/router"
 	"aigate/internal/store"
 	"aigate/internal/usage"
@@ -50,14 +49,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("load providers: %v", err)
 	}
-	providers := make(map[string]provider.Provider, len(providerConfigs))
 	providerNames := make([]string, 0, len(providerConfigs))
 	for _, pc := range providerConfigs {
-		p, err := provider.NewOpenAILike(pc)
-		if err != nil {
-			log.Fatalf("init provider %q: %v", pc.Name, err)
-		}
-		providers[pc.Name] = p
 		providerNames = append(providerNames, pc.Name)
 	}
 	models, err := sqliteStore.ListModels(ctx)
@@ -69,7 +62,7 @@ func main() {
 		log.Fatalf("load auth keys: %v", err)
 	}
 
-	rt, err := router.New(providers, models)
+	rt, err := router.New(models)
 	if err != nil {
 		log.Fatalf("init router: %v", err)
 	}

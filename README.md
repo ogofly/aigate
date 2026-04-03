@@ -45,12 +45,13 @@ password: admin123
 4. Add one provider, one model, and one key in the admin UI.
 
 Use these fields:
-- Provider: `name`, `base_url`, `api_key_ref`, `timeout`
+- Provider: `name`, `base_url`, `api_key` or `api_key_ref`, `timeout`
 - Model: `public_name`, `provider`, `upstream_name`
-- Key: `key`, `name`, `owner` optional, `purpose`, `admin`
+- Key: `key`, `name`, `owner` optional, `purpose`
 
-`api_key_ref` is the environment variable name, not the real secret.
-Example: `OPENAI_API_KEY`.
+Use either:
+- `api_key`: the real upstream secret
+- `api_key_ref`: an environment variable name such as `OPENAI_API_KEY`
 
 5. Call the gateway.
 
@@ -100,11 +101,12 @@ curl http://localhost:8080/v1/usage \
   -H 'Authorization: Bearer sk-app-001'
 ```
 
-9. Read usage for all keys with an admin key.
+9. Read usage for all keys in the web admin.
 
-```bash
-curl http://localhost:8080/admin/usage \
-  -H 'Authorization: Bearer sk-admin-001'
+Open:
+
+```text
+http://localhost:8080/admin/usage/view
 ```
 
 ## Config
@@ -120,8 +122,7 @@ The server loads `.env` if present, but existing process environment variables w
   "key": "sk-app-001",
   "name": "alice-dev",
   "owner": "alice",
-  "purpose": "internal-debug",
-  "admin": false
+  "purpose": "internal-debug"
 }
 ```
 
@@ -131,6 +132,10 @@ Admin credentials are configured in `admin.username` and `admin.password`.
 
 SQLite storage is configured in `storage.sqlite_path`.
 `storage.flush_interval` uses seconds and controls how often aggregated usage is flushed to SQLite.
+Usage rollups in SQLite store `key_id`, not the raw API key.
+
+Provider config supports either `api_key` or `api_key_ref`.
+If both are set, `api_key` is used first.
 
 Each public model maps to exactly one provider:
 

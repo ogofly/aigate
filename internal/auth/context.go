@@ -7,7 +7,6 @@ type Principal struct {
 	Name    string `json:"name,omitempty"`
 	Owner   string `json:"owner,omitempty"`
 	Purpose string `json:"purpose,omitempty"`
-	Admin   bool   `json:"admin,omitempty"`
 }
 
 type principalContextKey struct{}

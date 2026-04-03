@@ -36,12 +36,12 @@ type KeyConfig struct {
 	Name    string `json:"name"`
 	Owner   string `json:"owner,omitempty"`
 	Purpose string `json:"purpose,omitempty"`
-	Admin   bool   `json:"admin,omitempty"`
 }
 
 type ProviderConfig struct {
 	Name           string `json:"name"`
 	BaseURL        string `json:"base_url"`
+	APIKey         string `json:"api_key"`
 	APIKeyRef      string `json:"api_key_ref"`
 	TimeoutSeconds int    `json:"timeout"`
 }
@@ -112,8 +112,8 @@ func (c *Config) Validate() error {
 		if p.BaseURL == "" {
 			return fmt.Errorf("provider %q base_url is required", p.Name)
 		}
-		if p.APIKeyRef == "" {
-			return fmt.Errorf("provider %q api_key_ref is required", p.Name)
+		if p.APIKey == "" && p.APIKeyRef == "" {
+			return fmt.Errorf("provider %q requires api_key or api_key_ref", p.Name)
 		}
 		if _, ok := seenProviders[p.Name]; ok {
 			return fmt.Errorf("duplicate provider %q", p.Name)

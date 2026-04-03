@@ -17,13 +17,18 @@ import (
 )
 
 type OpenAILikeProvider struct {
-	name    string
 	baseURL string
 	apiKey  string
 	client  *http.Client
 }
 
-func NewOpenAILike(cfg config.ProviderConfig) (*OpenAILikeProvider, error) {
+type OpenAILikeClient struct{}
+
+func NewOpenAILikeClient() *OpenAILikeClient {
+	return &OpenAILikeClient{}
+}
+
+func newOpenAILikeProvider(cfg config.ProviderConfig) (*OpenAILikeProvider, error) {
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 	if _, err := url.Parse(baseURL); err != nil {
 		return nil, fmt.Errorf("invalid base_url: %w", err)
@@ -33,13 +38,18 @@ func NewOpenAILike(cfg config.ProviderConfig) (*OpenAILikeProvider, error) {
 	if cfg.TimeoutSeconds > 0 {
 		timeout = time.Duration(cfg.TimeoutSeconds) * time.Second
 	}
-	apiKey := strings.TrimSpace(os.Getenv(cfg.APIKeyRef))
+	apiKey := strings.TrimSpace(cfg.APIKey)
+	if apiKey == "" && cfg.APIKeyRef != "" {
+		apiKey = strings.TrimSpace(os.Getenv(cfg.APIKeyRef))
+		if apiKey == "" {
+			return nil, fmt.Errorf("provider %q api key env %q is empty", cfg.Name, cfg.APIKeyRef)
+		}
+	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("provider %q api key env %q is empty", cfg.Name, cfg.APIKeyRef)
+		return nil, fmt.Errorf("provider %q requires api_key or api_key_ref", cfg.Name)
 	}
 
 	return &OpenAILikeProvider{
-		name:    cfg.Name,
 		baseURL: baseURL,
 		apiKey:  apiKey,
 		client: &http.Client{
@@ -48,15 +58,19 @@ func NewOpenAILike(cfg config.ProviderConfig) (*OpenAILikeProvider, error) {
 	}, nil
 }
 
-func (p *OpenAILikeProvider) Name() string {
-	return p.name
+func NewOpenAILike(cfg config.ProviderConfig) (*OpenAILikeProvider, error) {
+	return newOpenAILikeProvider(cfg)
 }
 
-func (p *OpenAILikeProvider) Chat(ctx context.Context, req *ChatRequest, upstreamModel string) (*ChatResponse, error) {
+func (c *OpenAILikeClient) Chat(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*ChatResponse, error) {
+	p, err := newOpenAILikeProvider(provider)
+	if err != nil {
+		return nil, err
+	}
 	payload := *req
 	payload.Model = upstreamModel
 	payload.Stream = false
-	log.Printf("provider=%s op=chat stream=false upstream_model=%s", p.name, upstreamModel)
+	log.Printf("provider=%s op=chat stream=false upstream_model=%s", provider.Name, upstreamModel)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -73,7 +87,7 @@ func (p *OpenAILikeProvider) Chat(ctx context.Context, req *ChatRequest, upstrea
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		log.Printf("provider=%s op=chat stream=false upstream_model=%s error=%v", p.name, upstreamModel, err)
+		log.Printf("provider=%s op=chat stream=false upstream_model=%s error=%v", provider.Name, upstreamModel, err)
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -84,7 +98,7 @@ func (p *OpenAILikeProvider) Chat(ctx context.Context, req *ChatRequest, upstrea
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("provider=%s op=chat stream=false upstream_model=%s status=%d", p.name, upstreamModel, resp.StatusCode)
+		log.Printf("provider=%s op=chat stream=false upstream_model=%s status=%d", provider.Name, upstreamModel, resp.StatusCode)
 		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 
@@ -96,11 +110,15 @@ func (p *OpenAILikeProvider) Chat(ctx context.Context, req *ChatRequest, upstrea
 	return &out, nil
 }
 
-func (p *OpenAILikeProvider) ChatStream(ctx context.Context, req *ChatRequest, upstreamModel string) (io.ReadCloser, error) {
+func (c *OpenAILikeClient) ChatStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (io.ReadCloser, error) {
+	p, err := newOpenAILikeProvider(provider)
+	if err != nil {
+		return nil, err
+	}
 	payload := *req
 	payload.Model = upstreamModel
 	payload.Stream = true
-	log.Printf("provider=%s op=chat stream=true upstream_model=%s", p.name, upstreamModel)
+	log.Printf("provider=%s op=chat stream=true upstream_model=%s", provider.Name, upstreamModel)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -118,7 +136,7 @@ func (p *OpenAILikeProvider) ChatStream(ctx context.Context, req *ChatRequest, u
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		log.Printf("provider=%s op=chat stream=true upstream_model=%s error=%v", p.name, upstreamModel, err)
+		log.Printf("provider=%s op=chat stream=true upstream_model=%s error=%v", provider.Name, upstreamModel, err)
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 
@@ -126,23 +144,27 @@ func (p *OpenAILikeProvider) ChatStream(ctx context.Context, req *ChatRequest, u
 		defer resp.Body.Close()
 		respBody, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
-			log.Printf("provider=%s op=chat stream=true upstream_model=%s status=%d", p.name, upstreamModel, resp.StatusCode)
+			log.Printf("provider=%s op=chat stream=true upstream_model=%s status=%d", provider.Name, upstreamModel, resp.StatusCode)
 			return nil, fmt.Errorf("upstream status %d", resp.StatusCode)
 		}
-		log.Printf("provider=%s op=chat stream=true upstream_model=%s status=%d", p.name, upstreamModel, resp.StatusCode)
+		log.Printf("provider=%s op=chat stream=true upstream_model=%s status=%d", provider.Name, upstreamModel, resp.StatusCode)
 		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 
 	return resp.Body, nil
 }
 
-func (p *OpenAILikeProvider) Embed(ctx context.Context, req EmbeddingRequest, upstreamModel string) (*EmbeddingResponse, error) {
+func (c *OpenAILikeClient) Embed(ctx context.Context, provider config.ProviderConfig, req EmbeddingRequest, upstreamModel string) (*EmbeddingResponse, error) {
+	p, err := newOpenAILikeProvider(provider)
+	if err != nil {
+		return nil, err
+	}
 	payload := make(EmbeddingRequest, len(req)+1)
 	for k, v := range req {
 		payload[k] = v
 	}
 	payload["model"] = upstreamModel
-	log.Printf("provider=%s op=embeddings upstream_model=%s", p.name, upstreamModel)
+	log.Printf("provider=%s op=embeddings upstream_model=%s", provider.Name, upstreamModel)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -159,7 +181,7 @@ func (p *OpenAILikeProvider) Embed(ctx context.Context, req EmbeddingRequest, up
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		log.Printf("provider=%s op=embeddings upstream_model=%s error=%v", p.name, upstreamModel, err)
+		log.Printf("provider=%s op=embeddings upstream_model=%s error=%v", provider.Name, upstreamModel, err)
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -170,7 +192,7 @@ func (p *OpenAILikeProvider) Embed(ctx context.Context, req EmbeddingRequest, up
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("provider=%s op=embeddings upstream_model=%s status=%d", p.name, upstreamModel, resp.StatusCode)
+		log.Printf("provider=%s op=embeddings upstream_model=%s status=%d", provider.Name, upstreamModel, resp.StatusCode)
 		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 

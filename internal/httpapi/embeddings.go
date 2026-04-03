@@ -43,8 +43,14 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("method=%s path=%s op=embeddings model=%s provider=%s upstream_model=%s", r.Method, r.URL.Path, model, target.ProviderName, target.UpstreamModel)
+	providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
+	if err != nil {
+		h.recordUsage(principal, "embeddings", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
+		writeError(w, http.StatusBadGateway, "provider_not_found", err.Error())
+		return
+	}
 
-	resp, err := target.Provider.Embed(r.Context(), req, target.UpstreamModel)
+	resp, err := h.client.Embed(r.Context(), providerCfg, req, target.UpstreamModel)
 	if err != nil {
 		log.Printf("method=%s path=%s op=embeddings model=%s provider=%s error=%v", r.Method, r.URL.Path, model, target.ProviderName, err)
 		h.recordUsage(principal, "embeddings", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))

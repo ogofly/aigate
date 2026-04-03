@@ -1,40 +1,14 @@
 package router_test
 
 import (
-	"context"
-	"io"
-	"strings"
 	"testing"
 
 	"aigate/internal/config"
-	"aigate/internal/provider"
 	"aigate/internal/router"
 )
 
-type stubProvider struct {
-	name string
-}
-
-func (s stubProvider) Name() string { return s.name }
-
-func (s stubProvider) Chat(context.Context, *provider.ChatRequest, string) (*provider.ChatResponse, error) {
-	resp := provider.ChatResponse{"ok": true}
-	return &resp, nil
-}
-
-func (s stubProvider) ChatStream(context.Context, *provider.ChatRequest, string) (io.ReadCloser, error) {
-	return io.NopCloser(strings.NewReader("")), nil
-}
-
-func (s stubProvider) Embed(context.Context, provider.EmbeddingRequest, string) (*provider.EmbeddingResponse, error) {
-	resp := provider.EmbeddingResponse{"ok": true}
-	return &resp, nil
-}
-
 func TestResolve(t *testing.T) {
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": stubProvider{name: "openai"},
-	}, []config.ModelConfig{
+	rt, err := router.New([]config.ModelConfig{
 		{
 			PublicName:   "gpt-4o-mini",
 			Provider:     "openai",
@@ -60,9 +34,7 @@ func TestResolve(t *testing.T) {
 }
 
 func TestResolveMissingModel(t *testing.T) {
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": stubProvider{name: "openai"},
-	}, []config.ModelConfig{
+	rt, err := router.New([]config.ModelConfig{
 		{
 			PublicName:   "gpt-4o-mini",
 			Provider:     "openai",

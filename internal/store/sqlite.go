@@ -39,6 +39,7 @@ func (s *SQLiteStore) init(ctx context.Context) error {
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS providers (
 			name TEXT PRIMARY KEY,
+			api_key TEXT NOT NULL DEFAULT '',
 			base_url TEXT NOT NULL,
 			api_key_ref TEXT NOT NULL,
 			timeout_seconds INTEGER NOT NULL,
@@ -55,12 +56,11 @@ func (s *SQLiteStore) init(ctx context.Context) error {
 			name TEXT NOT NULL DEFAULT '',
 			owner TEXT NOT NULL DEFAULT '',
 			purpose TEXT NOT NULL DEFAULT '',
-			admin INTEGER NOT NULL DEFAULT 0,
 			updated_at TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS usage_rollups (
 			bucket_start TEXT NOT NULL,
-			api_key TEXT NOT NULL,
+			key_id TEXT NOT NULL,
 			key_name TEXT NOT NULL DEFAULT '',
 			owner TEXT NOT NULL DEFAULT '',
 			purpose TEXT NOT NULL DEFAULT '',
@@ -74,7 +74,7 @@ func (s *SQLiteStore) init(ctx context.Context) error {
 			request_tokens INTEGER NOT NULL DEFAULT 0,
 			response_tokens INTEGER NOT NULL DEFAULT 0,
 			total_tokens INTEGER NOT NULL DEFAULT 0,
-			PRIMARY KEY (bucket_start, api_key, endpoint, provider, public_model, upstream_model)
+			PRIMARY KEY (bucket_start, key_id, endpoint, provider, public_model, upstream_model)
 		)`,
 	}
 
@@ -86,7 +86,10 @@ func (s *SQLiteStore) init(ctx context.Context) error {
 	if err := s.migrateProvidersTable(ctx); err != nil {
 		return err
 	}
-	return s.migrateAuthKeysTable(ctx)
+	if err := s.migrateAuthKeysTable(ctx); err != nil {
+		return err
+	}
+	return s.migrateUsageRollupsTable(ctx)
 }
 
 func (s *SQLiteStore) migrateProvidersTable(ctx context.Context) error {
@@ -120,7 +123,7 @@ func (s *SQLiteStore) migrateProvidersTable(ctx context.Context) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	if hasAPIKeyRef || !hasAPIKey {
+	if hasAPIKey && hasAPIKeyRef {
 		return nil
 	}
 
@@ -134,14 +137,31 @@ func (s *SQLiteStore) migrateProvidersTable(ctx context.Context) error {
 		`ALTER TABLE providers RENAME TO providers_old`,
 		`CREATE TABLE providers (
 			name TEXT PRIMARY KEY,
+			api_key TEXT NOT NULL DEFAULT '',
 			base_url TEXT NOT NULL,
-			api_key_ref TEXT NOT NULL,
+			api_key_ref TEXT NOT NULL DEFAULT '',
 			timeout_seconds INTEGER NOT NULL,
 			updated_at TEXT NOT NULL
 		)`,
-		`INSERT INTO providers(name, base_url, api_key_ref, timeout_seconds, updated_at)
-		 SELECT name, base_url, api_key, timeout_seconds, updated_at FROM providers_old`,
 		`DROP TABLE providers_old`,
+	}
+	if hasAPIKey && !hasAPIKeyRef {
+		stmts = []string{
+			stmts[0],
+			stmts[1],
+			`INSERT INTO providers(name, api_key, base_url, api_key_ref, timeout_seconds, updated_at)
+			 SELECT name, api_key, base_url, '', timeout_seconds, updated_at FROM providers_old`,
+			stmts[2],
+		}
+	}
+	if !hasAPIKey && hasAPIKeyRef {
+		stmts = []string{
+			stmts[0],
+			stmts[1],
+			`INSERT INTO providers(name, api_key, base_url, api_key_ref, timeout_seconds, updated_at)
+			 SELECT name, '', base_url, api_key_ref, timeout_seconds, updated_at FROM providers_old`,
+			stmts[2],
+		}
 	}
 	for _, stmt := range stmts {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
@@ -153,6 +173,165 @@ func (s *SQLiteStore) migrateProvidersTable(ctx context.Context) error {
 
 func (s *SQLiteStore) migrateAuthKeysTable(context.Context) error {
 	return nil
+}
+
+func (s *SQLiteStore) migrateUsageRollupsTable(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(usage_rollups)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var hasAPIKey bool
+	var hasKeyID bool
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &pk); err != nil {
+			return err
+		}
+		switch strings.ToLower(name) {
+		case "api_key":
+			hasAPIKey = true
+		case "key_id":
+			hasKeyID = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if hasKeyID || !hasAPIKey {
+		return nil
+	}
+
+	type legacyRollup struct {
+		BucketStart    string
+		APIKey         string
+		KeyName        string
+		Owner          string
+		Purpose        string
+		Endpoint       string
+		Provider       string
+		PublicModel    string
+		UpstreamModel  string
+		RequestCount   int64
+		SuccessCount   int64
+		ErrorCount     int64
+		RequestTokens  int64
+		ResponseTokens int64
+		TotalTokens    int64
+	}
+
+	legacyRows, err := s.db.QueryContext(ctx, `
+		SELECT bucket_start, api_key, key_name, owner, purpose, endpoint, provider, public_model, upstream_model,
+		       request_count, success_count, error_count, request_tokens, response_tokens, total_tokens
+		FROM usage_rollups
+	`)
+	if err != nil {
+		return err
+	}
+	var legacy []legacyRollup
+	for legacyRows.Next() {
+		var item legacyRollup
+		if err := legacyRows.Scan(
+			&item.BucketStart,
+			&item.APIKey,
+			&item.KeyName,
+			&item.Owner,
+			&item.Purpose,
+			&item.Endpoint,
+			&item.Provider,
+			&item.PublicModel,
+			&item.UpstreamModel,
+			&item.RequestCount,
+			&item.SuccessCount,
+			&item.ErrorCount,
+			&item.RequestTokens,
+			&item.ResponseTokens,
+			&item.TotalTokens,
+		); err != nil {
+			legacyRows.Close()
+			return err
+		}
+		legacy = append(legacy, item)
+	}
+	if err := legacyRows.Err(); err != nil {
+		legacyRows.Close()
+		return err
+	}
+	legacyRows.Close()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE usage_rollups RENAME TO usage_rollups_old`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE usage_rollups (
+			bucket_start TEXT NOT NULL,
+			key_id TEXT NOT NULL,
+			key_name TEXT NOT NULL DEFAULT '',
+			owner TEXT NOT NULL DEFAULT '',
+			purpose TEXT NOT NULL DEFAULT '',
+			endpoint TEXT NOT NULL,
+			provider TEXT NOT NULL DEFAULT '',
+			public_model TEXT NOT NULL DEFAULT '',
+			upstream_model TEXT NOT NULL DEFAULT '',
+			request_count INTEGER NOT NULL DEFAULT 0,
+			success_count INTEGER NOT NULL DEFAULT 0,
+			error_count INTEGER NOT NULL DEFAULT 0,
+			request_tokens INTEGER NOT NULL DEFAULT 0,
+			response_tokens INTEGER NOT NULL DEFAULT 0,
+			total_tokens INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (bucket_start, key_id, endpoint, provider, public_model, upstream_model)
+		)`); err != nil {
+		return err
+	}
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO usage_rollups(
+			bucket_start, key_id, key_name, owner, purpose, endpoint, provider, public_model, upstream_model,
+			request_count, success_count, error_count, request_tokens, response_tokens, total_tokens
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, item := range legacy {
+		if _, err := stmt.ExecContext(
+			ctx,
+			item.BucketStart,
+			usage.KeyID(item.APIKey),
+			item.KeyName,
+			item.Owner,
+			item.Purpose,
+			item.Endpoint,
+			item.Provider,
+			item.PublicModel,
+			item.UpstreamModel,
+			item.RequestCount,
+			item.SuccessCount,
+			item.ErrorCount,
+			item.RequestTokens,
+			item.ResponseTokens,
+			item.TotalTokens,
+		); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DROP TABLE usage_rollups_old`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *SQLiteStore) SeedProvidersIfEmpty(ctx context.Context, providers []config.ProviderConfig) error {
@@ -204,7 +383,7 @@ func (s *SQLiteStore) SeedAuthKeysIfEmpty(ctx context.Context, keys []config.Key
 }
 
 func (s *SQLiteStore) ListProviders(ctx context.Context) ([]config.ProviderConfig, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT name, base_url, api_key_ref, timeout_seconds FROM providers ORDER BY name`)
+	rows, err := s.db.QueryContext(ctx, `SELECT name, api_key, base_url, api_key_ref, timeout_seconds FROM providers ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -213,12 +392,25 @@ func (s *SQLiteStore) ListProviders(ctx context.Context) ([]config.ProviderConfi
 	var out []config.ProviderConfig
 	for rows.Next() {
 		var provider config.ProviderConfig
-		if err := rows.Scan(&provider.Name, &provider.BaseURL, &provider.APIKeyRef, &provider.TimeoutSeconds); err != nil {
+		if err := rows.Scan(&provider.Name, &provider.APIKey, &provider.BaseURL, &provider.APIKeyRef, &provider.TimeoutSeconds); err != nil {
 			return nil, err
 		}
 		out = append(out, provider)
 	}
 	return out, rows.Err()
+}
+
+func (s *SQLiteStore) GetProvider(ctx context.Context, name string) (config.ProviderConfig, error) {
+	var provider config.ProviderConfig
+	err := s.db.QueryRowContext(ctx, `SELECT name, api_key, base_url, api_key_ref, timeout_seconds FROM providers WHERE name = ?`, name).
+		Scan(&provider.Name, &provider.APIKey, &provider.BaseURL, &provider.APIKeyRef, &provider.TimeoutSeconds)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return config.ProviderConfig{}, fmt.Errorf("provider %q not found", name)
+		}
+		return config.ProviderConfig{}, err
+	}
+	return provider, nil
 }
 
 func (s *SQLiteStore) ListModels(ctx context.Context) ([]config.ModelConfig, error) {
@@ -240,7 +432,7 @@ func (s *SQLiteStore) ListModels(ctx context.Context) ([]config.ModelConfig, err
 }
 
 func (s *SQLiteStore) ListAuthKeys(ctx context.Context) ([]config.KeyConfig, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT key, name, owner, purpose, admin FROM auth_keys ORDER BY key`)
+	rows, err := s.db.QueryContext(ctx, `SELECT key, name, owner, purpose FROM auth_keys ORDER BY key`)
 	if err != nil {
 		return nil, err
 	}
@@ -249,11 +441,9 @@ func (s *SQLiteStore) ListAuthKeys(ctx context.Context) ([]config.KeyConfig, err
 	var out []config.KeyConfig
 	for rows.Next() {
 		var item config.KeyConfig
-		var adminInt int
-		if err := rows.Scan(&item.Key, &item.Name, &item.Owner, &item.Purpose, &adminInt); err != nil {
+		if err := rows.Scan(&item.Key, &item.Name, &item.Owner, &item.Purpose); err != nil {
 			return nil, err
 		}
-		item.Admin = adminInt != 0
 		out = append(out, item)
 	}
 	return out, rows.Err()
@@ -261,14 +451,15 @@ func (s *SQLiteStore) ListAuthKeys(ctx context.Context) ([]config.KeyConfig, err
 
 func (s *SQLiteStore) UpsertProvider(ctx context.Context, provider config.ProviderConfig) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO providers(name, base_url, api_key_ref, timeout_seconds, updated_at)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO providers(name, api_key, base_url, api_key_ref, timeout_seconds, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(name) DO UPDATE SET
+			api_key = excluded.api_key,
 			base_url = excluded.base_url,
 			api_key_ref = excluded.api_key_ref,
 			timeout_seconds = excluded.timeout_seconds,
 			updated_at = excluded.updated_at
-	`, provider.Name, provider.BaseURL, provider.APIKeyRef, provider.TimeoutSeconds, time.Now().UTC().Format(time.RFC3339))
+	`, provider.Name, provider.APIKey, provider.BaseURL, provider.APIKeyRef, provider.TimeoutSeconds, time.Now().UTC().Format(time.RFC3339))
 	return err
 }
 
@@ -295,20 +486,15 @@ func (s *SQLiteStore) DeleteModel(ctx context.Context, publicName string) error 
 }
 
 func (s *SQLiteStore) UpsertAuthKey(ctx context.Context, key config.KeyConfig) error {
-	adminInt := 0
-	if key.Admin {
-		adminInt = 1
-	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO auth_keys(key, name, owner, purpose, admin, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO auth_keys(key, name, owner, purpose, updated_at)
+		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(key) DO UPDATE SET
 			name = excluded.name,
 			owner = excluded.owner,
 			purpose = excluded.purpose,
-			admin = excluded.admin,
 			updated_at = excluded.updated_at
-	`, key.Key, key.Name, key.Owner, key.Purpose, adminInt, time.Now().UTC().Format(time.RFC3339))
+	`, key.Key, key.Name, key.Owner, key.Purpose, time.Now().UTC().Format(time.RFC3339))
 	return err
 }
 
@@ -326,10 +512,10 @@ func (s *SQLiteStore) UpsertUsageRollups(ctx context.Context, rollups []usage.Ro
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO usage_rollups(
-			bucket_start, api_key, key_name, owner, purpose, endpoint, provider, public_model, upstream_model,
+			bucket_start, key_id, key_name, owner, purpose, endpoint, provider, public_model, upstream_model,
 			request_count, success_count, error_count, request_tokens, response_tokens, total_tokens
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(bucket_start, api_key, endpoint, provider, public_model, upstream_model) DO UPDATE SET
+		ON CONFLICT(bucket_start, key_id, endpoint, provider, public_model, upstream_model) DO UPDATE SET
 			request_count = usage_rollups.request_count + excluded.request_count,
 			success_count = usage_rollups.success_count + excluded.success_count,
 			error_count = usage_rollups.error_count + excluded.error_count,
@@ -349,7 +535,7 @@ func (s *SQLiteStore) UpsertUsageRollups(ctx context.Context, rollups []usage.Ro
 		if _, err := stmt.ExecContext(
 			ctx,
 			rollup.BucketStart.Format(time.RFC3339),
-			rollup.APIKey,
+			rollup.KeyID,
 			rollup.KeyName,
 			rollup.Owner,
 			rollup.Purpose,
@@ -374,7 +560,7 @@ func (s *SQLiteStore) UpsertUsageRollups(ctx context.Context, rollups []usage.Ro
 func (s *SQLiteStore) UsageSummaries(ctx context.Context) ([]usage.Summary, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT
-			api_key,
+			key_id,
 			MAX(key_name),
 			MAX(owner),
 			MAX(purpose),
@@ -385,8 +571,8 @@ func (s *SQLiteStore) UsageSummaries(ctx context.Context) ([]usage.Summary, erro
 			COALESCE(SUM(response_tokens), 0),
 			COALESCE(SUM(total_tokens), 0)
 		FROM usage_rollups
-		GROUP BY api_key
-		ORDER BY api_key
+		GROUP BY key_id
+		ORDER BY key_id
 	`)
 	if err != nil {
 		return nil, err
@@ -397,7 +583,7 @@ func (s *SQLiteStore) UsageSummaries(ctx context.Context) ([]usage.Summary, erro
 	for rows.Next() {
 		var summary usage.Summary
 		if err := rows.Scan(
-			&summary.APIKey,
+			&summary.KeyID,
 			&summary.KeyName,
 			&summary.Owner,
 			&summary.Purpose,

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+
+	"aigate/internal/config"
 )
 
 type ChatRequest struct {
@@ -23,11 +25,10 @@ type ChatResponse map[string]any
 type EmbeddingRequest map[string]any
 type EmbeddingResponse map[string]any
 
-type Provider interface {
-	Name() string
-	Chat(ctx context.Context, req *ChatRequest, upstreamModel string) (*ChatResponse, error)
-	ChatStream(ctx context.Context, req *ChatRequest, upstreamModel string) (io.ReadCloser, error)
-	Embed(ctx context.Context, req EmbeddingRequest, upstreamModel string) (*EmbeddingResponse, error)
+type Client interface {
+	Chat(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*ChatResponse, error)
+	ChatStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (io.ReadCloser, error)
+	Embed(ctx context.Context, provider config.ProviderConfig, req EmbeddingRequest, upstreamModel string) (*EmbeddingResponse, error)
 }
 
 func (r *ChatRequest) UnmarshalJSON(data []byte) error {

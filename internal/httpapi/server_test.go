@@ -22,7 +22,6 @@ import (
 )
 
 type stubProvider struct {
-	name        string
 	lastModel   string
 	lastChat    *provider.ChatRequest
 	response    *provider.ChatResponse
@@ -32,9 +31,7 @@ type stubProvider struct {
 	lastEmbed   provider.EmbeddingRequest
 }
 
-func (s *stubProvider) Name() string { return s.name }
-
-func (s *stubProvider) Chat(_ context.Context, req *provider.ChatRequest, upstreamModel string) (*provider.ChatResponse, error) {
+func (s *stubProvider) Chat(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (*provider.ChatResponse, error) {
 	s.lastModel = upstreamModel
 	s.lastChat = req
 	if s.returnError != nil {
@@ -43,7 +40,7 @@ func (s *stubProvider) Chat(_ context.Context, req *provider.ChatRequest, upstre
 	return s.response, nil
 }
 
-func (s *stubProvider) ChatStream(_ context.Context, req *provider.ChatRequest, upstreamModel string) (io.ReadCloser, error) {
+func (s *stubProvider) ChatStream(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (io.ReadCloser, error) {
 	s.lastModel = upstreamModel
 	s.lastChat = req
 	if s.returnError != nil {
@@ -52,7 +49,7 @@ func (s *stubProvider) ChatStream(_ context.Context, req *provider.ChatRequest, 
 	return io.NopCloser(strings.NewReader(s.streamBody)), nil
 }
 
-func (s *stubProvider) Embed(_ context.Context, req provider.EmbeddingRequest, upstreamModel string) (*provider.EmbeddingResponse, error) {
+func (s *stubProvider) Embed(_ context.Context, _ config.ProviderConfig, req provider.EmbeddingRequest, upstreamModel string) (*provider.EmbeddingResponse, error) {
 	s.lastModel = upstreamModel
 	s.lastEmbed = req
 	if s.returnError != nil {
@@ -61,7 +58,7 @@ func (s *stubProvider) Embed(_ context.Context, req provider.EmbeddingRequest, u
 	return s.embedResp, nil
 }
 
-func newHandler(t *testing.T, keys []config.KeyConfig, rt *router.Router, recorder *usage.Recorder) http.Handler {
+func newHandler(t *testing.T, keys []config.KeyConfig, rt *router.Router, recorder *usage.Recorder, client provider.Client) http.Handler {
 	t.Helper()
 	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
 	if err != nil {
@@ -70,18 +67,25 @@ func newHandler(t *testing.T, keys []config.KeyConfig, rt *router.Router, record
 	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
 		t.Fatalf("SeedAuthKeysIfEmpty() error = %v", err)
 	}
+	t.Setenv("OPENAI_API_KEY", "test-secret")
+	if err := sqliteStore.SeedProvidersIfEmpty(context.Background(), []config.ProviderConfig{{
+		Name:           "openai",
+		BaseURL:        "https://api.openai.com/v1",
+		APIKeyRef:      "OPENAI_API_KEY",
+		TimeoutSeconds: 60,
+	}}); err != nil {
+		t.Fatalf("SeedProvidersIfEmpty() error = %v", err)
+	}
 	t.Cleanup(func() { _ = sqliteStore.Close() })
-	return httpapi.New(auth.New(keys), config.AdminConfig{Username: "admin", Password: "pass"}, rt, recorder, sqliteStore, []string{"openai"})
+	return httpapi.NewWithClient(auth.New(keys), config.AdminConfig{Username: "admin", Password: "pass"}, client, rt, recorder, sqliteStore, []string{"openai"})
 }
 
 func TestChatCompletionsRoutesToExpectedProviderModel(t *testing.T) {
 	resp := provider.ChatResponse{
 		"id": "chatcmpl-test",
 	}
-	p := &stubProvider{name: "openai", response: &resp}
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": p,
-	}, []config.ModelConfig{
+	p := &stubProvider{response: &resp}
+	rt, err := router.New([]config.ModelConfig{
 		{
 			PublicName:   "gpt-4o-mini",
 			Provider:     "openai",
@@ -92,7 +96,7 @@ func TestChatCompletionsRoutesToExpectedProviderModel(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
 
 	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
@@ -112,9 +116,7 @@ func TestChatCompletionsRoutesToExpectedProviderModel(t *testing.T) {
 }
 
 func TestModelsRequiresAuth(t *testing.T) {
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": &stubProvider{name: "openai"},
-	}, []config.ModelConfig{
+	rt, err := router.New([]config.ModelConfig{
 		{
 			PublicName:   "gpt-4o-mini",
 			Provider:     "openai",
@@ -125,7 +127,7 @@ func TestModelsRequiresAuth(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), &stubProvider{})
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rr := httptest.NewRecorder()
 
@@ -137,9 +139,7 @@ func TestModelsRequiresAuth(t *testing.T) {
 }
 
 func TestModelsReturnsConfiguredModels(t *testing.T) {
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": &stubProvider{name: "openai"},
-	}, []config.ModelConfig{
+	rt, err := router.New([]config.ModelConfig{
 		{
 			PublicName:   "gpt-4o-mini",
 			Provider:     "openai",
@@ -155,7 +155,7 @@ func TestModelsReturnsConfiguredModels(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), &stubProvider{})
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	req.Header.Set("Authorization", "Bearer sk-app-001")
 	rr := httptest.NewRecorder()
@@ -181,13 +181,8 @@ func TestModelsReturnsConfiguredModels(t *testing.T) {
 }
 
 func TestChatCompletionsStream(t *testing.T) {
-	p := &stubProvider{
-		name:       "openai",
-		streamBody: "data: {\"id\":\"chunk-1\"}\n\ndata: [DONE]\n\n",
-	}
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": p,
-	}, []config.ModelConfig{
+	p := &stubProvider{streamBody: "data: {\"id\":\"chunk-1\"}\n\ndata: [DONE]\n\n"}
+	rt, err := router.New([]config.ModelConfig{
 		{
 			PublicName:   "gpt-4o-mini",
 			Provider:     "openai",
@@ -198,7 +193,7 @@ func TestChatCompletionsStream(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
 	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"stream":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
 	req.Header.Set("Authorization", "Bearer sk-app-001")
@@ -222,13 +217,8 @@ func TestChatCompletionsStream(t *testing.T) {
 }
 
 func TestChatCompletionsStreamUpstreamError(t *testing.T) {
-	p := &stubProvider{
-		name:        "openai",
-		returnError: errors.New("upstream failed"),
-	}
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": p,
-	}, []config.ModelConfig{
+	p := &stubProvider{returnError: errors.New("upstream failed")}
+	rt, err := router.New([]config.ModelConfig{
 		{
 			PublicName:   "gpt-4o-mini",
 			Provider:     "openai",
@@ -239,7 +229,7 @@ func TestChatCompletionsStreamUpstreamError(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
 	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"stream":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
 	req.Header.Set("Authorization", "Bearer sk-app-001")
@@ -260,10 +250,8 @@ func TestEmbeddingsRoutesToExpectedProviderModel(t *testing.T) {
 			{"embedding": []float64{0.1, 0.2}, "index": 0, "object": "embedding"},
 		},
 	}
-	p := &stubProvider{name: "openai", embedResp: &resp}
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": p,
-	}, []config.ModelConfig{
+	p := &stubProvider{embedResp: &resp}
+	rt, err := router.New([]config.ModelConfig{
 		{
 			PublicName:   "text-embedding-3-small",
 			Provider:     "openai",
@@ -274,7 +262,7 @@ func TestEmbeddingsRoutesToExpectedProviderModel(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
 	body := bytes.NewBufferString(`{"model":"text-embedding-3-small","input":"hello"}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", body)
 	req.Header.Set("Authorization", "Bearer sk-app-001")
@@ -295,10 +283,8 @@ func TestEmbeddingsRoutesToExpectedProviderModel(t *testing.T) {
 }
 
 func TestEmbeddingsRequiresModel(t *testing.T) {
-	p := &stubProvider{name: "openai"}
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": p,
-	}, []config.ModelConfig{
+	p := &stubProvider{}
+	rt, err := router.New([]config.ModelConfig{
 		{
 			PublicName:   "text-embedding-3-small",
 			Provider:     "openai",
@@ -309,7 +295,7 @@ func TestEmbeddingsRequiresModel(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
 	body := bytes.NewBufferString(`{"input":"hello"}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", body)
 	req.Header.Set("Authorization", "Bearer sk-app-001")
@@ -332,10 +318,8 @@ func TestUsageSummaryTracksChatTokens(t *testing.T) {
 			"total_tokens":      float64(15),
 		},
 	}
-	p := &stubProvider{name: "openai", response: &resp}
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": p,
-	}, []config.ModelConfig{
+	p := &stubProvider{response: &resp}
+	rt, err := router.New([]config.ModelConfig{
 		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
 	})
 	if err != nil {
@@ -343,7 +327,7 @@ func TestUsageSummaryTracksChatTokens(t *testing.T) {
 	}
 
 	recorder := usage.New(100)
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001", Name: "alice", Purpose: "debug"}}, rt, recorder)
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001", Name: "alice", Purpose: "debug"}}, rt, recorder, p)
 
 	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
@@ -390,31 +374,26 @@ func TestUsageSummaryTracksChatTokens(t *testing.T) {
 	}
 }
 
-func TestAdminUsageRequiresAdminKey(t *testing.T) {
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": &stubProvider{name: "openai"},
-	}, []config.ModelConfig{
+func TestAdminUsageRequiresAdminSession(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
 		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
 	})
 	if err != nil {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), &stubProvider{})
 	req := httptest.NewRequest(http.MethodGet, "/admin/usage", nil)
-	req.Header.Set("Authorization", "Bearer sk-app-001")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
 	}
 }
 
 func TestAdminUsageReturnsAllSummaries(t *testing.T) {
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": &stubProvider{name: "openai"},
-	}, []config.ModelConfig{
+	rt, err := router.New([]config.ModelConfig{
 		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
 	})
 	if err != nil {
@@ -425,9 +404,20 @@ func TestAdminUsageReturnsAllSummaries(t *testing.T) {
 	recorder.Record(usage.NewRecord(auth.Principal{Key: "sk-user-1", Name: "user1"}, "chat.completions", "openai", "gpt-4o-mini", "gpt-4o-mini", true, 1, 2, 3, http.StatusOK, 0))
 	recorder.Record(usage.NewRecord(auth.Principal{Key: "sk-user-2", Name: "user2"}, "embeddings", "openai", "text-embedding-3-small", "text-embedding-3-small", true, 2, 0, 2, http.StatusOK, 0))
 
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-admin-001", Admin: true}}, rt, recorder)
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-user-001"}}, rt, recorder, &stubProvider{})
+
+	loginBody := bytes.NewBufferString("username=admin&password=pass")
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
 	req := httptest.NewRequest(http.MethodGet, "/admin/usage", nil)
-	req.Header.Set("Authorization", "Bearer sk-admin-001")
+	req.AddCookie(cookies[0])
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -448,17 +438,15 @@ func TestAdminUsageReturnsAllSummaries(t *testing.T) {
 
 func TestChatCompletionsPassesThroughUnknownFields(t *testing.T) {
 	resp := provider.ChatResponse{"id": "chatcmpl-test"}
-	p := &stubProvider{name: "openai", response: &resp}
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": p,
-	}, []config.ModelConfig{
+	p := &stubProvider{response: &resp}
+	rt, err := router.New([]config.ModelConfig{
 		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
 	})
 	if err != nil {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
 	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"high","thinking":{"type":"enabled"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
 	req.Header.Set("Authorization", "Bearer sk-app-001")
@@ -485,16 +473,14 @@ func TestChatCompletionsPassesThroughUnknownFields(t *testing.T) {
 }
 
 func TestAdminKeysSaveReloadsAuth(t *testing.T) {
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": &stubProvider{name: "openai"},
-	}, []config.ModelConfig{
+	rt, err := router.New([]config.ModelConfig{
 		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
 	})
 	if err != nil {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-admin-001", Admin: true}}, rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-bootstrap-001"}}, rt, usage.New(100), &stubProvider{})
 
 	loginBody := bytes.NewBufferString("username=admin&password=pass")
 	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
@@ -532,16 +518,14 @@ func TestAdminKeysSaveReloadsAuth(t *testing.T) {
 }
 
 func TestAdminKeysPageMasksKeyByDefault(t *testing.T) {
-	rt, err := router.New(map[string]provider.Provider{
-		"openai": &stubProvider{name: "openai"},
-	}, []config.ModelConfig{
+	rt, err := router.New([]config.ModelConfig{
 		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
 	})
 	if err != nil {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-admin-001", Admin: true}, {Key: "sk-user-001", Name: "user1"}}, rt, usage.New(100))
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-bootstrap-001"}, {Key: "sk-user-001", Name: "user1"}}, rt, usage.New(100), &stubProvider{})
 
 	loginBody := bytes.NewBufferString("username=admin&password=pass")
 	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)

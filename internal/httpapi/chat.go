@@ -43,9 +43,15 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s upstream_model=%s stream=%t", r.Method, r.URL.Path, req.Model, target.ProviderName, target.UpstreamModel, req.Stream)
+	providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
+	if err != nil {
+		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
+		writeError(w, http.StatusBadGateway, "provider_not_found", err.Error())
+		return
+	}
 
 	if req.Stream {
-		stream, err := target.Provider.ChatStream(r.Context(), &req, target.UpstreamModel)
+		stream, err := h.client.ChatStream(r.Context(), providerCfg, &req, target.UpstreamModel)
 		if err != nil {
 			log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s error=%v", r.Method, r.URL.Path, req.Model, target.ProviderName, err)
 			h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
@@ -75,7 +81,7 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	resp, err := target.Provider.Chat(r.Context(), &req, target.UpstreamModel)
+	resp, err := h.client.Chat(r.Context(), providerCfg, &req, target.UpstreamModel)
 	if err != nil {
 		log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s error=%v", r.Method, r.URL.Path, req.Model, target.ProviderName, err)
 		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))

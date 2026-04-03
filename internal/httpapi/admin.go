@@ -143,7 +143,6 @@ func (h *Handler) handleAdminKeysSave(w http.ResponseWriter, r *http.Request) {
 		Name:    strings.TrimSpace(r.FormValue("name")),
 		Owner:   strings.TrimSpace(r.FormValue("owner")),
 		Purpose: strings.TrimSpace(r.FormValue("purpose")),
-		Admin:   r.FormValue("admin") == "on",
 	}
 	if key.Key == "" {
 		writeError(w, http.StatusBadRequest, "invalid_request", "key is required")
@@ -219,12 +218,13 @@ func (h *Handler) handleAdminProvidersSave(w http.ResponseWriter, r *http.Reques
 	}
 	providerCfg := config.ProviderConfig{
 		Name:           strings.TrimSpace(r.FormValue("name")),
+		APIKey:         strings.TrimSpace(r.FormValue("api_key")),
 		BaseURL:        strings.TrimSpace(r.FormValue("base_url")),
 		APIKeyRef:      strings.TrimSpace(r.FormValue("api_key_ref")),
 		TimeoutSeconds: timeoutSeconds,
 	}
-	if providerCfg.Name == "" || providerCfg.BaseURL == "" || providerCfg.APIKeyRef == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "name, base_url, api_key_ref are required")
+	if providerCfg.Name == "" || providerCfg.BaseURL == "" || (providerCfg.APIKey == "" && providerCfg.APIKeyRef == "") {
+		writeError(w, http.StatusBadRequest, "invalid_request", "name, base_url, and api_key or api_key_ref are required")
 		return
 	}
 	if err := h.store.UpsertProvider(r.Context(), providerCfg); err != nil {
@@ -385,20 +385,20 @@ func (h *Handler) reloadModels(ctx context.Context) error {
 }
 
 func (h *Handler) reloadProvidersAndModels(ctx context.Context) error {
-	providerConfigs, err := h.store.ListProviders(ctx)
-	if err != nil {
-		return err
-	}
 	models, err := h.store.ListModels(ctx)
 	if err != nil {
 		return err
 	}
-	providers, names, err := h.providerBuild(providerConfigs)
+	providerConfigs, err := h.store.ListProviders(ctx)
 	if err != nil {
 		return err
 	}
-	if err := h.router.UpdateProvidersAndModels(providers, models); err != nil {
+	if err := h.router.UpdateModels(models); err != nil {
 		return err
+	}
+	names := make([]string, 0, len(providerConfigs))
+	for _, providerCfg := range providerConfigs {
+		names = append(names, providerCfg.Name)
 	}
 	h.providerNames = names
 	return nil
@@ -429,8 +429,8 @@ var adminLoginTemplate = template.Must(template.New("login").Parse(`<!doctype ht
 
 var adminProvidersTemplate = template.Must(template.New("providers").Parse(`<!doctype html>
 <html><head><meta charset="utf-8"><title>{{.Title}}</title>
-<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:1200px;margin:32px auto;padding:0 16px;color:#222}nav a{margin-right:16px;color:#111;text-decoration:none}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{padding:10px;border-bottom:1px solid #eee;text-align:left}input{padding:10px;border:1px solid #ccc;border-radius:8px;margin-right:8px;min-width:140px}button{padding:8px 12px;border:0;background:#111;color:#fff;border-radius:8px}.muted{color:#666}.flash{padding:10px 12px;background:#edf7ed;border-radius:8px;margin-top:16px}</style>
-</head><body><nav><a href="/admin/providers">Providers</a><a href="/admin/models">Models</a><a href="/admin/keys">Keys</a><a href="/admin/usage/view">Usage</a><form style="display:inline" method="post" action="/admin/logout"><button type="submit">Logout</button></form></nav><h1>Providers</h1>{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}<form method="post" action="/admin/providers" style="margin-top:20px"><input name="name" placeholder="name"><input name="base_url" placeholder="base url"><input name="api_key_ref" placeholder="env var name"><input name="timeout" placeholder="timeout seconds" value="60"><button type="submit">Save</button></form><table><thead><tr><th>Name</th><th>Base URL</th><th>Secret Ref</th><th>Timeout</th><th></th></tr></thead><tbody>{{range .ProvidersCfg}}<tr><td>{{.Name}}</td><td>{{.BaseURL}}</td><td>{{.APIKeyRef}}</td><td>{{.TimeoutSeconds}}s</td><td><form method="post" action="/admin/providers/delete"><input type="hidden" name="name" value="{{.Name}}"><button type="submit">Delete</button></form></td></tr>{{else}}<tr><td colspan="5" class="muted">No providers</td></tr>{{end}}</tbody></table></body></html>`))
+<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:1300px;margin:32px auto;padding:0 16px;color:#222}nav a{margin-right:16px;color:#111;text-decoration:none}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{padding:10px;border-bottom:1px solid #eee;text-align:left}input{padding:10px;border:1px solid #ccc;border-radius:8px;margin-right:8px;min-width:140px}button{padding:8px 12px;border:0;background:#111;color:#fff;border-radius:8px}.muted{color:#666}.flash{padding:10px 12px;background:#edf7ed;border-radius:8px;margin-top:16px}.mono{font-family:ui-monospace,SFMono-Regular,monospace}</style>
+</head><body><nav><a href="/admin/providers">Providers</a><a href="/admin/models">Models</a><a href="/admin/keys">Keys</a><a href="/admin/usage/view">Usage</a><form style="display:inline" method="post" action="/admin/logout"><button type="submit">Logout</button></form></nav><h1>Providers</h1>{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}<form method="post" action="/admin/providers" style="margin-top:20px"><input name="name" placeholder="name"><input name="base_url" placeholder="base url"><input name="api_key" placeholder="api key (optional)"><input name="api_key_ref" placeholder="env var name (optional)"><input name="timeout" placeholder="timeout seconds" value="60"><button type="submit">Save</button></form><div class="muted" style="margin-top:8px">Fill either <span class="mono">api_key</span> or <span class="mono">api_key_ref</span>.</div><table><thead><tr><th>Name</th><th>Base URL</th><th>API Key</th><th>Secret Ref</th><th>Timeout</th><th></th></tr></thead><tbody>{{range .ProvidersCfg}}<tr><td>{{.Name}}</td><td>{{.BaseURL}}</td><td>{{if .APIKey}}configured{{else}}-{{end}}</td><td>{{if .APIKeyRef}}{{.APIKeyRef}}{{else}}-{{end}}</td><td>{{.TimeoutSeconds}}s</td><td><form method="post" action="/admin/providers/delete"><input type="hidden" name="name" value="{{.Name}}"><button type="submit">Delete</button></form></td></tr>{{else}}<tr><td colspan="6" class="muted">No providers</td></tr>{{end}}</tbody></table></body></html>`))
 
 var adminModelsTemplate = template.Must(template.New("models").Parse(`<!doctype html>
 <html><head><meta charset="utf-8"><title>{{.Title}}</title>
@@ -440,9 +440,9 @@ var adminModelsTemplate = template.Must(template.New("models").Parse(`<!doctype 
 var adminKeysTemplate = template.Must(template.New("keys").Parse(`<!doctype html>
 <html><head><meta charset="utf-8"><title>{{.Title}}</title>
 <style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:1200px;margin:32px auto;padding:0 16px;color:#222}nav a{margin-right:16px;color:#111;text-decoration:none}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{padding:10px;border-bottom:1px solid #eee;text-align:left}input{padding:10px;border:1px solid #ccc;border-radius:8px;margin-right:8px;min-width:120px}label{margin-right:12px}button{padding:8px 12px;border:0;background:#111;color:#fff;border-radius:8px}.muted{color:#666}.flash{padding:10px 12px;background:#edf7ed;border-radius:8px;margin-top:16px}.key-cell{display:flex;align-items:center;gap:8px}.key-text{font-family:ui-monospace,SFMono-Regular,monospace}.ghost{background:#f3f3f3;color:#111}</style>
-</head><body><nav><a href="/admin/providers">Providers</a><a href="/admin/models">Models</a><a href="/admin/keys">Keys</a><a href="/admin/usage/view">Usage</a><form style="display:inline" method="post" action="/admin/logout"><button type="submit">Logout</button></form></nav><h1>Keys</h1>{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}<form method="post" action="/admin/keys" style="margin-top:20px"><input name="key" placeholder="api key"><input name="name" placeholder="name"><input name="owner" placeholder="owner"><input name="purpose" placeholder="purpose"><label><input type="checkbox" name="admin"> admin</label><button type="submit">Save</button></form><table><thead><tr><th>Name</th><th>Owner</th><th>Purpose</th><th>Admin</th><th>Key</th><th></th></tr></thead><tbody>{{range .Keys}}<tr><td>{{.Name}}</td><td>{{.Owner}}</td><td>{{.Purpose}}</td><td>{{if .Admin}}yes{{else}}no{{end}}</td><td><div class="key-cell"><span class="key-text" data-key="{{.Key}}">****</span><button type="button" class="ghost" onclick="toggleKey(this)">Show</button><button type="button" class="ghost" onclick="copyKey(this)">Copy</button></div></td><td><form method="post" action="/admin/keys/delete"><input type="hidden" name="key" value="{{.Key}}"><button type="submit">Delete</button></form></td></tr>{{else}}<tr><td colspan="6" class="muted">No keys</td></tr>{{end}}</tbody></table><script>function toggleKey(button){const text=button.parentNode.querySelector('.key-text');const hidden=text.textContent==='****';text.textContent=hidden?text.dataset.key:'****';button.textContent=hidden?'Hide':'Show';}async function copyKey(button){const text=button.parentNode.querySelector('.key-text');const value=text.dataset.key;try{await navigator.clipboard.writeText(value);button.textContent='Copied';setTimeout(()=>{button.textContent='Copy';},1200);}catch(e){button.textContent='Copy failed';setTimeout(()=>{button.textContent='Copy';},1200);}}</script></body></html>`))
+</head><body><nav><a href="/admin/providers">Providers</a><a href="/admin/models">Models</a><a href="/admin/keys">Keys</a><a href="/admin/usage/view">Usage</a><form style="display:inline" method="post" action="/admin/logout"><button type="submit">Logout</button></form></nav><h1>Keys</h1>{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}<form method="post" action="/admin/keys" style="margin-top:20px"><input name="key" placeholder="api key"><input name="name" placeholder="name"><input name="owner" placeholder="owner"><input name="purpose" placeholder="purpose"><button type="submit">Save</button></form><table><thead><tr><th>Name</th><th>Owner</th><th>Purpose</th><th>Key</th><th></th></tr></thead><tbody>{{range .Keys}}<tr><td>{{.Name}}</td><td>{{.Owner}}</td><td>{{.Purpose}}</td><td><div class="key-cell"><span class="key-text" data-key="{{.Key}}">****</span><button type="button" class="ghost" onclick="toggleKey(this)">Show</button><button type="button" class="ghost" onclick="copyKey(this)">Copy</button></div></td><td><form method="post" action="/admin/keys/delete"><input type="hidden" name="key" value="{{.Key}}"><button type="submit">Delete</button></form></td></tr>{{else}}<tr><td colspan="5" class="muted">No keys</td></tr>{{end}}</tbody></table><script>function toggleKey(button){const text=button.parentNode.querySelector('.key-text');const hidden=text.textContent==='****';text.textContent=hidden?text.dataset.key:'****';button.textContent=hidden?'Hide':'Show';}async function copyKey(button){const text=button.parentNode.querySelector('.key-text');const value=text.dataset.key;try{await navigator.clipboard.writeText(value);button.textContent='Copied';setTimeout(()=>{button.textContent='Copy';},1200);}catch(e){button.textContent='Copy failed';setTimeout(()=>{button.textContent='Copy';},1200);}}</script></body></html>`))
 
 var adminUsageTemplate = template.Must(template.New("usage").Parse(`<!doctype html>
 <html><head><meta charset="utf-8"><title>{{.Title}}</title>
 <style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:1100px;margin:32px auto;padding:0 16px;color:#222}nav a{margin-right:16px;color:#111;text-decoration:none}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{padding:10px;border-bottom:1px solid #eee;text-align:left}button{padding:8px 12px;border:0;background:#111;color:#fff;border-radius:8px}.muted{color:#666}</style>
-</head><body><nav><a href="/admin/providers">Providers</a><a href="/admin/models">Models</a><a href="/admin/keys">Keys</a><a href="/admin/usage/view">Usage</a><form style="display:inline" method="post" action="/admin/logout"><button type="submit">Logout</button></form></nav><h1>Usage</h1><table><thead><tr><th>Key</th><th>Name</th><th>Owner</th><th>Purpose</th><th>Requests</th><th>Success</th><th>Errors</th><th>Total Tokens</th></tr></thead><tbody>{{range .Usage}}<tr><td>{{.APIKey}}</td><td>{{.KeyName}}</td><td>{{.Owner}}</td><td>{{.Purpose}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td>{{.TotalTokens}}</td></tr>{{else}}<tr><td colspan="8" class="muted">No usage yet</td></tr>{{end}}</tbody></table></body></html>`))
+</head><body><nav><a href="/admin/providers">Providers</a><a href="/admin/models">Models</a><a href="/admin/keys">Keys</a><a href="/admin/usage/view">Usage</a><form style="display:inline" method="post" action="/admin/logout"><button type="submit">Logout</button></form></nav><h1>Usage</h1><table><thead><tr><th>Key ID</th><th>Name</th><th>Owner</th><th>Purpose</th><th>Requests</th><th>Success</th><th>Errors</th><th>Total Tokens</th></tr></thead><tbody>{{range .Usage}}<tr><td>{{.KeyID}}</td><td>{{.KeyName}}</td><td>{{.Owner}}</td><td>{{.Purpose}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td>{{.TotalTokens}}</td></tr>{{else}}<tr><td colspan="8" class="muted">No usage yet</td></tr>{{end}}</tbody></table></body></html>`))

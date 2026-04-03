@@ -10,6 +10,7 @@ import (
 
 type Record struct {
 	Timestamp      time.Time     `json:"timestamp"`
+	KeyID          string        `json:"key_id"`
 	APIKey         string        `json:"api_key"`
 	KeyName        string        `json:"key_name,omitempty"`
 	Owner          string        `json:"owner,omitempty"`
@@ -28,6 +29,7 @@ type Record struct {
 }
 
 type Summary struct {
+	KeyID          string `json:"key_id"`
 	APIKey         string `json:"api_key"`
 	KeyName        string `json:"key_name,omitempty"`
 	Owner          string `json:"owner,omitempty"`
@@ -50,7 +52,7 @@ type Recorder struct {
 
 type RollupKey struct {
 	BucketStart   time.Time
-	APIKey        string
+	KeyID         string
 	Endpoint      string
 	Provider      string
 	PublicModel   string
@@ -59,7 +61,7 @@ type RollupKey struct {
 
 type Rollup struct {
 	BucketStart    time.Time
-	APIKey         string
+	KeyID          string
 	KeyName        string
 	Owner          string
 	Purpose        string
@@ -96,15 +98,19 @@ func (r *Recorder) Record(record Record) {
 		r.records = r.records[len(r.records)-r.maxRecords:]
 	}
 
-	summary, ok := r.summaries[record.APIKey]
+	summary, ok := r.summaries[record.KeyID]
 	if !ok {
 		summary = &Summary{
+			KeyID:   record.KeyID,
 			APIKey:  record.APIKey,
 			KeyName: record.KeyName,
 			Owner:   record.Owner,
 			Purpose: record.Purpose,
 		}
-		r.summaries[record.APIKey] = summary
+		r.summaries[record.KeyID] = summary
+	}
+	if summary.APIKey == "" {
+		summary.APIKey = record.APIKey
 	}
 
 	summary.RequestCount++
@@ -119,7 +125,7 @@ func (r *Recorder) Record(record Record) {
 
 	key := RollupKey{
 		BucketStart:   record.Timestamp.UTC().Truncate(time.Hour),
-		APIKey:        record.APIKey,
+		KeyID:         record.KeyID,
 		Endpoint:      record.Endpoint,
 		Provider:      record.Provider,
 		PublicModel:   record.PublicModel,
@@ -129,7 +135,7 @@ func (r *Recorder) Record(record Record) {
 	if !ok {
 		rollup = &Rollup{
 			BucketStart:   key.BucketStart,
-			APIKey:        record.APIKey,
+			KeyID:         record.KeyID,
 			KeyName:       record.KeyName,
 			Owner:         record.Owner,
 			Purpose:       record.Purpose,
@@ -160,7 +166,7 @@ func (r *Recorder) Summaries() []Summary {
 		out = append(out, *summary)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].APIKey < out[j].APIKey
+		return out[i].KeyID < out[j].KeyID
 	})
 	return out
 }
@@ -169,7 +175,7 @@ func (r *Recorder) SummaryByKey(key string) (Summary, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	summary, ok := r.summaries[key]
+	summary, ok := r.summaries[KeyID(key)]
 	if !ok {
 		return Summary{}, false
 	}
@@ -182,7 +188,12 @@ func (r *Recorder) SeedSummaries(summaries []Summary) {
 
 	for _, summary := range summaries {
 		copySummary := summary
-		r.summaries[summary.APIKey] = &copySummary
+		indexKey := summary.KeyID
+		if indexKey == "" {
+			indexKey = KeyID(summary.APIKey)
+			copySummary.KeyID = indexKey
+		}
+		r.summaries[indexKey] = &copySummary
 	}
 }
 
@@ -196,10 +207,10 @@ func (r *Recorder) DrainPending() []Rollup {
 	}
 	r.pending = make(map[RollupKey]*Rollup)
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].APIKey == out[j].APIKey {
+		if out[i].KeyID == out[j].KeyID {
 			return out[i].BucketStart.Before(out[j].BucketStart)
 		}
-		return out[i].APIKey < out[j].APIKey
+		return out[i].KeyID < out[j].KeyID
 	})
 	return out
 }
@@ -211,7 +222,7 @@ func (r *Recorder) RestorePending(rollups []Rollup) {
 	for _, rollup := range rollups {
 		key := RollupKey{
 			BucketStart:   rollup.BucketStart,
-			APIKey:        rollup.APIKey,
+			KeyID:         rollup.KeyID,
 			Endpoint:      rollup.Endpoint,
 			Provider:      rollup.Provider,
 			PublicModel:   rollup.PublicModel,
@@ -235,6 +246,7 @@ func (r *Recorder) RestorePending(rollups []Rollup) {
 func NewRecord(principal auth.Principal, endpoint, provider, publicModel, upstreamModel string, success bool, requestTokens, responseTokens, totalTokens, statusCode int, latency time.Duration) Record {
 	return Record{
 		Timestamp:      time.Now(),
+		KeyID:          KeyID(principal.Key),
 		APIKey:         principal.Key,
 		KeyName:        principal.Name,
 		Owner:          principal.Owner,

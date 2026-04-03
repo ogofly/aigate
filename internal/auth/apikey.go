@@ -30,7 +30,6 @@ func (a *Auth) Update(keys []config.KeyConfig) {
 			Name:    key.Name,
 			Owner:   key.Owner,
 			Purpose: key.Purpose,
-			Admin:   key.Admin,
 		}
 	}
 	a.mu.Lock()

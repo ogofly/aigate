@@ -17,29 +17,29 @@ import (
 type Handler struct {
 	auth          *auth.Auth
 	admin         config.AdminConfig
+	client        provider.Client
 	router        *router.Router
 	usage         *usage.Recorder
 	store         *store.SQLiteStore
 	providerNames []string
-	providerBuild func([]config.ProviderConfig) (map[string]provider.Provider, []string, error)
 	sessions      *adminSessionStore
 	mux           *http.ServeMux
 }
 
 func New(authenticator *auth.Auth, admin config.AdminConfig, rt *router.Router, recorder *usage.Recorder, sqliteStore *store.SQLiteStore, providerNames []string) http.Handler {
-	return NewWithProviderBuilder(authenticator, admin, rt, recorder, sqliteStore, providerNames, buildProviders)
+	return NewWithClient(authenticator, admin, provider.NewOpenAILikeClient(), rt, recorder, sqliteStore, providerNames)
 }
 
-func NewWithProviderBuilder(authenticator *auth.Auth, admin config.AdminConfig, rt *router.Router, recorder *usage.Recorder, sqliteStore *store.SQLiteStore, providerNames []string, providerBuild func([]config.ProviderConfig) (map[string]provider.Provider, []string, error)) http.Handler {
+func NewWithClient(authenticator *auth.Auth, admin config.AdminConfig, client provider.Client, rt *router.Router, recorder *usage.Recorder, sqliteStore *store.SQLiteStore, providerNames []string) http.Handler {
 	sort.Strings(providerNames)
 	h := &Handler{
 		auth:          authenticator,
 		admin:         admin,
+		client:        client,
 		router:        rt,
 		usage:         recorder,
 		store:         sqliteStore,
 		providerNames: providerNames,
-		providerBuild: providerBuild,
 		sessions:      newAdminSessionStore(),
 		mux:           http.NewServeMux(),
 	}
@@ -81,21 +81,6 @@ func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 func (h *Handler) ReloadModelsFromStore(ctx context.Context) error {
 	return h.reloadModels(ctx)
-}
-
-func buildProviders(configs []config.ProviderConfig) (map[string]provider.Provider, []string, error) {
-	providers := make(map[string]provider.Provider, len(configs))
-	names := make([]string, 0, len(configs))
-	for _, pc := range configs {
-		p, err := provider.NewOpenAILike(pc)
-		if err != nil {
-			return nil, nil, err
-		}
-		providers[pc.Name] = p
-		names = append(names, pc.Name)
-	}
-	sort.Strings(names)
-	return providers, names, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
