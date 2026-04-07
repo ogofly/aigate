@@ -21,32 +21,44 @@ import (
 
 const adminSessionCookie = "aigate_admin_session"
 
+type webRole string
+
+const (
+	roleAdmin webRole = "admin"
+	roleUser  webRole = "user"
+)
+
+type webSession struct {
+	Role     webRole
+	Username string
+}
+
 type adminSessionStore struct {
 	mu     sync.RWMutex
-	tokens map[string]struct{}
+	tokens map[string]webSession
 }
 
 func newAdminSessionStore() *adminSessionStore {
-	return &adminSessionStore{tokens: make(map[string]struct{})}
+	return &adminSessionStore{tokens: make(map[string]webSession)}
 }
 
-func (s *adminSessionStore) New() (string, error) {
+func (s *adminSessionStore) New(session webSession) (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
 	token := hex.EncodeToString(buf)
 	s.mu.Lock()
-	s.tokens[token] = struct{}{}
+	s.tokens[token] = session
 	s.mu.Unlock()
 	return token, nil
 }
 
-func (s *adminSessionStore) Has(token string) bool {
+func (s *adminSessionStore) Get(token string) (webSession, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	_, ok := s.tokens[token]
-	return ok
+	session, ok := s.tokens[token]
+	return session, ok
 }
 
 func (s *adminSessionStore) Delete(token string) {
@@ -58,6 +70,8 @@ func (s *adminSessionStore) Delete(token string) {
 type adminViewData struct {
 	Title         string
 	Error         string
+	IsAdmin       bool
+	CurrentUser   string
 	Keys          []config.KeyConfig
 	ProvidersCfg  []config.ProviderConfig
 	Providers     []string
@@ -74,26 +88,38 @@ type adminViewData struct {
 	PlayStream    bool
 	PlayResult    string
 	PlayError     string
+	APIBase       string
 }
 
 func (h *Handler) handleAdminLoginPage(w http.ResponseWriter, r *http.Request) {
-	if h.adminAuthed(r) {
-		http.Redirect(w, r, "/admin/models", http.StatusSeeOther)
+	if _, ok := h.webSession(r); ok {
+		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 		return
 	}
-	_ = adminLoginTemplate.Execute(w, adminViewData{Title: "Admin Login"})
+	_ = adminLoginTemplate.Execute(w, adminViewData{Title: "Login"})
 }
 
 func (h *Handler) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		_ = adminLoginTemplate.Execute(w, adminViewData{Title: "Admin Login", Error: "invalid form"})
+		_ = adminLoginTemplate.Execute(w, adminViewData{Title: "Login", Error: "invalid form"})
 		return
 	}
-	if r.FormValue("username") != h.admin.Username || r.FormValue("password") != h.admin.Password {
-		_ = adminLoginTemplate.Execute(w, adminViewData{Title: "Admin Login", Error: "invalid credentials"})
-		return
+	username := strings.TrimSpace(r.FormValue("username"))
+	password := strings.TrimSpace(r.FormValue("password"))
+	session := webSession{}
+	switch {
+	case username == h.admin.Username && password == h.admin.Password:
+		session = webSession{Role: roleAdmin, Username: username}
+	default:
+		keyCfg, err := h.store.GetAuthKey(r.Context(), password)
+		if err != nil || keyCfg.Owner == "" || keyCfg.Owner != username {
+			_ = adminLoginTemplate.Execute(w, adminViewData{Title: "Login", Error: "invalid credentials"})
+			return
+		}
+		session = webSession{Role: roleUser, Username: username}
 	}
-	token, err := h.sessions.New()
+
+	token, err := h.sessions.New(session)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "admin_session_error", "failed to create session")
 		return
@@ -105,7 +131,7 @@ func (h *Handler) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
-	http.Redirect(w, r, "/admin/models", http.StatusSeeOther)
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
 func (h *Handler) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
@@ -122,21 +148,33 @@ func (h *Handler) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleAdminHome(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/admin/providers", http.StatusSeeOther)
+	session, ok := h.requireWebSession(w, r)
+	if !ok {
+		return
+	}
+	if session.Role == roleAdmin {
+		http.Redirect(w, r, "/admin/providers", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/admin/keys", http.StatusSeeOther)
 }
 
 func (h *Handler) handleAdminKeysPage(w http.ResponseWriter, r *http.Request) {
-	if !h.requireAdminSession(w, r) {
+	session, ok := h.requireWebSession(w, r)
+	if !ok {
 		return
 	}
-	keys, err := h.store.ListAuthKeys(r.Context())
+	keys, err := h.visibleKeys(r.Context(), session)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "admin_keys_error", err.Error())
 		return
 	}
 	data := adminViewData{
 		Title:       "Keys",
+		IsAdmin:     session.Role == roleAdmin,
+		CurrentUser: session.Username,
 		Keys:        keys,
+		APIBase:     publicAPIBaseURL(r),
 		CurrentPath: "/admin/keys",
 		Flash:       r.URL.Query().Get("flash"),
 	}
@@ -144,7 +182,8 @@ func (h *Handler) handleAdminKeysPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleAdminKeysSave(w http.ResponseWriter, r *http.Request) {
-	if !h.requireAdminSession(w, r) {
+	session, ok := h.requireWebSession(w, r)
+	if !ok {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -156,6 +195,9 @@ func (h *Handler) handleAdminKeysSave(w http.ResponseWriter, r *http.Request) {
 		Name:    strings.TrimSpace(r.FormValue("name")),
 		Owner:   strings.TrimSpace(r.FormValue("owner")),
 		Purpose: strings.TrimSpace(r.FormValue("purpose")),
+	}
+	if session.Role != roleAdmin {
+		key.Owner = session.Username
 	}
 	if key.Key == "" {
 		writeError(w, http.StatusBadRequest, "invalid_request", "key is required")
@@ -173,7 +215,8 @@ func (h *Handler) handleAdminKeysSave(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleAdminKeysDelete(w http.ResponseWriter, r *http.Request) {
-	if !h.requireAdminSession(w, r) {
+	session, ok := h.requireWebSession(w, r)
+	if !ok {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -184,6 +227,17 @@ func (h *Handler) handleAdminKeysDelete(w http.ResponseWriter, r *http.Request) 
 	if key == "" {
 		writeError(w, http.StatusBadRequest, "invalid_request", "key is required")
 		return
+	}
+	if session.Role != roleAdmin {
+		keyCfg, err := h.store.GetAuthKey(r.Context(), key)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", "key not found")
+			return
+		}
+		if keyCfg.Owner != session.Username {
+			writeError(w, http.StatusForbidden, "forbidden", "cannot delete key of another owner")
+			return
+		}
 	}
 	if err := h.store.DeleteAuthKey(r.Context(), key); err != nil {
 		writeError(w, http.StatusInternalServerError, "admin_key_delete_error", err.Error())
@@ -197,7 +251,12 @@ func (h *Handler) handleAdminKeysDelete(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) handleAdminProvidersPage(w http.ResponseWriter, r *http.Request) {
-	if !h.requireAdminSession(w, r) {
+	session, ok := h.requireWebSession(w, r)
+	if !ok {
+		return
+	}
+	if session.Role != roleAdmin {
+		writeError(w, http.StatusForbidden, "forbidden", "admin required")
 		return
 	}
 	providersCfg, err := h.store.ListProviders(r.Context())
@@ -207,6 +266,8 @@ func (h *Handler) handleAdminProvidersPage(w http.ResponseWriter, r *http.Reques
 	}
 	data := adminViewData{
 		Title:        "Providers",
+		IsAdmin:      true,
+		CurrentUser:  session.Username,
 		ProvidersCfg: providersCfg,
 		CurrentPath:  "/admin/providers",
 		Flash:        r.URL.Query().Get("flash"),
@@ -287,7 +348,8 @@ func (h *Handler) handleAdminProvidersDelete(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) handleAdminModelsPage(w http.ResponseWriter, r *http.Request) {
-	if !h.requireAdminSession(w, r) {
+	session, ok := h.requireWebSession(w, r)
+	if !ok {
 		return
 	}
 	models, err := h.store.ListModels(r.Context())
@@ -297,6 +359,8 @@ func (h *Handler) handleAdminModelsPage(w http.ResponseWriter, r *http.Request) 
 	}
 	data := adminViewData{
 		Title:       "Models",
+		IsAdmin:     session.Role == roleAdmin,
+		CurrentUser: session.Username,
 		Providers:   h.providerNames,
 		Models:      models,
 		CurrentPath: "/admin/models",
@@ -362,22 +426,30 @@ func (h *Handler) handleAdminModelsDelete(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
-	if !h.requireAdminSession(w, r) {
+	session, ok := h.requireWebSession(w, r)
+	if !ok {
 		return
+	}
+	summaries := h.usage.Summaries()
+	if session.Role != roleAdmin {
+		summaries = filterUsageByOwner(summaries, session.Username)
 	}
 	data := adminViewData{
 		Title:       "Usage",
-		Usage:       h.usage.Summaries(),
+		IsAdmin:     session.Role == roleAdmin,
+		CurrentUser: session.Username,
+		Usage:       summaries,
 		CurrentPath: "/admin/usage/view",
 	}
 	_ = adminUsageTemplate.Execute(w, data)
 }
 
 func (h *Handler) handleAdminPlaygroundPage(w http.ResponseWriter, r *http.Request) {
-	if !h.requireAdminSession(w, r) {
+	session, ok := h.requireWebSession(w, r)
+	if !ok {
 		return
 	}
-	data, err := h.buildPlaygroundViewData(r.Context(), r, "", "", false, "", "", "")
+	data, err := h.buildPlaygroundViewData(r.Context(), r, session, "", "", false, "", "", "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "admin_playground_error", err.Error())
 		return
@@ -386,7 +458,8 @@ func (h *Handler) handleAdminPlaygroundPage(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Request) {
-	if !h.requireAdminSession(w, r) {
+	session, ok := h.requireWebSession(w, r)
+	if !ok {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -400,7 +473,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 	stream := r.FormValue("stream") == "on"
 
 	if key == "" || model == "" || message == "" {
-		data, err := h.buildPlaygroundViewData(r.Context(), r, key, model, stream, message, "", "api_key, model and message are required")
+		data, err := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", "api_key, model and message are required")
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "admin_playground_error", err.Error())
 			return
@@ -411,7 +484,16 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 
 	principal, ok := h.authenticateAPIKeyValue(key)
 	if !ok {
-		data, err := h.buildPlaygroundViewData(r.Context(), r, key, model, stream, message, "", "invalid api key")
+		data, err := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", "invalid api key")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "admin_playground_error", err.Error())
+			return
+		}
+		_ = adminPlaygroundTemplate.Execute(w, data)
+		return
+	}
+	if session.Role != roleAdmin && principal.Owner != session.Username {
+		data, err := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", "selected api key is not owned by current user")
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "admin_playground_error", err.Error())
 			return
@@ -422,7 +504,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 
 	target, err := h.router.Resolve(model)
 	if err != nil {
-		data, buildErr := h.buildPlaygroundViewData(r.Context(), r, key, model, stream, message, "", "model not found")
+		data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", "model not found")
 		if buildErr != nil {
 			writeError(w, http.StatusInternalServerError, "admin_playground_error", buildErr.Error())
 			return
@@ -432,7 +514,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 	}
 	providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
 	if err != nil {
-		data, buildErr := h.buildPlaygroundViewData(r.Context(), r, key, model, stream, message, "", err.Error())
+		data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", err.Error())
 		if buildErr != nil {
 			writeError(w, http.StatusInternalServerError, "admin_playground_error", buildErr.Error())
 			return
@@ -456,7 +538,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 		if err != nil {
 			log.Printf("method=%s path=%s op=admin_playground_chat stream=true provider=%s error=%v", r.Method, r.URL.Path, target.ProviderName, err)
 			h.recordUsage(principal, "chat.completions", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, key, model, stream, message, "", err.Error())
+			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", err.Error())
 			if buildErr != nil {
 				writeError(w, http.StatusInternalServerError, "admin_playground_error", buildErr.Error())
 				return
@@ -467,7 +549,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 		defer reader.Close()
 		body, err := io.ReadAll(reader)
 		if err != nil {
-			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, key, model, stream, message, "", err.Error())
+			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", err.Error())
 			if buildErr != nil {
 				writeError(w, http.StatusInternalServerError, "admin_playground_error", buildErr.Error())
 				return
@@ -482,7 +564,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 		if err != nil {
 			log.Printf("method=%s path=%s op=admin_playground_chat stream=false provider=%s error=%v", r.Method, r.URL.Path, target.ProviderName, err)
 			h.recordUsage(principal, "chat.completions", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, key, model, stream, message, "", err.Error())
+			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", err.Error())
 			if buildErr != nil {
 				writeError(w, http.StatusInternalServerError, "admin_playground_error", buildErr.Error())
 				return
@@ -499,7 +581,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	data, err := h.buildPlaygroundViewData(r.Context(), r, key, model, stream, message, output, "")
+	data, err := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, output, "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "admin_playground_error", err.Error())
 		return
@@ -508,8 +590,8 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 	_ = adminPlaygroundTemplate.Execute(w, data)
 }
 
-func (h *Handler) buildPlaygroundViewData(ctx context.Context, r *http.Request, selectedKey, selectedModel string, stream bool, message, result, errMsg string) (adminViewData, error) {
-	keys, err := h.store.ListAuthKeys(ctx)
+func (h *Handler) buildPlaygroundViewData(ctx context.Context, r *http.Request, session webSession, selectedKey, selectedModel string, stream bool, message, result, errMsg string) (adminViewData, error) {
+	keys, err := h.visibleKeys(ctx, session)
 	if err != nil {
 		return adminViewData{}, err
 	}
@@ -527,6 +609,8 @@ func (h *Handler) buildPlaygroundViewData(ctx context.Context, r *http.Request, 
 
 	return adminViewData{
 		Title:       "Playground",
+		IsAdmin:     session.Role == roleAdmin,
+		CurrentUser: session.Username,
 		CurrentPath: "/admin/playground",
 		Keys:        keys,
 		PlayModels:  models,
@@ -580,20 +664,55 @@ func extractChatText(resp *provider.ChatResponse) string {
 	return strings.TrimSpace(content)
 }
 
-func (h *Handler) requireAdminSession(w http.ResponseWriter, r *http.Request) bool {
-	if h.adminAuthed(r) {
-		return true
+func (h *Handler) webSession(r *http.Request) (webSession, bool) {
+	cookie, err := r.Cookie(adminSessionCookie)
+	if err != nil {
+		return webSession{}, false
+	}
+	return h.sessions.Get(cookie.Value)
+}
+
+func (h *Handler) requireWebSession(w http.ResponseWriter, r *http.Request) (webSession, bool) {
+	session, ok := h.webSession(r)
+	if ok {
+		return session, true
 	}
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+	return webSession{}, false
+}
+
+func (h *Handler) requireAdminSession(w http.ResponseWriter, r *http.Request) bool {
+	session, ok := h.requireWebSession(w, r)
+	if !ok {
+		return false
+	}
+	if session.Role == roleAdmin {
+		return true
+	}
+	writeError(w, http.StatusForbidden, "forbidden", "admin required")
 	return false
 }
 
 func (h *Handler) adminAuthed(r *http.Request) bool {
-	cookie, err := r.Cookie(adminSessionCookie)
-	if err != nil {
-		return false
+	session, ok := h.webSession(r)
+	return ok && session.Role == roleAdmin
+}
+
+func (h *Handler) visibleKeys(ctx context.Context, session webSession) ([]config.KeyConfig, error) {
+	if session.Role == roleAdmin {
+		return h.store.ListAuthKeys(ctx)
 	}
-	return h.sessions.Has(cookie.Value)
+	return h.store.ListAuthKeysByOwner(ctx, session.Username)
+}
+
+func filterUsageByOwner(summaries []usage.Summary, owner string) []usage.Summary {
+	filtered := make([]usage.Summary, 0, len(summaries))
+	for _, summary := range summaries {
+		if summary.Owner == owner {
+			filtered = append(filtered, summary)
+		}
+	}
+	return filtered
 }
 
 func (h *Handler) reloadModels(ctx context.Context) error {

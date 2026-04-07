@@ -449,6 +449,37 @@ func (s *SQLiteStore) ListAuthKeys(ctx context.Context) ([]config.KeyConfig, err
 	return out, rows.Err()
 }
 
+func (s *SQLiteStore) ListAuthKeysByOwner(ctx context.Context, owner string) ([]config.KeyConfig, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT key, name, owner, purpose FROM auth_keys WHERE owner = ? ORDER BY key`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []config.KeyConfig
+	for rows.Next() {
+		var item config.KeyConfig
+		if err := rows.Scan(&item.Key, &item.Name, &item.Owner, &item.Purpose); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) GetAuthKey(ctx context.Context, key string) (config.KeyConfig, error) {
+	var item config.KeyConfig
+	err := s.db.QueryRowContext(ctx, `SELECT key, name, owner, purpose FROM auth_keys WHERE key = ?`, key).
+		Scan(&item.Key, &item.Name, &item.Owner, &item.Purpose)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return config.KeyConfig{}, fmt.Errorf("auth key not found")
+		}
+		return config.KeyConfig{}, err
+	}
+	return item, nil
+}
+
 func (s *SQLiteStore) UpsertProvider(ctx context.Context, provider config.ProviderConfig) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO providers(name, api_key, base_url, api_key_ref, timeout_seconds, updated_at)

@@ -639,3 +639,124 @@ func TestAdminPlaygroundChatWorks(t *testing.T) {
 		t.Fatalf("unexpected chat request: %#v", p.lastChat)
 	}
 }
+
+func TestUserLoginShowsOnlyOwnerKeys(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "openai/gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	keys := []config.KeyConfig{
+		{Key: "sk-alice-001", Name: "alice-key", Owner: "alice"},
+		{Key: "sk-bob-001", Name: "bob-key", Owner: "bob"},
+	}
+	handler := newHandler(t, keys, rt, usage.New(100), &stubProvider{})
+
+	loginBody := bytes.NewBufferString("username=alice&password=sk-alice-001")
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	if loginRR.Code != http.StatusSeeOther {
+		t.Fatalf("login status = %d, want %d", loginRR.Code, http.StatusSeeOther)
+	}
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected user session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/keys", nil)
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "alice-key") {
+		t.Fatalf("missing alice key row: %q", body)
+	}
+	if strings.Contains(body, "bob-key") {
+		t.Fatalf("unexpected bob key row: %q", body)
+	}
+	if strings.Contains(body, "placeholder=\"owner\"") {
+		t.Fatalf("owner input should be hidden for non-admin: %q", body)
+	}
+}
+
+func TestUserCannotAccessProvidersPage(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "openai/gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	keys := []config.KeyConfig{{Key: "sk-alice-001", Name: "alice-key", Owner: "alice"}}
+	handler := newHandler(t, keys, rt, usage.New(100), &stubProvider{})
+
+	loginBody := bytes.NewBufferString("username=alice&password=sk-alice-001")
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected user session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+}
+
+func TestAdminUsageFiltersByOwnerForUserSession(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	recorder := usage.New(100)
+	recorder.Record(usage.NewRecord(auth.Principal{Key: "sk-alice-001", Name: "alice-key", Owner: "alice"}, "chat.completions", "openai", "gpt-4o-mini", "gpt-4o-mini", true, 1, 2, 3, http.StatusOK, 0))
+	recorder.Record(usage.NewRecord(auth.Principal{Key: "sk-bob-001", Name: "bob-key", Owner: "bob"}, "chat.completions", "openai", "gpt-4o-mini", "gpt-4o-mini", true, 1, 2, 3, http.StatusOK, 0))
+	keys := []config.KeyConfig{
+		{Key: "sk-alice-001", Name: "alice-key", Owner: "alice"},
+		{Key: "sk-bob-001", Name: "bob-key", Owner: "bob"},
+	}
+	handler := newHandler(t, keys, rt, recorder, &stubProvider{})
+
+	loginBody := bytes.NewBufferString("username=alice&password=sk-alice-001")
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected user session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage", nil)
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	var payload struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(payload.Data) != 1 {
+		t.Fatalf("len(data) = %d, want %d", len(payload.Data), 1)
+	}
+	if got, _ := payload.Data[0]["owner"].(string); got != "alice" {
+		t.Fatalf("owner = %q, want %q", got, "alice")
+	}
+}

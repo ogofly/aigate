@@ -25,6 +25,7 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
 {{template "admin_nav" .}}
 <h1>Keys</h1>
 {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+<div class="muted" style="margin-top:8px">OpenAI compatible: base URL <span class="key-text" style="cursor:text">{{.APIBase}}</span>, use <span class="key-text" style="cursor:text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
 
 <form method="post" action="/admin/keys" style="margin-top:20px">
   <span class="key-gen">
@@ -32,7 +33,7 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
     <button type="button" class="ghost gen-btn" onclick="generateKey()">Generate</button>
   </span>
   <input name="name" placeholder="name">
-  <input name="owner" placeholder="owner">
+  {{if .IsAdmin}}<input name="owner" placeholder="owner">{{end}}
   <input name="purpose" placeholder="purpose">
   <button type="submit">Save</button>
 </form>
@@ -41,7 +42,7 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
   <thead>
     <tr>
       <th>Name</th>
-      <th>Owner</th>
+      {{if .IsAdmin}}<th>Owner</th>{{end}}
       <th>Purpose</th>
       <th>Key</th>
       <th></th>
@@ -51,7 +52,7 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
     {{range .Keys}}
     <tr>
       <td>{{.Name}}</td>
-      <td>{{.Owner}}</td>
+      {{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}
       <td>{{.Purpose}}</td>
       <td>
         <div class="key-cell">
@@ -67,7 +68,7 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
       </td>
     </tr>
     {{else}}
-    <tr><td colspan="5" class="muted">No keys</td></tr>
+    <tr><td colspan="{{if .IsAdmin}}5{{else}}4{{end}}" class="muted">No keys</td></tr>
     {{end}}
   </tbody>
 </table>
