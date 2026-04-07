@@ -57,13 +57,32 @@ async function copyText(id, button){
   const el = document.getElementById(id);
   if(!el){return;}
   try{
-    await navigator.clipboard.writeText(el.textContent || "");
+    await copyWithFallback(el.textContent || "");
     const origin = button.textContent;
     button.textContent = "Copied";
     setTimeout(()=>{button.textContent = origin;}, 1000);
-  }catch(_){
+  }catch(_e){
     button.textContent = "Failed";
     setTimeout(()=>{button.textContent = "Copy";}, 1000);
+  }
+}
+
+async function copyWithFallback(value){
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textArea = document.createElement("textarea");
+  textArea.value = value;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  document.body.appendChild(textArea);
+  textArea.select();
+  const ok = document.execCommand("copy");
+  document.body.removeChild(textArea);
+  if (!ok) {
+    throw new Error("copy failed");
   }
 }
 </script>
