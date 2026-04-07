@@ -555,6 +555,12 @@ func TestAdminKeysPageMasksKeyByDefault(t *testing.T) {
 	if !strings.Contains(body, "onclick=\"toggleKeyText(this)\"") {
 		t.Fatalf("body missing key click toggle handler: %q", body)
 	}
+	if !strings.Contains(body, "onclick=\"generateKey()\"") {
+		t.Fatalf("body missing generate key button: %q", body)
+	}
+	if !strings.Contains(body, "sk-") {
+		t.Fatalf("body missing sk- key prefix in generator: %q", body)
+	}
 }
 
 func TestAdminPlaygroundRequiresSession(t *testing.T) {
