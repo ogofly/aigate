@@ -1,0 +1,69 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>{{.Title}}</title>
+<style>
+:root{--bg:#16161a;--card:rgba(0,30,29,.45);--line:#72757e;--text:#fffffe;--muted:#94a1b2;--accent:#7f5af0}
+*{box-sizing:border-box}
+body{margin:0;background:#16161a;color:var(--text);font-family:-apple-system,BlinkMacSystemFont,sans-serif}
+.wrap{max-width:1280px;margin:24px auto;padding:0 16px}
+nav{display:flex;gap:14px;align-items:center;margin-bottom:18px}
+nav a{text-decoration:none;color:#fffffe}
+.logout{margin-left:auto}
+button{border:0;background:#7f5af0;color:#fffffe;border-radius:10px;padding:9px 14px;cursor:pointer;font-weight:600}
+.ghost{background:#72757e;color:#fffffe}
+.grid{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.title{font-size:20px;margin:0 0 8px}
+.muted{color:var(--muted)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+select,input,textarea{width:100%;padding:10px;border:1px solid #72757e;border-radius:10px;background:#fffffe;color:#010101}
+textarea{min-height:180px;resize:vertical}
+.actions{display:flex;gap:10px;align-items:center}
+.hint{font-size:12px;color:var(--muted)}
+.result{margin-top:12px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.02);padding:12px;white-space:pre-wrap;max-height:360px;overflow:auto}
+.error{margin-top:10px;padding:10px;border-radius:10px;background:#fff2f2;color:#9f2d2d;border:1px solid #ffd1d1}
+.kv{display:grid;grid-template-columns:120px 1fr auto;gap:8px;align-items:center;margin-bottom:8px}
+.mono{font-family:ui-monospace,SFMono-Regular,monospace;font-size:13px;word-break:break-all}
+@media (max-width:900px){.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}}
+</style>
+</head><body><div class="wrap">
+{{template "admin_nav" .}}
+<div class="grid">
+<section class="card">
+<h1 class="title">Playground</h1>
+<p class="muted">Use a managed API key to test one message quickly.</p>
+<form method="post" action="/admin/playground/chat">
+<div class="row">
+<div><label>API Key</label><select name="api_key">{{range .Keys}}<option value="{{.Key}}" {{if eq $.PlayAPIKey .Key}}selected{{end}}>{{if .Name}}{{.Name}}{{else}}(unnamed){{end}} / {{.Key}}</option>{{end}}</select></div>
+<div><label>Model</label><select name="model">{{range .PlayModels}}<option value="{{.}}" {{if eq $.PlayModel .}}selected{{end}}>{{.}}</option>{{end}}</select></div>
+</div>
+<div style="margin-bottom:10px"><label>Message</label><textarea name="message" placeholder="Say something...">{{.PlayMessage}}</textarea></div>
+<div class="actions"><label><input type="checkbox" name="stream" {{if .PlayStream}}checked{{end}} style="width:auto"> Stream</label><button type="submit">Send</button><a class="hint" href="/admin/playground">Clear</a></div>
+</form>
+{{if .PlayError}}<div class="error">{{.PlayError}}</div>{{end}}
+{{if .PlayResult}}<div class="result">{{.PlayResult}}</div>{{end}}
+</section>
+<aside class="card">
+<h2 class="title">Connect Settings</h2>
+<p class="muted">Copy these values into your local client app.</p>
+<div class="kv"><div class="muted">API Base URL</div><div class="mono" id="cfg-base">{{.PlayAPIBase}}</div><button type="button" class="ghost" onclick="copyText('cfg-base', this)">Copy</button></div>
+<div class="kv"><div class="muted">API Key</div><div class="mono" id="cfg-key">{{.PlayAPIKey}}</div><button type="button" class="ghost" onclick="copyText('cfg-key', this)">Copy</button></div>
+<div class="kv"><div class="muted">Model</div><div class="mono" id="cfg-model">{{.PlayModel}}</div><button type="button" class="ghost" onclick="copyText('cfg-model', this)">Copy</button></div>
+</aside>
+</div>
+</div>
+<script>
+async function copyText(id, button){
+  const el = document.getElementById(id);
+  if(!el){return;}
+  try{
+    await navigator.clipboard.writeText(el.textContent || "");
+    const origin = button.textContent;
+    button.textContent = "Copied";
+    setTimeout(()=>{button.textContent = origin;}, 1000);
+  }catch(_){
+    button.textContent = "Failed";
+    setTimeout(()=>{button.textContent = "Copy";}, 1000);
+  }
+}
+</script>
+</body></html>

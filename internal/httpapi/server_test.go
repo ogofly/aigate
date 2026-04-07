@@ -549,8 +549,11 @@ func TestAdminKeysPageMasksKeyByDefault(t *testing.T) {
 	if !strings.Contains(body, ">****<") {
 		t.Fatalf("body missing masked key: %q", body)
 	}
-	if !strings.Contains(body, ">Show<") || !strings.Contains(body, ">Copy<") {
-		t.Fatalf("body missing show/copy buttons: %q", body)
+	if !strings.Contains(body, ">Copy<") {
+		t.Fatalf("body missing copy button: %q", body)
+	}
+	if !strings.Contains(body, "onclick=\"toggleKeyText(this)\"") {
+		t.Fatalf("body missing key click toggle handler: %q", body)
 	}
 }
 
