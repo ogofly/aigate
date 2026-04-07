@@ -61,7 +61,7 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
         </div>
       </td>
       <td>
-        <form method="post" action="/admin/keys/delete">
+        <form method="post" action="/admin/keys/delete" onsubmit="return confirmDeleteKey()">
           <input type="hidden" name="key" value="{{.Key}}">
           <button type="submit">Delete</button>
         </form>
@@ -117,6 +117,10 @@ function generateKey(){
   input.value = "sk-" + randomSuffix(32);
   input.focus();
   input.select();
+}
+
+function confirmDeleteKey(){
+  return window.confirm("Delete this API key?");
 }
 </script>
 </body>

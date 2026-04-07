@@ -561,6 +561,71 @@ func TestAdminKeysPageMasksKeyByDefault(t *testing.T) {
 	if !strings.Contains(body, "sk-") {
 		t.Fatalf("body missing sk- key prefix in generator: %q", body)
 	}
+	if !strings.Contains(body, "onsubmit=\"return confirmDeleteKey()\"") {
+		t.Fatalf("body missing key delete confirm: %q", body)
+	}
+}
+
+func TestAdminProvidersPageHasDeleteConfirm(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-bootstrap-001"}}, rt, usage.New(100), &stubProvider{})
+
+	loginBody := bytes.NewBufferString("username=admin&password=pass")
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if !strings.Contains(rr.Body.String(), "onsubmit=\"return confirmDeleteProvider()\"") {
+		t.Fatalf("providers page missing delete confirm: %q", rr.Body.String())
+	}
+}
+
+func TestAdminModelsPageHasDeleteConfirm(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-bootstrap-001"}}, rt, usage.New(100), &stubProvider{})
+
+	loginBody := bytes.NewBufferString("username=admin&password=pass")
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/models", nil)
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if !strings.Contains(rr.Body.String(), "function confirmDeleteModel()") {
+		t.Fatalf("models page missing delete confirm function: %q", rr.Body.String())
+	}
 }
 
 func TestAdminPlaygroundRequiresSession(t *testing.T) {

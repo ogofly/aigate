@@ -1,4 +1,84 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>{{.Title}}</title>
-<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:1280px;margin:32px auto;padding:0 16px;color:#fffffe;background:#16161a}nav a{margin-right:16px;color:#fffffe;text-decoration:none}table{width:100%;border-collapse:collapse;margin-top:24px;background:rgba(255,255,255,.03)}th,td{padding:10px;border-bottom:1px solid #72757e;text-align:left}input,select{padding:10px;border:1px solid #72757e;border-radius:8px;margin-right:8px;background:#fffffe;color:#010101}button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:8px;cursor:pointer;font-weight:600}.muted{color:#94a1b2}.flash{padding:10px 12px;background:#72757e;border-radius:8px;margin-top:16px;color:#fffffe}</style>
-</head><body>{{template "admin_nav" .}}<h1>Models</h1>{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}{{if .IsAdmin}}<form method="post" action="/admin/models" style="margin-top:20px"><input name="public_name" placeholder="public name"><select name="provider">{{range .Providers}}<option value="{{.}}">{{.}}</option>{{end}}</select><input name="upstream_name" placeholder="upstream name"><button type="submit">Save</button></form>{{else}}<div class="muted" style="margin-top:12px">OpenAI compatible models list for current user.</div>{{end}}<table><thead><tr><th>Public</th><th>Provider</th><th>Upstream</th>{{if .IsAdmin}}<th></th>{{end}}</tr></thead><tbody>{{range .Models}}<tr><td>{{.PublicName}}</td><td>{{.Provider}}</td><td>{{.UpstreamName}}</td>{{if $.IsAdmin}}<td><form method="post" action="/admin/models/delete"><input type="hidden" name="public_name" value="{{.PublicName}}"><button type="submit">Delete</button></form></td>{{end}}</tr>{{else}}<tr><td colspan="{{if .IsAdmin}}4{{else}}3{{end}}" class="muted">No models</td></tr>{{end}}</tbody></table></body></html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{{.Title}}</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:1280px;margin:32px auto;padding:0 16px;color:#fffffe;background:#16161a}
+nav a{margin-right:16px;color:#fffffe;text-decoration:none}
+table{width:100%;border-collapse:collapse;margin-top:24px;background:rgba(255,255,255,.03)}
+th,td{padding:10px;border-bottom:1px solid #72757e;text-align:left}
+input,select{padding:10px;border:1px solid #72757e;border-radius:8px;margin-right:8px;background:#fffffe;color:#010101}
+button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:8px;cursor:pointer;font-weight:600}
+.muted{color:#94a1b2}
+.flash{padding:10px 12px;background:#72757e;border-radius:8px;margin-top:16px;color:#fffffe}
+.sort-btn{background:none;border:0;color:#fffffe;padding:0;cursor:pointer;font:inherit}
+</style>
+</head>
+<body>
+{{template "admin_nav" .}}
+<h1>Models</h1>
+{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+{{if .IsAdmin}}
+<form method="post" action="/admin/models" style="margin-top:20px">
+  <input name="public_name" placeholder="public name">
+  <select name="provider">{{range .Providers}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+  <input name="upstream_name" placeholder="upstream name">
+  <button type="submit">Save</button>
+</form>
+{{else}}
+<div class="muted" style="margin-top:12px">OpenAI compatible models list for current user.</div>
+{{end}}
+<table id="models-table">
+  <thead>
+    <tr>
+      <th><button type="button" class="sort-btn" onclick="sortTable('models-table',0)">Public</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('models-table',1)">Provider</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('models-table',2)">Upstream</button></th>
+      {{if .IsAdmin}}<th></th>{{end}}
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Models}}
+    <tr>
+      <td>{{.PublicName}}</td>
+      <td>{{.Provider}}</td>
+      <td>{{.UpstreamName}}</td>
+      {{if $.IsAdmin}}
+      <td>
+        <form method="post" action="/admin/models/delete" onsubmit="return confirmDeleteModel()">
+          <input type="hidden" name="public_name" value="{{.PublicName}}">
+          <button type="submit">Delete</button>
+        </form>
+      </td>
+      {{end}}
+    </tr>
+    {{else}}
+    <tr><td colspan="{{if .IsAdmin}}4{{else}}3{{end}}" class="muted">No models</td></tr>
+    {{end}}
+  </tbody>
+</table>
+<script>
+function sortTable(tableId, col){
+  const table = document.getElementById(tableId);
+  if(!table || !table.tBodies || table.tBodies.length === 0){return;}
+  const tbody = table.tBodies[0];
+  const rows = Array.from(tbody.rows);
+  if(rows.length === 0){return;}
+  const nextAsc = table.dataset.sortCol !== String(col) ? true : table.dataset.sortAsc !== "true";
+  rows.sort((a, b) => {
+    const av = (a.cells[col]?.textContent || "").trim();
+    const bv = (b.cells[col]?.textContent || "").trim();
+    return nextAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+  });
+  for(const row of rows){tbody.appendChild(row);}
+  table.dataset.sortCol = String(col);
+  table.dataset.sortAsc = nextAsc ? "true" : "false";
+}
+
+function confirmDeleteModel(){
+  return window.confirm("Delete this model?");
+}
+</script>
+</body>
+</html>
