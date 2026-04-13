@@ -1,16 +1,15 @@
-package provider_test
+package provider
 
 import (
 	"testing"
 
 	"aigate/internal/config"
-	"aigate/internal/provider"
 )
 
 func TestNewOpenAILikeReadsAPIKeyFromEnvRef(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-secret")
 
-	p, err := provider.NewOpenAILike(config.ProviderConfig{
+	p, err := NewOpenAILike(config.ProviderConfig{
 		Name:           "openai",
 		BaseURL:        "https://api.openai.com/v1",
 		APIKeyRef:      "OPENAI_API_KEY",
@@ -27,7 +26,7 @@ func TestNewOpenAILikeReadsAPIKeyFromEnvRef(t *testing.T) {
 func TestNewOpenAILikePrefersDirectAPIKey(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "from-env")
 
-	p, err := provider.NewOpenAILike(config.ProviderConfig{
+	p, err := NewOpenAILike(config.ProviderConfig{
 		Name:           "openai",
 		BaseURL:        "https://api.openai.com/v1",
 		APIKey:         "from-config",
@@ -39,5 +38,17 @@ func TestNewOpenAILikePrefersDirectAPIKey(t *testing.T) {
 	}
 	if p == nil {
 		t.Fatal("NewOpenAILike() returned nil provider")
+	}
+}
+
+func TestNewHTTPClientKeepsTimeoutForNonStreamOnly(t *testing.T) {
+	regular := newHTTPClient(3, false)
+	if regular.Timeout != 3 {
+		t.Fatalf("regular.Timeout = %v, want %v", regular.Timeout, 3)
+	}
+
+	stream := newHTTPClient(3, true)
+	if stream.Timeout != 0 {
+		t.Fatalf("stream.Timeout = %v, want %v", stream.Timeout, 0)
 	}
 }

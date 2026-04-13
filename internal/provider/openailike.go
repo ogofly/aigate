@@ -29,6 +29,10 @@ func NewOpenAILikeClient() *OpenAILikeClient {
 }
 
 func newOpenAILikeProvider(cfg config.ProviderConfig) (*OpenAILikeProvider, error) {
+	return newOpenAILikeProviderWithStream(cfg, false)
+}
+
+func newOpenAILikeProviderWithStream(cfg config.ProviderConfig, stream bool) (*OpenAILikeProvider, error) {
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 	if _, err := url.Parse(baseURL); err != nil {
 		return nil, fmt.Errorf("invalid base_url: %w", err)
@@ -52,10 +56,16 @@ func newOpenAILikeProvider(cfg config.ProviderConfig) (*OpenAILikeProvider, erro
 	return &OpenAILikeProvider{
 		baseURL: baseURL,
 		apiKey:  apiKey,
-		client: &http.Client{
-			Timeout: timeout,
-		},
+		client:  newHTTPClient(timeout, stream),
 	}, nil
+}
+
+func newHTTPClient(timeout time.Duration, stream bool) *http.Client {
+	client := &http.Client{}
+	if !stream {
+		client.Timeout = timeout
+	}
+	return client
 }
 
 func NewOpenAILike(cfg config.ProviderConfig) (*OpenAILikeProvider, error) {
@@ -111,7 +121,7 @@ func (c *OpenAILikeClient) Chat(ctx context.Context, provider config.ProviderCon
 }
 
 func (c *OpenAILikeClient) ChatStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (io.ReadCloser, error) {
-	p, err := newOpenAILikeProvider(provider)
+	p, err := newOpenAILikeProviderWithStream(provider, true)
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +160,16 @@ func (c *OpenAILikeClient) ChatStream(ctx context.Context, provider config.Provi
 		log.Printf("provider=%s op=chat stream=true upstream_model=%s status=%d", provider.Name, upstreamModel, resp.StatusCode)
 		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
+
+	log.Printf(
+		"provider=%s op=chat stream=true upstream_model=%s upstream_status=%d content_type=%q transfer_encoding=%q content_encoding=%q",
+		provider.Name,
+		upstreamModel,
+		resp.StatusCode,
+		resp.Header.Get("Content-Type"),
+		strings.Join(resp.TransferEncoding, ","),
+		resp.Header.Get("Content-Encoding"),
+	)
 
 	return resp.Body, nil
 }

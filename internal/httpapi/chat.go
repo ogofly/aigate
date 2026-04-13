@@ -2,15 +2,27 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"aigate/internal/auth"
 	"aigate/internal/provider"
 	"aigate/internal/usage"
 )
+
+var streamRequestSeq uint64
+
+type streamUsageSnapshot struct {
+	requestTokens  int
+	responseTokens int
+	totalTokens    int
+	present        bool
+}
 
 func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
@@ -51,14 +63,16 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if req.Stream {
+		requestID := nextStreamRequestID()
 		stream, err := h.client.ChatStream(r.Context(), providerCfg, &req, target.UpstreamModel)
 		if err != nil {
-			log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s error=%v", r.Method, r.URL.Path, req.Model, target.ProviderName, err)
+			log.Printf("method=%s path=%s op=chat_completions request_id=%s model=%s provider=%s error=%v", r.Method, r.URL.Path, requestID, req.Model, target.ProviderName, err)
 			h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 			writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 			return
 		}
 		defer stream.Close()
+		log.Printf("method=%s path=%s op=chat_completions event=stream_start request_id=%s key_id=%s provider=%s model=%s upstream_model=%s remote_addr=%s user_agent=%q", r.Method, r.URL.Path, requestID, usage.KeyID(principal.Key), target.ProviderName, req.Model, target.UpstreamModel, r.RemoteAddr, r.UserAgent())
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -71,13 +85,47 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		}
 
 		w.WriteHeader(http.StatusOK)
-		if _, err := io.Copy(w, stream); err != nil {
-			log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s stream_copy_error=%v", r.Method, r.URL.Path, req.Model, target.ProviderName, err)
+		buf := make([]byte, 1024)
+		chunkCount := 0
+		bytesSent := 0
+		lastChunkAt := start
+		firstChunkLogged := false
+		sseEventCount := 0
+		sawDone := false
+		partialLine := ""
+		lastEvents := make([]string, 0, 3)
+		streamUsage := streamUsageSnapshot{}
+		for {
+			n, readErr := stream.Read(buf)
+			if n > 0 {
+				now := time.Now()
+				chunkCount++
+				bytesSent += n
+				partialLine, sseEventCount, sawDone, lastEvents, streamUsage = inspectSSEChunk(partialLine, string(buf[:n]), sseEventCount, sawDone, lastEvents, streamUsage)
+				if !firstChunkLogged {
+					log.Printf("method=%s path=%s op=chat_completions event=first_chunk request_id=%s provider=%s model=%s ttfb_ms=%d bytes=%d", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, now.Sub(start).Milliseconds(), n)
+					firstChunkLogged = true
+				} else if chunkCount == 5 || chunkCount%20 == 0 || now.Sub(lastChunkAt) >= 10*time.Second {
+					log.Printf("method=%s path=%s op=chat_completions event=stream_progress request_id=%s provider=%s model=%s chunk_count=%d bytes_sent=%d since_start_ms=%d since_last_chunk_ms=%d", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, chunkCount, bytesSent, now.Sub(start).Milliseconds(), now.Sub(lastChunkAt).Milliseconds())
+				}
+				if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+					log.Printf("method=%s path=%s op=chat_completions event=stream_abort request_id=%s provider=%s model=%s reason=downstream_write_error err=%v duration_ms=%d chunk_count=%d bytes_sent=%d sse_event_count=%d saw_done=%t last_events=%q", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, writeErr, time.Since(start).Milliseconds(), chunkCount, bytesSent, sseEventCount, sawDone, strings.Join(lastEvents, " | "))
+					return
+				}
+				flusher.Flush()
+				lastChunkAt = now
+			}
+			if readErr == nil {
+				continue
+			}
+			if readErr == io.EOF {
+				break
+			}
+			log.Printf("method=%s path=%s op=chat_completions event=stream_abort request_id=%s provider=%s model=%s reason=%s err=%v duration_ms=%d chunk_count=%d bytes_sent=%d sse_event_count=%d saw_done=%t last_events=%q", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, streamAbortReason(readErr), readErr, time.Since(start).Milliseconds(), chunkCount, bytesSent, sseEventCount, sawDone, strings.Join(lastEvents, " | "))
 			return
 		}
-		flusher.Flush()
-		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, true, 0, 0, 0, http.StatusOK, time.Since(start))
-		log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s status=%d stream=%t", r.Method, r.URL.Path, req.Model, target.ProviderName, http.StatusOK, true)
+		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, true, streamUsage.requestTokens, streamUsage.responseTokens, streamUsage.totalTokens, http.StatusOK, time.Since(start))
+		log.Printf("method=%s path=%s op=chat_completions event=stream_end request_id=%s provider=%s model=%s status=%d duration_ms=%d chunk_count=%d bytes_sent=%d sse_event_count=%d saw_done=%t usage_present=%t request_tokens=%d response_tokens=%d total_tokens=%d last_events=%q stream=%t", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, http.StatusOK, time.Since(start).Milliseconds(), chunkCount, bytesSent, sseEventCount, sawDone, streamUsage.present, streamUsage.requestTokens, streamUsage.responseTokens, streamUsage.totalTokens, strings.Join(lastEvents, " | "), true)
 		return
 	}
 
@@ -100,4 +148,81 @@ func (h *Handler) recordUsage(principal auth.Principal, endpoint, providerName, 
 		return
 	}
 	h.usage.Record(usage.NewRecord(principal, endpoint, providerName, publicModel, upstreamModel, success, requestTokens, responseTokens, totalTokens, statusCode, latency))
+}
+
+func nextStreamRequestID() string {
+	return fmt.Sprintf("stream-%d", atomic.AddUint64(&streamRequestSeq, 1))
+}
+
+func streamAbortReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "context canceled"):
+		return "context_canceled"
+	case strings.Contains(msg, "deadline exceeded"):
+		return "deadline_exceeded"
+	case strings.Contains(msg, "broken pipe"), strings.Contains(msg, "connection reset by peer"):
+		return "client_disconnected"
+	case strings.Contains(msg, "unexpected eof"):
+		return "unexpected_eof"
+	default:
+		return "upstream_read_error"
+	}
+}
+
+func inspectSSEChunk(partial, chunk string, eventCount int, sawDone bool, lastEvents []string, snapshot streamUsageSnapshot) (string, int, bool, []string, streamUsageSnapshot) {
+	data := partial + chunk
+	lines := strings.Split(data, "\n")
+	newPartial := lines[len(lines)-1]
+	for _, line := range lines[:len(lines)-1] {
+		line = strings.TrimSuffix(line, "\r")
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" {
+			continue
+		}
+		eventCount++
+		if payload == "[DONE]" {
+			sawDone = true
+		} else if usageSnapshot, ok := extractUsageFromSSEPayload(payload); ok {
+			snapshot = usageSnapshot
+		}
+		lastEvents = append(lastEvents, summarizeSSEPayload(payload))
+		if len(lastEvents) > 3 {
+			lastEvents = lastEvents[len(lastEvents)-3:]
+		}
+	}
+	return newPartial, eventCount, sawDone, lastEvents, snapshot
+}
+
+func summarizeSSEPayload(payload string) string {
+	if payload == "[DONE]" {
+		return payload
+	}
+	if len(payload) <= 96 {
+		return payload
+	}
+	return payload[:93] + "..."
+}
+
+func extractUsageFromSSEPayload(payload string) (streamUsageSnapshot, bool) {
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(payload), &raw); err != nil {
+		return streamUsageSnapshot{}, false
+	}
+	if _, ok := raw["usage"].(map[string]any); !ok {
+		return streamUsageSnapshot{}, false
+	}
+	requestTokens, responseTokens, totalTokens := usage.ExtractUsage(raw)
+	return streamUsageSnapshot{
+		requestTokens:  requestTokens,
+		responseTokens: responseTokens,
+		totalTokens:    totalTokens,
+		present:        true,
+	}, true
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -28,6 +29,7 @@ type stubProvider struct {
 	embedResp   *provider.EmbeddingResponse
 	returnError error
 	streamBody  string
+	streamRC    io.ReadCloser
 	lastEmbed   provider.EmbeddingRequest
 }
 
@@ -46,7 +48,38 @@ func (s *stubProvider) ChatStream(_ context.Context, _ config.ProviderConfig, re
 	if s.returnError != nil {
 		return nil, s.returnError
 	}
+	if s.streamRC != nil {
+		return s.streamRC, nil
+	}
 	return io.NopCloser(strings.NewReader(s.streamBody)), nil
+}
+
+type chunkedReadCloser struct {
+	chunks []string
+	index  int
+}
+
+func (r *chunkedReadCloser) Read(p []byte) (int, error) {
+	if r.index >= len(r.chunks) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.chunks[r.index])
+	r.index++
+	return n, nil
+}
+
+func (r *chunkedReadCloser) Close() error {
+	return nil
+}
+
+type flushRecorder struct {
+	*httptest.ResponseRecorder
+	flushCount int
+}
+
+func (r *flushRecorder) Flush() {
+	r.flushCount++
+	r.ResponseRecorder.Flush()
 }
 
 func (s *stubProvider) Embed(_ context.Context, _ config.ProviderConfig, req provider.EmbeddingRequest, upstreamModel string) (*provider.EmbeddingResponse, error) {
@@ -213,6 +246,133 @@ func TestChatCompletionsStream(t *testing.T) {
 	}
 	if p.lastModel != "gpt-4o-mini-upstream" {
 		t.Fatalf("lastModel = %q, want %q", p.lastModel, "gpt-4o-mini-upstream")
+	}
+}
+
+func TestChatCompletionsStreamFlushesChunks(t *testing.T) {
+	p := &stubProvider{streamRC: &chunkedReadCloser{chunks: []string{
+		"data: {\"id\":\"chunk-1\"}\n\n",
+		"data: [DONE]\n\n",
+	}}}
+	rt, err := router.New([]config.ModelConfig{{
+		PublicName:   "gpt-4o-mini",
+		Provider:     "openai",
+		UpstreamName: "gpt-4o-mini-upstream",
+	}})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
+	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if rr.flushCount < 2 {
+		t.Fatalf("flushCount = %d, want at least %d", rr.flushCount, 2)
+	}
+}
+
+func TestChatCompletionsStreamLogsLifecycle(t *testing.T) {
+	p := &stubProvider{streamRC: &chunkedReadCloser{chunks: []string{
+		"data: first\n\n",
+		"data: [DONE]\n\n",
+	}}}
+	rt, err := router.New([]config.ModelConfig{{
+		PublicName:   "gpt-4o-mini",
+		Provider:     "openai",
+		UpstreamName: "gpt-4o-mini-upstream",
+	}})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
+	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+
+	var logs bytes.Buffer
+	origWriter := log.Writer()
+	origFlags := log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	defer log.SetOutput(origWriter)
+	defer log.SetFlags(origFlags)
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	output := logs.String()
+	if !strings.Contains(output, "event=stream_start") {
+		t.Fatalf("missing stream_start log: %q", output)
+	}
+	if !strings.Contains(output, "event=first_chunk") {
+		t.Fatalf("missing first_chunk log: %q", output)
+	}
+	if !strings.Contains(output, "event=stream_end") {
+		t.Fatalf("missing stream_end log: %q", output)
+	}
+	if !strings.Contains(output, "saw_done=true") {
+		t.Fatalf("missing saw_done=true log: %q", output)
+	}
+	if !strings.Contains(output, "sse_event_count=") {
+		t.Fatalf("missing sse_event_count log: %q", output)
+	}
+}
+
+func TestChatCompletionsStreamRecordsUsageFromFinalChunk(t *testing.T) {
+	p := &stubProvider{streamRC: &chunkedReadCloser{chunks: []string{
+		"data: {\"id\":\"chunk-1\",\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n",
+		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n",
+		"data: [DONE]\n\n",
+	}}}
+	rt, err := router.New([]config.ModelConfig{{
+		PublicName:   "gpt-4o-mini",
+		Provider:     "openai",
+		UpstreamName: "gpt-4o-mini-upstream",
+	}})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	recorder := usage.New(100)
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, recorder, p)
+	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	summary, ok := recorder.SummaryByKey("sk-app-001")
+	if !ok {
+		t.Fatal("SummaryByKey() ok = false, want true")
+	}
+	if summary.RequestTokens != 10 {
+		t.Fatalf("RequestTokens = %d, want %d", summary.RequestTokens, 10)
+	}
+	if summary.ResponseTokens != 5 {
+		t.Fatalf("ResponseTokens = %d, want %d", summary.ResponseTokens, 5)
+	}
+	if summary.TotalTokens != 15 {
+		t.Fatalf("TotalTokens = %d, want %d", summary.TotalTokens, 15)
 	}
 }
 
