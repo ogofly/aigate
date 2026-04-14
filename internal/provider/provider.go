@@ -4,69 +4,69 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 
 	"aigate/internal/config"
 )
 
 type ChatRequest struct {
-	Model       string         `json:"model"`
-	Messages    []ChatMessage  `json:"messages"`
-	Temperature *float64       `json:"temperature,omitempty"`
-	Stream      bool           `json:"stream,omitempty"`
-	Extra       map[string]any `json:"-"`
-}
-
-type ChatMessage struct {
-	Role    string `json:"role"`
-	Content any    `json:"content"`
+	Model  string         `json:"-"`
+	Stream bool           `json:"-"`
+	Raw    map[string]any `json:"-"`
 }
 
 type ChatResponse map[string]any
 type EmbeddingRequest map[string]any
 type EmbeddingResponse map[string]any
 
+type StreamResponse struct {
+	StatusCode int
+	Header     http.Header
+	Body       io.ReadCloser
+}
+
 type Client interface {
 	Chat(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*ChatResponse, error)
-	ChatStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (io.ReadCloser, error)
+	ChatStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*StreamResponse, error)
 	Embed(ctx context.Context, provider config.ProviderConfig, req EmbeddingRequest, upstreamModel string) (*EmbeddingResponse, error)
 }
 
 func (r *ChatRequest) UnmarshalJSON(data []byte) error {
-	type alias ChatRequest
-	var base alias
-	if err := json.Unmarshal(data, &base); err != nil {
-		return err
-	}
-
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-
-	delete(raw, "model")
-	delete(raw, "messages")
-	delete(raw, "temperature")
-	delete(raw, "stream")
-
-	*r = ChatRequest(base)
-	r.Extra = raw
+	r.Raw = cloneRawMap(raw)
+	if model, ok := raw["model"].(string); ok {
+		r.Model = model
+	}
+	if stream, ok := raw["stream"].(bool); ok {
+		r.Stream = stream
+	}
 	return nil
 }
 
 func (r ChatRequest) MarshalJSON() ([]byte, error) {
-	payload := make(map[string]any, len(r.Extra)+4)
-	for k, v := range r.Extra {
-		payload[k] = v
+	payload := cloneRawMap(r.Raw)
+	if payload == nil {
+		payload = make(map[string]any, 2)
 	}
-
-	payload["model"] = r.Model
-	payload["messages"] = r.Messages
-	if r.Temperature != nil {
-		payload["temperature"] = *r.Temperature
+	if r.Model != "" {
+		payload["model"] = r.Model
 	}
-	if r.Stream {
-		payload["stream"] = r.Stream
+	if _, ok := payload["stream"]; !ok && r.Stream {
+		payload["stream"] = true
 	}
-
 	return json.Marshal(payload)
+}
+
+func cloneRawMap(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }

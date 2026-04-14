@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/textproto"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -64,19 +65,15 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 	if req.Stream {
 		requestID := nextStreamRequestID()
-		stream, err := h.client.ChatStream(r.Context(), providerCfg, &req, target.UpstreamModel)
+		streamResp, err := h.client.ChatStream(r.Context(), providerCfg, &req, target.UpstreamModel)
 		if err != nil {
 			log.Printf("method=%s path=%s op=chat_completions request_id=%s model=%s provider=%s error=%v", r.Method, r.URL.Path, requestID, req.Model, target.ProviderName, err)
 			h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 			writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 			return
 		}
-		defer stream.Close()
+		defer streamResp.Body.Close()
 		log.Printf("method=%s path=%s op=chat_completions event=stream_start request_id=%s key_id=%s provider=%s model=%s upstream_model=%s remote_addr=%s user_agent=%q", r.Method, r.URL.Path, requestID, usage.KeyID(principal.Key), target.ProviderName, req.Model, target.UpstreamModel, r.RemoteAddr, r.UserAgent())
-
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
 
 		flusher, ok := w.(http.Flusher)
 		if !ok {
@@ -84,48 +81,26 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		w.WriteHeader(http.StatusOK)
-		buf := make([]byte, 1024)
-		chunkCount := 0
-		bytesSent := 0
-		lastChunkAt := start
-		firstChunkLogged := false
-		sseEventCount := 0
-		sawDone := false
-		partialLine := ""
-		lastEvents := make([]string, 0, 3)
-		streamUsage := streamUsageSnapshot{}
-		for {
-			n, readErr := stream.Read(buf)
-			if n > 0 {
-				now := time.Now()
-				chunkCount++
-				bytesSent += n
-				partialLine, sseEventCount, sawDone, lastEvents, streamUsage = inspectSSEChunk(partialLine, string(buf[:n]), sseEventCount, sawDone, lastEvents, streamUsage)
-				if !firstChunkLogged {
-					log.Printf("method=%s path=%s op=chat_completions event=first_chunk request_id=%s provider=%s model=%s ttfb_ms=%d bytes=%d", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, now.Sub(start).Milliseconds(), n)
-					firstChunkLogged = true
-				} else if chunkCount == 5 || chunkCount%20 == 0 || now.Sub(lastChunkAt) >= 10*time.Second {
-					log.Printf("method=%s path=%s op=chat_completions event=stream_progress request_id=%s provider=%s model=%s chunk_count=%d bytes_sent=%d since_start_ms=%d since_last_chunk_ms=%d", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, chunkCount, bytesSent, now.Sub(start).Milliseconds(), now.Sub(lastChunkAt).Milliseconds())
-				}
-				if _, writeErr := w.Write(buf[:n]); writeErr != nil {
-					log.Printf("method=%s path=%s op=chat_completions event=stream_abort request_id=%s provider=%s model=%s reason=downstream_write_error err=%v duration_ms=%d chunk_count=%d bytes_sent=%d sse_event_count=%d saw_done=%t last_events=%q", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, writeErr, time.Since(start).Milliseconds(), chunkCount, bytesSent, sseEventCount, sawDone, strings.Join(lastEvents, " | "))
-					return
-				}
-				flusher.Flush()
-				lastChunkAt = now
+		copyProxyHeaders(w.Header(), streamResp.Header)
+		w.WriteHeader(streamResp.StatusCode)
+
+		if streamResp.StatusCode < 200 || streamResp.StatusCode >= 300 {
+			bytesSent, copyErr := io.Copy(w, streamResp.Body)
+			if copyErr != nil {
+				log.Printf("method=%s path=%s op=chat_completions event=stream_abort request_id=%s provider=%s model=%s reason=downstream_write_error err=%v duration_ms=%d bytes_sent=%d upstream_status=%d", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, copyErr, time.Since(start).Milliseconds(), bytesSent, streamResp.StatusCode)
+				return
 			}
-			if readErr == nil {
-				continue
-			}
-			if readErr == io.EOF {
-				break
-			}
-			log.Printf("method=%s path=%s op=chat_completions event=stream_abort request_id=%s provider=%s model=%s reason=%s err=%v duration_ms=%d chunk_count=%d bytes_sent=%d sse_event_count=%d saw_done=%t last_events=%q", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, streamAbortReason(readErr), readErr, time.Since(start).Milliseconds(), chunkCount, bytesSent, sseEventCount, sawDone, strings.Join(lastEvents, " | "))
+			h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, streamResp.StatusCode, time.Since(start))
+			log.Printf("method=%s path=%s op=chat_completions event=stream_end request_id=%s provider=%s model=%s status=%d duration_ms=%d bytes_sent=%d stream=%t", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, streamResp.StatusCode, time.Since(start).Milliseconds(), bytesSent, true)
 			return
 		}
-		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, true, streamUsage.requestTokens, streamUsage.responseTokens, streamUsage.totalTokens, http.StatusOK, time.Since(start))
-		log.Printf("method=%s path=%s op=chat_completions event=stream_end request_id=%s provider=%s model=%s status=%d duration_ms=%d chunk_count=%d bytes_sent=%d sse_event_count=%d saw_done=%t usage_present=%t request_tokens=%d response_tokens=%d total_tokens=%d last_events=%q stream=%t", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, http.StatusOK, time.Since(start).Milliseconds(), chunkCount, bytesSent, sseEventCount, sawDone, streamUsage.present, streamUsage.requestTokens, streamUsage.responseTokens, streamUsage.totalTokens, strings.Join(lastEvents, " | "), true)
+
+		streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, streamErr := proxyStreamBody(w, flusher, streamResp.Body, r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, start)
+		if streamErr != nil {
+			return
+		}
+		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, true, streamUsage.requestTokens, streamUsage.responseTokens, streamUsage.totalTokens, streamResp.StatusCode, time.Since(start))
+		log.Printf("method=%s path=%s op=chat_completions event=stream_end request_id=%s provider=%s model=%s status=%d duration_ms=%d chunk_count=%d bytes_sent=%d sse_event_count=%d saw_done=%t usage_present=%t request_tokens=%d response_tokens=%d total_tokens=%d last_events=%q stream=%t", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, streamResp.StatusCode, time.Since(start).Milliseconds(), chunkCount, bytesSent, sseEventCount, sawDone, streamUsage.present, streamUsage.requestTokens, streamUsage.responseTokens, streamUsage.totalTokens, strings.Join(lastEvents, " | "), true)
 		return
 	}
 
@@ -141,6 +116,67 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, true, requestTokens, responseTokens, totalTokens, http.StatusOK, time.Since(start))
 	writeJSON(w, http.StatusOK, resp)
 	log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s status=%d stream=%t", r.Method, r.URL.Path, req.Model, target.ProviderName, http.StatusOK, false)
+}
+
+func proxyStreamBody(w http.ResponseWriter, flusher http.Flusher, body io.Reader, method, path, requestID, providerName, model string, start time.Time) (streamUsageSnapshot, int, int, int, bool, []string, error) {
+	buf := make([]byte, 1024)
+	chunkCount := 0
+	bytesSent := 0
+	lastChunkAt := start
+	firstChunkLogged := false
+	sseEventCount := 0
+	sawDone := false
+	partialLine := ""
+	lastEvents := make([]string, 0, 3)
+	streamUsage := streamUsageSnapshot{}
+
+	for {
+		n, readErr := body.Read(buf)
+		if n > 0 {
+			now := time.Now()
+			chunkCount++
+			bytesSent += n
+			partialLine, sseEventCount, sawDone, lastEvents, streamUsage = inspectSSEChunk(partialLine, string(buf[:n]), sseEventCount, sawDone, lastEvents, streamUsage)
+			if !firstChunkLogged {
+				log.Printf("method=%s path=%s op=chat_completions event=first_chunk request_id=%s provider=%s model=%s ttfb_ms=%d bytes=%d", method, path, requestID, providerName, model, now.Sub(start).Milliseconds(), n)
+				firstChunkLogged = true
+			} else if chunkCount == 5 || chunkCount%20 == 0 || now.Sub(lastChunkAt) >= 10*time.Second {
+				log.Printf("method=%s path=%s op=chat_completions event=stream_progress request_id=%s provider=%s model=%s chunk_count=%d bytes_sent=%d since_start_ms=%d since_last_chunk_ms=%d", method, path, requestID, providerName, model, chunkCount, bytesSent, now.Sub(start).Milliseconds(), now.Sub(lastChunkAt).Milliseconds())
+			}
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				log.Printf("method=%s path=%s op=chat_completions event=stream_abort request_id=%s provider=%s model=%s reason=downstream_write_error err=%v duration_ms=%d chunk_count=%d bytes_sent=%d sse_event_count=%d saw_done=%t last_events=%q", method, path, requestID, providerName, model, writeErr, time.Since(start).Milliseconds(), chunkCount, bytesSent, sseEventCount, sawDone, strings.Join(lastEvents, " | "))
+				return streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, writeErr
+			}
+			flusher.Flush()
+			lastChunkAt = now
+		}
+		if readErr == nil {
+			continue
+		}
+		if readErr == io.EOF {
+			return streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, nil
+		}
+		log.Printf("method=%s path=%s op=chat_completions event=stream_abort request_id=%s provider=%s model=%s reason=%s err=%v duration_ms=%d chunk_count=%d bytes_sent=%d sse_event_count=%d saw_done=%t last_events=%q", method, path, requestID, providerName, model, streamAbortReason(readErr), readErr, time.Since(start).Milliseconds(), chunkCount, bytesSent, sseEventCount, sawDone, strings.Join(lastEvents, " | "))
+		return streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, readErr
+	}
+}
+
+func copyProxyHeaders(dst, src http.Header) {
+	for name, values := range src {
+		if !shouldProxyHeader(name) {
+			continue
+		}
+		dst[textproto.CanonicalMIMEHeaderKey(name)] = append([]string(nil), values...)
+	}
+}
+
+func shouldProxyHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade":
+		return false
+	default:
+		return true
+	}
 }
 
 func (h *Handler) recordUsage(principal auth.Principal, endpoint, providerName, publicModel, upstreamModel string, success bool, requestTokens, responseTokens, totalTokens, statusCode int, latency time.Duration) {

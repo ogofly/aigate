@@ -524,17 +524,21 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 	}
 
 	chatReq := &provider.ChatRequest{
-		Model: model,
-		Messages: []provider.ChatMessage{
-			{Role: "user", Content: message},
-		},
+		Model:  model,
 		Stream: stream,
+		Raw: map[string]any{
+			"model": model,
+			"messages": []map[string]any{
+				{"role": "user", "content": message},
+			},
+			"stream": stream,
+		},
 	}
 
 	start := time.Now()
 	var output string
 	if stream {
-		reader, err := h.client.ChatStream(r.Context(), providerCfg, chatReq, target.UpstreamModel)
+		streamResp, err := h.client.ChatStream(r.Context(), providerCfg, chatReq, target.UpstreamModel)
 		if err != nil {
 			log.Printf("method=%s path=%s op=admin_playground_chat stream=true provider=%s error=%v", r.Method, r.URL.Path, target.ProviderName, err)
 			h.recordUsage(principal, "chat.completions", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
@@ -546,8 +550,8 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 			_ = adminPlaygroundTemplate.Execute(w, data)
 			return
 		}
-		defer reader.Close()
-		body, err := io.ReadAll(reader)
+		defer streamResp.Body.Close()
+		body, err := io.ReadAll(streamResp.Body)
 		if err != nil {
 			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", err.Error())
 			if buildErr != nil {
@@ -558,7 +562,11 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		output = strings.TrimSpace(string(body))
-		h.recordUsage(principal, "chat.completions", target.ProviderName, model, target.UpstreamModel, true, 0, 0, 0, http.StatusOK, time.Since(start))
+		success := streamResp.StatusCode >= 200 && streamResp.StatusCode < 300
+		h.recordUsage(principal, "chat.completions", target.ProviderName, model, target.UpstreamModel, success, 0, 0, 0, streamResp.StatusCode, time.Since(start))
+		if !success {
+			output = fmt.Sprintf("upstream status %d\n%s", streamResp.StatusCode, output)
+		}
 	} else {
 		resp, err := h.client.Chat(r.Context(), providerCfg, chatReq, target.UpstreamModel)
 		if err != nil {

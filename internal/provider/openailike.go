@@ -79,7 +79,6 @@ func (c *OpenAILikeClient) Chat(ctx context.Context, provider config.ProviderCon
 	}
 	payload := *req
 	payload.Model = upstreamModel
-	payload.Stream = false
 	log.Printf("provider=%s op=chat stream=false upstream_model=%s", provider.Name, upstreamModel)
 
 	body, err := json.Marshal(payload)
@@ -120,14 +119,13 @@ func (c *OpenAILikeClient) Chat(ctx context.Context, provider config.ProviderCon
 	return &out, nil
 }
 
-func (c *OpenAILikeClient) ChatStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (io.ReadCloser, error) {
+func (c *OpenAILikeClient) ChatStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*StreamResponse, error) {
 	p, err := newOpenAILikeProviderWithStream(provider, true)
 	if err != nil {
 		return nil, err
 	}
 	payload := *req
 	payload.Model = upstreamModel
-	payload.Stream = true
 	log.Printf("provider=%s op=chat stream=true upstream_model=%s", provider.Name, upstreamModel)
 
 	body, err := json.Marshal(payload)
@@ -150,17 +148,6 @@ func (c *OpenAILikeClient) ChatStream(ctx context.Context, provider config.Provi
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
-		respBody, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			log.Printf("provider=%s op=chat stream=true upstream_model=%s status=%d", provider.Name, upstreamModel, resp.StatusCode)
-			return nil, fmt.Errorf("upstream status %d", resp.StatusCode)
-		}
-		log.Printf("provider=%s op=chat stream=true upstream_model=%s status=%d", provider.Name, upstreamModel, resp.StatusCode)
-		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
-	}
-
 	log.Printf(
 		"provider=%s op=chat stream=true upstream_model=%s upstream_status=%d content_type=%q transfer_encoding=%q content_encoding=%q",
 		provider.Name,
@@ -171,7 +158,11 @@ func (c *OpenAILikeClient) ChatStream(ctx context.Context, provider config.Provi
 		resp.Header.Get("Content-Encoding"),
 	)
 
-	return resp.Body, nil
+	return &StreamResponse{
+		StatusCode: resp.StatusCode,
+		Header:     resp.Header.Clone(),
+		Body:       resp.Body,
+	}, nil
 }
 
 func (c *OpenAILikeClient) Embed(ctx context.Context, provider config.ProviderConfig, req EmbeddingRequest, upstreamModel string) (*EmbeddingResponse, error) {

@@ -30,6 +30,7 @@ type stubProvider struct {
 	returnError error
 	streamBody  string
 	streamRC    io.ReadCloser
+	streamResp  *provider.StreamResponse
 	lastEmbed   provider.EmbeddingRequest
 }
 
@@ -42,16 +43,27 @@ func (s *stubProvider) Chat(_ context.Context, _ config.ProviderConfig, req *pro
 	return s.response, nil
 }
 
-func (s *stubProvider) ChatStream(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (io.ReadCloser, error) {
+func (s *stubProvider) ChatStream(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (*provider.StreamResponse, error) {
 	s.lastModel = upstreamModel
 	s.lastChat = req
 	if s.returnError != nil {
 		return nil, s.returnError
 	}
-	if s.streamRC != nil {
-		return s.streamRC, nil
+	if s.streamResp != nil {
+		return s.streamResp, nil
 	}
-	return io.NopCloser(strings.NewReader(s.streamBody)), nil
+	if s.streamRC != nil {
+		return &provider.StreamResponse{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       s.streamRC,
+		}, nil
+	}
+	return &provider.StreamResponse{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(s.streamBody)),
+	}, nil
 }
 
 type chunkedReadCloser struct {
@@ -249,6 +261,52 @@ func TestChatCompletionsStream(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsStreamPassesThroughUpstreamHeaders(t *testing.T) {
+	p := &stubProvider{streamResp: &provider.StreamResponse{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":      []string{"text/event-stream; charset=utf-8"},
+			"Cache-Control":     []string{"no-store"},
+			"X-Request-Id":      []string{"req-upstream-1"},
+			"Transfer-Encoding": []string{"chunked"},
+		},
+		Body: io.NopCloser(strings.NewReader("data: [DONE]\n\n")),
+	}}
+	rt, err := router.New([]config.ModelConfig{{
+		PublicName:   "gpt-4o-mini",
+		Provider:     "openai",
+		UpstreamName: "gpt-4o-mini-upstream",
+	}})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
+	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if got := rr.Header().Get("Content-Type"); got != "text/event-stream; charset=utf-8" {
+		t.Fatalf("content-type = %q, want %q", got, "text/event-stream; charset=utf-8")
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("cache-control = %q, want %q", got, "no-store")
+	}
+	if got := rr.Header().Get("X-Request-Id"); got != "req-upstream-1" {
+		t.Fatalf("x-request-id = %q, want %q", got, "req-upstream-1")
+	}
+	if got := rr.Header().Get("Transfer-Encoding"); got != "" {
+		t.Fatalf("transfer-encoding = %q, want empty", got)
+	}
+}
+
 func TestChatCompletionsStreamFlushesChunks(t *testing.T) {
 	p := &stubProvider{streamRC: &chunkedReadCloser{chunks: []string{
 		"data: {\"id\":\"chunk-1\"}\n\n",
@@ -400,6 +458,47 @@ func TestChatCompletionsStreamUpstreamError(t *testing.T) {
 
 	if rr.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadGateway)
+	}
+}
+
+func TestChatCompletionsStreamPassesThroughUpstreamStatusAndBody(t *testing.T) {
+	p := &stubProvider{streamResp: &provider.StreamResponse{
+		StatusCode: http.StatusTooManyRequests,
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+			"Retry-After":  []string{"30"},
+		},
+		Body: io.NopCloser(strings.NewReader(`{"error":{"message":"rate limited"}}`)),
+	}}
+	rt, err := router.New([]config.ModelConfig{{
+		PublicName:   "gpt-4o-mini",
+		Provider:     "openai",
+		UpstreamName: "gpt-4o-mini-upstream",
+	}})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
+	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusTooManyRequests)
+	}
+	if got := rr.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("content-type = %q, want %q", got, "application/json")
+	}
+	if got := rr.Header().Get("Retry-After"); got != "30" {
+		t.Fatalf("retry-after = %q, want %q", got, "30")
+	}
+	if got := strings.TrimSpace(rr.Body.String()); got != `{"error":{"message":"rate limited"}}` {
+		t.Fatalf("body = %q, want upstream error body", got)
 	}
 }
 
@@ -620,15 +719,76 @@ func TestChatCompletionsPassesThroughUnknownFields(t *testing.T) {
 	if p.lastChat == nil {
 		t.Fatal("lastChat = nil")
 	}
-	if got, ok := p.lastChat.Extra["reasoning_effort"].(string); !ok || got != "high" {
-		t.Fatalf("reasoning_effort = %#v, want %q", p.lastChat.Extra["reasoning_effort"], "high")
+	if got, ok := p.lastChat.Raw["reasoning_effort"].(string); !ok || got != "high" {
+		t.Fatalf("reasoning_effort = %#v, want %q", p.lastChat.Raw["reasoning_effort"], "high")
 	}
-	thinking, ok := p.lastChat.Extra["thinking"].(map[string]any)
+	thinking, ok := p.lastChat.Raw["thinking"].(map[string]any)
 	if !ok {
-		t.Fatalf("thinking = %#v, want map", p.lastChat.Extra["thinking"])
+		t.Fatalf("thinking = %#v, want map", p.lastChat.Raw["thinking"])
 	}
 	if got, ok := thinking["type"].(string); !ok || got != "enabled" {
 		t.Fatalf("thinking.type = %#v, want %q", thinking["type"], "enabled")
+	}
+}
+
+func TestChatCompletionsPreservesAgentMultiTurnMessagesAndToolCalls(t *testing.T) {
+	resp := provider.ChatResponse{"id": "chatcmpl-test"}
+	p := &stubProvider{response: &resp}
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
+	body := bytes.NewBufferString(`{
+		"model":"gpt-4o-mini",
+		"messages":[
+			{"role":"user","content":"先查北京天气"},
+			{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"beijing\"}"}}]},
+			{"role":"tool","tool_call_id":"call_1","content":"晴 26C"},
+			{"role":"user","content":"那上海呢"}
+		],
+		"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather","parameters":{"type":"object"}}}],
+		"parallel_tool_calls":true
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if p.lastChat == nil {
+		t.Fatal("lastChat = nil")
+	}
+	rawMessages, ok := p.lastChat.Raw["messages"].([]any)
+	if !ok {
+		t.Fatalf("raw messages = %#v, want []any", p.lastChat.Raw["messages"])
+	}
+	if len(rawMessages) != 4 {
+		t.Fatalf("len(raw messages) = %d, want %d", len(rawMessages), 4)
+	}
+	second, ok := rawMessages[1].(map[string]any)
+	if !ok {
+		t.Fatalf("messages[1] = %#v, want map", rawMessages[1])
+	}
+	toolCalls, ok := second["tool_calls"].([]any)
+	if !ok || len(toolCalls) != 1 {
+		t.Fatalf("messages[1].tool_calls = %#v, want one call", second["tool_calls"])
+	}
+	third, ok := rawMessages[2].(map[string]any)
+	if !ok {
+		t.Fatalf("messages[2] = %#v, want map", rawMessages[2])
+	}
+	if got, ok := third["tool_call_id"].(string); !ok || got != "call_1" {
+		t.Fatalf("messages[2].tool_call_id = %#v, want %q", third["tool_call_id"], "call_1")
+	}
+	if got, ok := p.lastChat.Raw["parallel_tool_calls"].(bool); !ok || !got {
+		t.Fatalf("parallel_tool_calls = %#v, want true", p.lastChat.Raw["parallel_tool_calls"])
 	}
 }
 
@@ -860,8 +1020,20 @@ func TestAdminPlaygroundChatWorks(t *testing.T) {
 	if p.lastModel != "gpt-4o-mini" {
 		t.Fatalf("lastModel = %q, want %q", p.lastModel, "gpt-4o-mini")
 	}
-	if p.lastChat == nil || len(p.lastChat.Messages) == 0 {
+	if p.lastChat == nil {
 		t.Fatalf("unexpected chat request: %#v", p.lastChat)
+	}
+	switch rawMessages := p.lastChat.Raw["messages"].(type) {
+	case []any:
+		if len(rawMessages) == 0 {
+			t.Fatalf("unexpected raw messages: %#v", p.lastChat.Raw["messages"])
+		}
+	case []map[string]any:
+		if len(rawMessages) == 0 {
+			t.Fatalf("unexpected raw messages: %#v", p.lastChat.Raw["messages"])
+		}
+	default:
+		t.Fatalf("unexpected raw messages type: %#v", p.lastChat.Raw["messages"])
 	}
 }
 
