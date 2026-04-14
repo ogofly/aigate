@@ -251,14 +251,30 @@ func extractUsageFromSSEPayload(payload string) (streamUsageSnapshot, bool) {
 	if err := json.Unmarshal([]byte(payload), &raw); err != nil {
 		return streamUsageSnapshot{}, false
 	}
-	if _, ok := raw["usage"].(map[string]any); !ok {
-		return streamUsageSnapshot{}, false
+
+	// OpenAI-compatible: {"usage": {...}, ...}
+	if _, ok := raw["usage"].(map[string]any); ok {
+		requestTokens, responseTokens, totalTokens := usage.ExtractUsage(raw)
+		return streamUsageSnapshot{
+			requestTokens:  requestTokens,
+			responseTokens: responseTokens,
+			totalTokens:    totalTokens,
+			present:        true,
+		}, true
 	}
-	requestTokens, responseTokens, totalTokens := usage.ExtractUsage(raw)
-	return streamUsageSnapshot{
-		requestTokens:  requestTokens,
-		responseTokens: responseTokens,
-		totalTokens:    totalTokens,
-		present:        true,
-	}, true
+
+	// Anthropic: {"message": {"usage": {...}, ...}, "type": "message_start"}
+	if msg, ok := raw["message"].(map[string]any); ok {
+		if _, ok := msg["usage"].(map[string]any); ok {
+			requestTokens, responseTokens, totalTokens := usage.ExtractUsage(map[string]any{"usage": msg["usage"]})
+			return streamUsageSnapshot{
+				requestTokens:  requestTokens,
+				responseTokens: responseTokens,
+				totalTokens:    totalTokens,
+				present:        true,
+			}, true
+		}
+	}
+
+	return streamUsageSnapshot{}, false
 }

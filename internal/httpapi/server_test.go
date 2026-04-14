@@ -23,15 +23,18 @@ import (
 )
 
 type stubProvider struct {
-	lastModel   string
-	lastChat    *provider.ChatRequest
-	response    *provider.ChatResponse
-	embedResp   *provider.EmbeddingResponse
-	returnError error
-	streamBody  string
-	streamRC    io.ReadCloser
-	streamResp  *provider.StreamResponse
-	lastEmbed   provider.EmbeddingRequest
+	lastModel          string
+	lastChat           *provider.ChatRequest
+	lastMessages       *provider.ChatRequest
+	response           *provider.ChatResponse
+	messagesResponse   *provider.ChatResponse
+	embedResp          *provider.EmbeddingResponse
+	returnError        error
+	streamBody         string
+	streamRC           io.ReadCloser
+	streamResp         *provider.StreamResponse
+	messagesStreamResp *provider.StreamResponse
+	lastEmbed          provider.EmbeddingRequest
 }
 
 func (s *stubProvider) Chat(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (*provider.ChatResponse, error) {
@@ -48,6 +51,44 @@ func (s *stubProvider) ChatStream(_ context.Context, _ config.ProviderConfig, re
 	s.lastChat = req
 	if s.returnError != nil {
 		return nil, s.returnError
+	}
+	if s.streamResp != nil {
+		return s.streamResp, nil
+	}
+	if s.streamRC != nil {
+		return &provider.StreamResponse{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       s.streamRC,
+		}, nil
+	}
+	return &provider.StreamResponse{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(s.streamBody)),
+	}, nil
+}
+
+func (s *stubProvider) Messages(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (*provider.ChatResponse, error) {
+	s.lastModel = upstreamModel
+	s.lastMessages = req
+	if s.returnError != nil {
+		return nil, s.returnError
+	}
+	if s.messagesResponse != nil {
+		return s.messagesResponse, nil
+	}
+	return s.response, nil
+}
+
+func (s *stubProvider) MessagesStream(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (*provider.StreamResponse, error) {
+	s.lastModel = upstreamModel
+	s.lastMessages = req
+	if s.returnError != nil {
+		return nil, s.returnError
+	}
+	if s.messagesStreamResp != nil {
+		return s.messagesStreamResp, nil
 	}
 	if s.streamResp != nil {
 		return s.streamResp, nil
@@ -538,6 +579,87 @@ func TestEmbeddingsRoutesToExpectedProviderModel(t *testing.T) {
 	}
 	if input, ok := p.lastEmbed["input"].(string); !ok || input != "hello" {
 		t.Fatalf("input = %#v, want %q", p.lastEmbed["input"], "hello")
+	}
+}
+
+func TestMessagesRoutesToExpectedProviderModel(t *testing.T) {
+	resp := provider.ChatResponse{
+		"id":   "msg-test",
+		"type": "message",
+	}
+	p := &stubProvider{messagesResponse: &resp}
+	rt, err := router.New([]config.ModelConfig{
+		{
+			PublicName:   "claude-sonnet-4-5",
+			Provider:     "openai",
+			UpstreamName: "claude-sonnet-4-5-upstream",
+		},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
+	body := bytes.NewBufferString(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if p.lastModel != "claude-sonnet-4-5-upstream" {
+		t.Fatalf("lastModel = %q, want %q", p.lastModel, "claude-sonnet-4-5-upstream")
+	}
+	if p.lastMessages == nil {
+		t.Fatalf("lastMessages = nil")
+	}
+	if got, ok := p.lastMessages.Raw["messages"].([]any); !ok || len(got) != 1 {
+		t.Fatalf("messages = %#v, want one message", p.lastMessages.Raw["messages"])
+	}
+}
+
+func TestMessagesStreamPassesThroughUpstreamStatusAndHeaders(t *testing.T) {
+	p := &stubProvider{messagesStreamResp: &provider.StreamResponse{
+		StatusCode: http.StatusAccepted,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+			"X-Trace-Id":   []string{"trace-123"},
+		},
+		Body: io.NopCloser(strings.NewReader("data: {\"type\":\"message_start\"}\n\ndata: [DONE]\n\n")),
+	}}
+	rt, err := router.New([]config.ModelConfig{
+		{
+			PublicName:   "claude-sonnet-4-5",
+			Provider:     "openai",
+			UpstreamName: "claude-sonnet-4-5-upstream",
+		},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
+	body := bytes.NewBufferString(`{"model":"claude-sonnet-4-5","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusAccepted)
+	}
+	if got := rr.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("content-type = %q, want %q", got, "text/event-stream")
+	}
+	if got := rr.Header().Get("X-Trace-Id"); got != "trace-123" {
+		t.Fatalf("x-trace-id = %q, want %q", got, "trace-123")
+	}
+	if !strings.Contains(rr.Body.String(), "message_start") {
+		t.Fatalf("body = %q, want stream payload", rr.Body.String())
 	}
 }
 
@@ -1155,5 +1277,104 @@ func TestAdminUsageFiltersByOwnerForUserSession(t *testing.T) {
 	}
 	if got, _ := payload.Data[0]["owner"].(string); got != "alice" {
 		t.Fatalf("owner = %q, want %q", got, "alice")
+	}
+}
+
+func TestMessagesNonStreamRecordsUsage(t *testing.T) {
+	resp := provider.ChatResponse{
+		"id":   "msg-test",
+		"type": "message",
+		"usage": map[string]any{
+			"input_tokens":  11,
+			"output_tokens": 257,
+		},
+	}
+	p := &stubProvider{messagesResponse: &resp}
+	rt, err := router.New([]config.ModelConfig{{
+		PublicName:   "claude-sonnet-4-5",
+		Provider:     "openai",
+		UpstreamName: "claude-sonnet-4-5-upstream",
+	}})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	recorder := usage.New(100)
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, recorder, p)
+	body := bytes.NewBufferString(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	summary, ok := recorder.SummaryByKey("sk-app-001")
+	if !ok {
+		t.Fatal("SummaryByKey() ok = false, want true")
+	}
+	if summary.RequestTokens != 11 {
+		t.Fatalf("RequestTokens = %d, want %d", summary.RequestTokens, 11)
+	}
+	if summary.ResponseTokens != 257 {
+		t.Fatalf("ResponseTokens = %d, want %d", summary.ResponseTokens, 257)
+	}
+	if summary.TotalTokens != 268 {
+		t.Fatalf("TotalTokens = %d, want %d", summary.TotalTokens, 268)
+	}
+}
+
+func TestMessagesStreamRecordsUsageFromMessageDelta(t *testing.T) {
+	p := &stubProvider{messagesStreamResp: &provider.StreamResponse{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: &chunkedReadCloser{chunks: []string{
+			"event:message_start\ndata:{\"message\":{\"model\":\"qwen3.6-plus\",\"id\":\"msg_xxx\",\"role\":\"assistant\",\"type\":\"message\",\"content\":[],\"usage\":{\"input_tokens\":5,\"output_tokens\":0}},\"type\":\"message_start\"}\n\n",
+			"event:content_block_start\ndata:{\"type\":\"content_block_start\",\"content_block\":{\"type\":\"text\"},\"index\":0}\n\n",
+			"event:content_block_delta\ndata:{\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"},\"type\":\"content_block_delta\",\"index\":0}\n\n",
+			"event:content_block_stop\ndata:{\"type\":\"content_block_stop\",\"index\":0}\n\n",
+			"event:message_delta\ndata:{\"delta\":{\"stop_reason\":\"end_turn\"},\"type\":\"message_delta\",\"usage\":{\"input_tokens\":11,\"output_tokens\":213}}\n\n",
+			"event:message_stop\ndata:{\"type\":\"message_stop\"}\n\n",
+		}},
+	}}
+	rt, err := router.New([]config.ModelConfig{{
+		PublicName:   "claude-sonnet-4-5",
+		Provider:     "openai",
+		UpstreamName: "claude-sonnet-4-5-upstream",
+	}})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	recorder := usage.New(100)
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, recorder, p)
+	body := bytes.NewBufferString(`{"model":"claude-sonnet-4-5","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	summary, ok := recorder.SummaryByKey("sk-app-001")
+	if !ok {
+		t.Fatal("SummaryByKey() ok = false, want true")
+	}
+	if summary.RequestTokens != 11 {
+		t.Fatalf("RequestTokens = %d, want %d", summary.RequestTokens, 11)
+	}
+	if summary.ResponseTokens != 213 {
+		t.Fatalf("ResponseTokens = %d, want %d", summary.ResponseTokens, 213)
+	}
+	if summary.TotalTokens != 224 {
+		t.Fatalf("TotalTokens = %d, want %d", summary.TotalTokens, 224)
 	}
 }

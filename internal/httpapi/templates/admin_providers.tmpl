@@ -23,6 +23,8 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
 <form method="post" action="/admin/providers" style="margin-top:20px">
   <input name="name" placeholder="name">
   <input name="base_url" placeholder="base url">
+  <input name="anthropic_base_url" placeholder="anthropic base url (optional)">
+  <input name="anthropic_version" placeholder="anthropic version (optional)">
   <input name="api_key" placeholder="api key (optional)">
   <input name="api_key_ref" placeholder="env var name (optional)">
   <input name="timeout" placeholder="timeout seconds" value="60">
@@ -35,8 +37,10 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
       <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',0,'text')">Name</button></th>
       <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',1,'text')">Base URL</button></th>
       <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',2,'text')">API Key</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',3,'text')">Secret Ref</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',4,'num')">Timeout</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',3,'text')">Anthropic URL</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',4,'text')">Anthropic Version</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',5,'text')">Secret Ref</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',6,'num')">Timeout</button></th>
       <th></th>
     </tr>
   </thead>
@@ -46,6 +50,8 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
       <td>{{.Name}}</td>
       <td>{{.BaseURL}}</td>
       <td>{{if .APIKey}}configured{{else}}-{{end}}</td>
+      <td>{{if .AnthropicBaseURL}}{{.AnthropicBaseURL}}{{else}}-{{end}}</td>
+      <td>{{if .AnthropicVersion}}{{.AnthropicVersion}}{{else}}-{{end}}</td>
       <td>{{if .APIKeyRef}}{{.APIKeyRef}}{{else}}-{{end}}</td>
       <td>{{.TimeoutSeconds}}s</td>
       <td>
@@ -56,7 +62,7 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
       </td>
     </tr>
     {{else}}
-    <tr><td colspan="6" class="muted">No providers</td></tr>
+    <tr><td colspan="8" class="muted">No providers</td></tr>
     {{end}}
   </tbody>
 </table>

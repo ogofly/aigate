@@ -39,11 +39,13 @@ type KeyConfig struct {
 }
 
 type ProviderConfig struct {
-	Name           string `json:"name"`
-	BaseURL        string `json:"base_url"`
-	APIKey         string `json:"api_key"`
-	APIKeyRef      string `json:"api_key_ref"`
-	TimeoutSeconds int    `json:"timeout"`
+	Name             string `json:"name"`
+	BaseURL          string `json:"base_url"`
+	AnthropicBaseURL string `json:"anthropic_base_url"`
+	AnthropicVersion string `json:"anthropic_version"`
+	APIKey           string `json:"api_key"`
+	APIKeyRef        string `json:"api_key_ref"`
+	TimeoutSeconds   int    `json:"timeout"`
 }
 
 type ModelConfig struct {

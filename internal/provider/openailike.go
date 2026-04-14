@@ -29,11 +29,22 @@ func NewOpenAILikeClient() *OpenAILikeClient {
 }
 
 func newOpenAILikeProvider(cfg config.ProviderConfig) (*OpenAILikeProvider, error) {
-	return newOpenAILikeProviderWithStream(cfg, false)
+	return newOpenAILikeProviderWithBaseURLAndStream(cfg, cfg.BaseURL, false)
 }
 
 func newOpenAILikeProviderWithStream(cfg config.ProviderConfig, stream bool) (*OpenAILikeProvider, error) {
-	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	return newOpenAILikeProviderWithBaseURLAndStream(cfg, cfg.BaseURL, stream)
+}
+
+func newAnthropicProviderWithStream(cfg config.ProviderConfig, stream bool) (*OpenAILikeProvider, error) {
+	if strings.TrimSpace(cfg.AnthropicBaseURL) == "" {
+		return nil, fmt.Errorf("provider %q anthropic_base_url is required", cfg.Name)
+	}
+	return newOpenAILikeProviderWithBaseURLAndStream(cfg, cfg.AnthropicBaseURL, stream)
+}
+
+func newOpenAILikeProviderWithBaseURLAndStream(cfg config.ProviderConfig, base string, stream bool) (*OpenAILikeProvider, error) {
+	baseURL := strings.TrimRight(base, "/")
 	if _, err := url.Parse(baseURL); err != nil {
 		return nil, fmt.Errorf("invalid base_url: %w", err)
 	}
@@ -163,6 +174,112 @@ func (c *OpenAILikeClient) ChatStream(ctx context.Context, provider config.Provi
 		Header:     resp.Header.Clone(),
 		Body:       resp.Body,
 	}, nil
+}
+
+func (c *OpenAILikeClient) Messages(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*ChatResponse, error) {
+	p, err := newAnthropicProviderWithStream(provider, false)
+	if err != nil {
+		return nil, err
+	}
+	payload := *req
+	payload.Model = upstreamModel
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	httpReq.Header.Set("x-api-key", p.apiKey)
+	httpReq.Header.Set("anthropic-version", anthropicVersion(provider))
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		log.Printf("provider=%s op=messages stream=false upstream_model=%s error=%v", provider.Name, upstreamModel, err)
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("provider=%s op=messages stream=false upstream_model=%s status=%d", provider.Name, upstreamModel, resp.StatusCode)
+		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var out ChatResponse
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *OpenAILikeClient) MessagesStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*StreamResponse, error) {
+	p, err := newAnthropicProviderWithStream(provider, true)
+	if err != nil {
+		return nil, err
+	}
+	payload := *req
+	payload.Model = upstreamModel
+	log.Printf("provider=%s op=messages stream=true upstream_model=%s", provider.Name, upstreamModel)
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	httpReq.Header.Set("x-api-key", p.apiKey)
+	httpReq.Header.Set("anthropic-version", anthropicVersion(provider))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	log.Printf("provider=%s op=messages stream=true method=%s url=%s headers=x-api-key:%s,anthropic-version:%s body=%s",
+		provider.Name, httpReq.Method, httpReq.URL.String(), maskKey(p.apiKey), httpReq.Header.Get("anthropic-version"), string(body))
+
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		log.Printf("provider=%s op=messages stream=true upstream_model=%s error=%v", provider.Name, upstreamModel, err)
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+	log.Printf(
+		"provider=%s op=messages stream=true upstream_model=%s upstream_status=%d content_type=%q transfer_encoding=%q content_encoding=%q",
+		provider.Name,
+		upstreamModel,
+		resp.StatusCode,
+		resp.Header.Get("Content-Type"),
+		strings.Join(resp.TransferEncoding, ","),
+		resp.Header.Get("Content-Encoding"),
+	)
+
+	return &StreamResponse{
+		StatusCode: resp.StatusCode,
+		Header:     resp.Header.Clone(),
+		Body:       resp.Body,
+	}, nil
+}
+
+func anthropicVersion(provider config.ProviderConfig) string {
+	if strings.TrimSpace(provider.AnthropicVersion) != "" {
+		return provider.AnthropicVersion
+	}
+	return "2023-06-01"
+}
+
+func maskKey(key string) string {
+	if len(key) <= 8 {
+		return "****"
+	}
+	return key[:4] + "..." + key[len(key)-4:]
 }
 
 func (c *OpenAILikeClient) Embed(ctx context.Context, provider config.ProviderConfig, req EmbeddingRequest, upstreamModel string) (*EmbeddingResponse, error) {

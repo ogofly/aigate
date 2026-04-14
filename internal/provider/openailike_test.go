@@ -167,3 +167,54 @@ func TestChatStreamPreservesRawStreamAndHeaders(t *testing.T) {
 		t.Fatalf("accept header = %q, want %q", acceptHeader, "text/event-stream")
 	}
 }
+
+func TestMessagesUsesAnthropicEndpointAndHeaders(t *testing.T) {
+	var gotPath string
+	var gotAPIKey string
+	var gotVersion string
+	var captured map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAPIKey = r.Header.Get("x-api-key")
+		gotVersion = r.Header.Get("anthropic-version")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("io.ReadAll() error = %v", err)
+		}
+		if err := json.Unmarshal(body, &captured); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","usage":{"input_tokens":3,"output_tokens":2}}`))
+	}))
+	defer srv.Close()
+
+	client := NewOpenAILikeClient()
+	var req ChatRequest
+	if err := json.Unmarshal([]byte(`{"model":"claude-public","messages":[{"role":"user","content":"hi"}]}`), &req); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	_, err := client.Messages(context.Background(), config.ProviderConfig{
+		Name:             "vendor",
+		BaseURL:          "https://unused.example/v1",
+		AnthropicBaseURL: srv.URL,
+		AnthropicVersion: "2023-06-01",
+		APIKey:           "test-secret",
+		TimeoutSeconds:   30,
+	}, &req, "claude-upstream")
+	if err != nil {
+		t.Fatalf("Messages() error = %v", err)
+	}
+	if gotPath != "/v1/messages" {
+		t.Fatalf("path = %q, want %q", gotPath, "/v1/messages")
+	}
+	if gotAPIKey != "test-secret" {
+		t.Fatalf("x-api-key = %q, want %q", gotAPIKey, "test-secret")
+	}
+	if gotVersion != "2023-06-01" {
+		t.Fatalf("anthropic-version = %q, want %q", gotVersion, "2023-06-01")
+	}
+	if got, _ := captured["model"].(string); got != "claude-upstream" {
+		t.Fatalf("model = %#v, want %q", captured["model"], "claude-upstream")
+	}
+}

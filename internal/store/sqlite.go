@@ -41,6 +41,8 @@ func (s *SQLiteStore) init(ctx context.Context) error {
 			name TEXT PRIMARY KEY,
 			api_key TEXT NOT NULL DEFAULT '',
 			base_url TEXT NOT NULL,
+			anthropic_base_url TEXT NOT NULL DEFAULT '',
+			anthropic_version TEXT NOT NULL DEFAULT '',
 			api_key_ref TEXT NOT NULL,
 			timeout_seconds INTEGER NOT NULL,
 			updated_at TEXT NOT NULL
@@ -84,6 +86,9 @@ func (s *SQLiteStore) init(ctx context.Context) error {
 		}
 	}
 	if err := s.migrateProvidersTable(ctx); err != nil {
+		return err
+	}
+	if err := s.migrateProvidersAnthropicColumns(ctx); err != nil {
 		return err
 	}
 	if err := s.migrateAuthKeysTable(ctx); err != nil {
@@ -139,6 +144,8 @@ func (s *SQLiteStore) migrateProvidersTable(ctx context.Context) error {
 			name TEXT PRIMARY KEY,
 			api_key TEXT NOT NULL DEFAULT '',
 			base_url TEXT NOT NULL,
+			anthropic_base_url TEXT NOT NULL DEFAULT '',
+			anthropic_version TEXT NOT NULL DEFAULT '',
 			api_key_ref TEXT NOT NULL DEFAULT '',
 			timeout_seconds INTEGER NOT NULL,
 			updated_at TEXT NOT NULL
@@ -149,8 +156,8 @@ func (s *SQLiteStore) migrateProvidersTable(ctx context.Context) error {
 		stmts = []string{
 			stmts[0],
 			stmts[1],
-			`INSERT INTO providers(name, api_key, base_url, api_key_ref, timeout_seconds, updated_at)
-			 SELECT name, api_key, base_url, '', timeout_seconds, updated_at FROM providers_old`,
+			`INSERT INTO providers(name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds, updated_at)
+			 SELECT name, api_key, base_url, '', '', '', timeout_seconds, updated_at FROM providers_old`,
 			stmts[2],
 		}
 	}
@@ -158,8 +165,8 @@ func (s *SQLiteStore) migrateProvidersTable(ctx context.Context) error {
 		stmts = []string{
 			stmts[0],
 			stmts[1],
-			`INSERT INTO providers(name, api_key, base_url, api_key_ref, timeout_seconds, updated_at)
-			 SELECT name, '', base_url, api_key_ref, timeout_seconds, updated_at FROM providers_old`,
+			`INSERT INTO providers(name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds, updated_at)
+			 SELECT name, '', base_url, '', '', api_key_ref, timeout_seconds, updated_at FROM providers_old`,
 			stmts[2],
 		}
 	}
@@ -169,6 +176,51 @@ func (s *SQLiteStore) migrateProvidersTable(ctx context.Context) error {
 		}
 	}
 	return tx.Commit()
+}
+
+func (s *SQLiteStore) migrateProvidersAnthropicColumns(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(providers)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var hasAnthropicBaseURL bool
+	var hasAnthropicVersion bool
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &pk); err != nil {
+			return err
+		}
+		switch strings.ToLower(name) {
+		case "anthropic_base_url":
+			hasAnthropicBaseURL = true
+		case "anthropic_version":
+			hasAnthropicVersion = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if !hasAnthropicBaseURL {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE providers ADD COLUMN anthropic_base_url TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if !hasAnthropicVersion {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE providers ADD COLUMN anthropic_version TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *SQLiteStore) migrateAuthKeysTable(context.Context) error {
@@ -383,7 +435,7 @@ func (s *SQLiteStore) SeedAuthKeysIfEmpty(ctx context.Context, keys []config.Key
 }
 
 func (s *SQLiteStore) ListProviders(ctx context.Context) ([]config.ProviderConfig, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT name, api_key, base_url, api_key_ref, timeout_seconds FROM providers ORDER BY name`)
+	rows, err := s.db.QueryContext(ctx, `SELECT name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds FROM providers ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -392,7 +444,7 @@ func (s *SQLiteStore) ListProviders(ctx context.Context) ([]config.ProviderConfi
 	var out []config.ProviderConfig
 	for rows.Next() {
 		var provider config.ProviderConfig
-		if err := rows.Scan(&provider.Name, &provider.APIKey, &provider.BaseURL, &provider.APIKeyRef, &provider.TimeoutSeconds); err != nil {
+		if err := rows.Scan(&provider.Name, &provider.APIKey, &provider.BaseURL, &provider.AnthropicBaseURL, &provider.AnthropicVersion, &provider.APIKeyRef, &provider.TimeoutSeconds); err != nil {
 			return nil, err
 		}
 		out = append(out, provider)
@@ -402,8 +454,8 @@ func (s *SQLiteStore) ListProviders(ctx context.Context) ([]config.ProviderConfi
 
 func (s *SQLiteStore) GetProvider(ctx context.Context, name string) (config.ProviderConfig, error) {
 	var provider config.ProviderConfig
-	err := s.db.QueryRowContext(ctx, `SELECT name, api_key, base_url, api_key_ref, timeout_seconds FROM providers WHERE name = ?`, name).
-		Scan(&provider.Name, &provider.APIKey, &provider.BaseURL, &provider.APIKeyRef, &provider.TimeoutSeconds)
+	err := s.db.QueryRowContext(ctx, `SELECT name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds FROM providers WHERE name = ?`, name).
+		Scan(&provider.Name, &provider.APIKey, &provider.BaseURL, &provider.AnthropicBaseURL, &provider.AnthropicVersion, &provider.APIKeyRef, &provider.TimeoutSeconds)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return config.ProviderConfig{}, fmt.Errorf("provider %q not found", name)
@@ -482,15 +534,17 @@ func (s *SQLiteStore) GetAuthKey(ctx context.Context, key string) (config.KeyCon
 
 func (s *SQLiteStore) UpsertProvider(ctx context.Context, provider config.ProviderConfig) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO providers(name, api_key, base_url, api_key_ref, timeout_seconds, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO providers(name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(name) DO UPDATE SET
 			api_key = excluded.api_key,
 			base_url = excluded.base_url,
+			anthropic_base_url = excluded.anthropic_base_url,
+			anthropic_version = excluded.anthropic_version,
 			api_key_ref = excluded.api_key_ref,
 			timeout_seconds = excluded.timeout_seconds,
 			updated_at = excluded.updated_at
-	`, provider.Name, provider.APIKey, provider.BaseURL, provider.APIKeyRef, provider.TimeoutSeconds, time.Now().UTC().Format(time.RFC3339))
+	`, provider.Name, provider.APIKey, provider.BaseURL, provider.AnthropicBaseURL, provider.AnthropicVersion, provider.APIKeyRef, provider.TimeoutSeconds, time.Now().UTC().Format(time.RFC3339))
 	return err
 }
 

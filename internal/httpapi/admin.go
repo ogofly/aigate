@@ -291,11 +291,13 @@ func (h *Handler) handleAdminProvidersSave(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	providerCfg := config.ProviderConfig{
-		Name:           strings.TrimSpace(r.FormValue("name")),
-		APIKey:         strings.TrimSpace(r.FormValue("api_key")),
-		BaseURL:        strings.TrimSpace(r.FormValue("base_url")),
-		APIKeyRef:      strings.TrimSpace(r.FormValue("api_key_ref")),
-		TimeoutSeconds: timeoutSeconds,
+		Name:             strings.TrimSpace(r.FormValue("name")),
+		APIKey:           strings.TrimSpace(r.FormValue("api_key")),
+		BaseURL:          strings.TrimSpace(r.FormValue("base_url")),
+		AnthropicBaseURL: strings.TrimSpace(r.FormValue("anthropic_base_url")),
+		AnthropicVersion: strings.TrimSpace(r.FormValue("anthropic_version")),
+		APIKeyRef:        strings.TrimSpace(r.FormValue("api_key_ref")),
+		TimeoutSeconds:   timeoutSeconds,
 	}
 	if providerCfg.Name == "" || providerCfg.BaseURL == "" || (providerCfg.APIKey == "" && providerCfg.APIKeyRef == "") {
 		writeError(w, http.StatusBadRequest, "invalid_request", "name, base_url, and api_key or api_key_ref are required")
