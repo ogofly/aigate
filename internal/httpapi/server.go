@@ -27,7 +27,7 @@ type Handler struct {
 }
 
 func New(authenticator *auth.Auth, admin config.AdminConfig, rt *router.Router, recorder *usage.Recorder, sqliteStore *store.SQLiteStore, providerNames []string) http.Handler {
-	return NewWithClient(authenticator, admin, provider.NewOpenAILikeClient(), rt, recorder, sqliteStore, providerNames)
+	return NewWithClient(authenticator, admin, provider.NewClient(), rt, recorder, sqliteStore, providerNames)
 }
 
 func NewWithClient(authenticator *auth.Auth, admin config.AdminConfig, client provider.Client, rt *router.Router, recorder *usage.Recorder, sqliteStore *store.SQLiteStore, providerNames []string) http.Handler {

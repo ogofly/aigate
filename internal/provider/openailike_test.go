@@ -76,7 +76,7 @@ func TestChatUsesRawPayloadAndOnlyRewritesModel(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewOpenAILikeClient()
+	client := NewClient()
 	reqBody := []byte(`{
 		"model":"public-model",
 		"messages":[{"role":"user","content":"hi","extra_in_message":{"foo":"bar"}}],
@@ -137,7 +137,7 @@ func TestChatStreamPreservesRawStreamAndHeaders(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewOpenAILikeClient()
+	client := NewClient()
 	var req ChatRequest
 	if err := json.Unmarshal([]byte(`{"model":"public-model","stream":true,"messages":[{"role":"user","content":"hi"}],"trace_id":"abc123"}`), &req); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
@@ -189,7 +189,7 @@ func TestMessagesUsesAnthropicEndpointAndHeaders(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewOpenAILikeClient()
+	client := NewClient()
 	var req ChatRequest
 	if err := json.Unmarshal([]byte(`{"model":"claude-public","messages":[{"role":"user","content":"hi"}]}`), &req); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)

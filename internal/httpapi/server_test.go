@@ -26,8 +26,8 @@ type stubProvider struct {
 	lastModel          string
 	lastChat           *provider.ChatRequest
 	lastMessages       *provider.ChatRequest
-	response           *provider.ChatResponse
-	messagesResponse   *provider.ChatResponse
+	response           *provider.OpenAIResponse
+	messagesResponse   *provider.AnthropicResponse
 	embedResp          *provider.EmbeddingResponse
 	returnError        error
 	streamBody         string
@@ -37,7 +37,7 @@ type stubProvider struct {
 	lastEmbed          provider.EmbeddingRequest
 }
 
-func (s *stubProvider) Chat(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (*provider.ChatResponse, error) {
+func (s *stubProvider) Chat(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (*provider.OpenAIResponse, error) {
 	s.lastModel = upstreamModel
 	s.lastChat = req
 	if s.returnError != nil {
@@ -69,16 +69,13 @@ func (s *stubProvider) ChatStream(_ context.Context, _ config.ProviderConfig, re
 	}, nil
 }
 
-func (s *stubProvider) Messages(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (*provider.ChatResponse, error) {
+func (s *stubProvider) Messages(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (*provider.AnthropicResponse, error) {
 	s.lastModel = upstreamModel
 	s.lastMessages = req
 	if s.returnError != nil {
 		return nil, s.returnError
 	}
-	if s.messagesResponse != nil {
-		return s.messagesResponse, nil
-	}
-	return s.response, nil
+	return s.messagesResponse, nil
 }
 
 func (s *stubProvider) MessagesStream(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (*provider.StreamResponse, error) {
@@ -167,7 +164,7 @@ func newHandler(t *testing.T, keys []config.KeyConfig, rt *router.Router, record
 }
 
 func TestChatCompletionsRoutesToExpectedProviderModel(t *testing.T) {
-	resp := provider.ChatResponse{
+	resp := provider.OpenAIResponse{
 		"id": "chatcmpl-test",
 	}
 	p := &stubProvider{response: &resp}
@@ -583,7 +580,7 @@ func TestEmbeddingsRoutesToExpectedProviderModel(t *testing.T) {
 }
 
 func TestMessagesRoutesToExpectedProviderModel(t *testing.T) {
-	resp := provider.ChatResponse{
+	resp := provider.AnthropicResponse{
 		"id":   "msg-test",
 		"type": "message",
 	}
@@ -691,7 +688,7 @@ func TestEmbeddingsRequiresModel(t *testing.T) {
 }
 
 func TestUsageSummaryTracksChatTokens(t *testing.T) {
-	resp := provider.ChatResponse{
+	resp := provider.OpenAIResponse{
 		"id": "chatcmpl-test",
 		"usage": map[string]any{
 			"prompt_tokens":     float64(10),
@@ -818,7 +815,7 @@ func TestAdminUsageReturnsAllSummaries(t *testing.T) {
 }
 
 func TestChatCompletionsPassesThroughUnknownFields(t *testing.T) {
-	resp := provider.ChatResponse{"id": "chatcmpl-test"}
+	resp := provider.OpenAIResponse{"id": "chatcmpl-test"}
 	p := &stubProvider{response: &resp}
 	rt, err := router.New([]config.ModelConfig{
 		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
@@ -854,7 +851,7 @@ func TestChatCompletionsPassesThroughUnknownFields(t *testing.T) {
 }
 
 func TestChatCompletionsPreservesAgentMultiTurnMessagesAndToolCalls(t *testing.T) {
-	resp := provider.ChatResponse{"id": "chatcmpl-test"}
+	resp := provider.OpenAIResponse{"id": "chatcmpl-test"}
 	p := &stubProvider{response: &resp}
 	rt, err := router.New([]config.ModelConfig{
 		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
@@ -1089,7 +1086,7 @@ func TestAdminPlaygroundRequiresSession(t *testing.T) {
 }
 
 func TestAdminPlaygroundChatWorks(t *testing.T) {
-	resp := provider.ChatResponse{
+	resp := provider.OpenAIResponse{
 		"choices": []map[string]any{
 			{
 				"message": map[string]any{
@@ -1281,7 +1278,7 @@ func TestAdminUsageFiltersByOwnerForUserSession(t *testing.T) {
 }
 
 func TestMessagesNonStreamRecordsUsage(t *testing.T) {
-	resp := provider.ChatResponse{
+	resp := provider.AnthropicResponse{
 		"id":   "msg-test",
 		"type": "message",
 		"usage": map[string]any{
