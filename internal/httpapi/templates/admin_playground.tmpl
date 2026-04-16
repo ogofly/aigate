@@ -45,7 +45,7 @@ textarea{min-height:180px;resize:vertical}
 <aside class="card">
 <h2 class="title">Connect Settings</h2>
 <p class="muted">OpenAI compatible. Copy into your client app.</p>
-<div class="kv"><div class="muted">API Base URL</div><div class="mono" id="cfg-base">{{.PlayAPIBase}}</div><button type="button" class="ghost" onclick="copyText('cfg-base', this)">Copy</button></div>
+<div class="kv"><div class="muted">API Base URL</div><div class="mono" id="cfg-base">{{.PlayAPIBase}}/v1</div><button type="button" class="ghost" onclick="copyText('cfg-base', this)">Copy</button></div>
 <div class="kv"><div class="muted">API Key</div><div class="mono" id="cfg-key">{{.PlayAPIKey}}</div><button type="button" class="ghost" onclick="copyText('cfg-key', this)">Copy</button></div>
 <div class="kv"><div class="muted">Model</div><div class="mono" id="cfg-model">{{.PlayModel}}</div><button type="button" class="ghost" onclick="copyText('cfg-model', this)">Copy</button></div>
 <div class="hint">Use endpoint: <span class="mono">/chat/completions</span></div>

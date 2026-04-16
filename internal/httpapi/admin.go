@@ -651,7 +651,7 @@ func publicAPIBaseURL(r *http.Request) string {
 			scheme = strings.TrimSpace(parts[0])
 		}
 	}
-	return scheme + "://" + r.Host + "/v1"
+	return scheme + "://" + r.Host
 }
 
 func extractChatText(resp *provider.OpenAIResponse) string {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -84,8 +85,17 @@ func main() {
 	}
 
 	log.Printf("aigate listening on %s", cfg.Server.Listen)
+	log.Printf("admin web open http://localhost%s/admin", adminPort(cfg.Server.Listen))
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Printf("server error: %v", err)
 		os.Exit(1)
 	}
+}
+
+func adminPort(addr string) string {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return ":" + addr
+	}
+	return ":" + port
 }

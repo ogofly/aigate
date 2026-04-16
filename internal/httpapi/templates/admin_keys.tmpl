@@ -25,7 +25,8 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
 {{template "admin_nav" .}}
 <h1>Keys</h1>
 {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
-<div class="muted" style="margin-top:8px">OpenAI compatible: base URL <span class="key-text" style="cursor:text">{{.APIBase}}</span>, use <span class="key-text" style="cursor:text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
+<div class="muted" style="margin-top:8px">OpenAI compatible: base URL <span class="key-text" style="cursor:text">{{.APIBase}}/v1</span>, use <span class="key-text" style="cursor:text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
+<div class="muted" style="margin-top:4px">Anthropic: base URL <span class="key-text" style="cursor:text">{{.APIBase}}/anthropic</span>, use <span class="key-text" style="cursor:text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
 
 <form method="post" action="/admin/keys" style="margin-top:20px">
   <span class="key-gen">
