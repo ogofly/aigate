@@ -16,6 +16,7 @@ import (
 	"aigate/internal/auth"
 	"aigate/internal/config"
 	"aigate/internal/provider"
+	"aigate/internal/store"
 	"aigate/internal/usage"
 )
 
@@ -89,6 +90,12 @@ type adminViewData struct {
 	PlayResult    string
 	PlayError     string
 	APIBase       string
+	UsageModels   []string
+	FilterStart   string
+	FilterEnd     string
+	FilterModel   string
+	View          string
+	ModelSummaries []usage.ModelSummary
 }
 
 func (h *Handler) handleAdminLoginPage(w http.ResponseWriter, r *http.Request) {
@@ -432,16 +439,76 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	summaries := h.usage.Summaries()
-	if session.Role != roleAdmin {
-		summaries = filterUsageByOwner(summaries, session.Username)
+	startStr := r.URL.Query().Get("start")
+	endStr := r.URL.Query().Get("end")
+	model := r.URL.Query().Get("model")
+	view := r.URL.Query().Get("view")
+	if view == "" {
+		view = "by_key"
 	}
+
+	filter := store.UsageFilter{
+		Model: model,
+	}
+	if session.Role != roleAdmin {
+		filter.Owner = session.Username
+	}
+
+	if startStr != "" {
+		if t, err := time.Parse("2006-01-02", startStr); err == nil {
+			filter.StartTime = t
+		}
+	}
+	if endStr != "" {
+		if t, err := time.Parse("2006-01-02", endStr); err == nil {
+			filter.EndTime = t
+		}
+	}
+	if filter.StartTime.IsZero() {
+		filter.StartTime = time.Now().Add(-7 * 24 * time.Hour)
+		startStr = filter.StartTime.Format("2006-01-02")
+	}
+	if filter.EndTime.IsZero() {
+		filter.EndTime = time.Now()
+		endStr = filter.EndTime.Format("2006-01-02")
+	}
+
+	var summaries []usage.Summary
+	var modelSummaries []usage.ModelSummary
+	if view == "by_model" {
+		var err error
+		modelSummaries, err = h.store.QueryUsageByModel(r.Context(), filter)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "admin_usage_error", err.Error())
+			return
+		}
+	} else {
+		var err error
+		summaries, err = h.store.QueryUsage(r.Context(), filter)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "admin_usage_error", err.Error())
+			return
+		}
+	}
+
+	usageModels, err := h.store.ListUsageModels(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "admin_usage_error", err.Error())
+		return
+	}
+
 	data := adminViewData{
-		Title:       "Usage",
-		IsAdmin:     session.Role == roleAdmin,
-		CurrentUser: session.Username,
-		Usage:       summaries,
-		CurrentPath: "/admin/usage/view",
+		Title:         "Usage",
+		IsAdmin:       session.Role == roleAdmin,
+		CurrentUser:   session.Username,
+		Usage:         summaries,
+		CurrentPath:   "/admin/usage/view",
+		UsageModels:   usageModels,
+		FilterStart:   startStr,
+		FilterEnd:     endStr,
+		FilterModel:   model,
+		View:          view,
+		ModelSummaries: modelSummaries,
 	}
 	_ = adminUsageTemplate.Execute(w, data)
 }

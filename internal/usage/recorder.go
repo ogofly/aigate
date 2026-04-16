@@ -8,6 +8,17 @@ import (
 	"aigate/internal/auth"
 )
 
+type ModelSummary struct {
+	Model          string `json:"model"`
+	RequestCount   int64  `json:"request_count"`
+	SuccessCount   int64  `json:"success_count"`
+	ErrorCount     int64  `json:"error_count"`
+	RequestTokens  int64  `json:"request_tokens"`
+	ResponseTokens int64  `json:"response_tokens"`
+	TotalTokens    int64  `json:"total_tokens"`
+	KeyCount       int64  `json:"key_count"`
+}
+
 type Record struct {
 	Timestamp      time.Time     `json:"timestamp"`
 	KeyID          string        `json:"key_id"`

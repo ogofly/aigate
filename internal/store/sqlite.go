@@ -686,6 +686,151 @@ func (s *SQLiteStore) UsageSummaries(ctx context.Context) ([]usage.Summary, erro
 	return out, rows.Err()
 }
 
+type UsageFilter struct {
+	StartTime time.Time
+	EndTime   time.Time
+	Model     string
+	Owner     string
+}
+
+func (s *SQLiteStore) QueryUsage(ctx context.Context, filter UsageFilter) ([]usage.Summary, error) {
+	query := `
+		SELECT
+			key_id,
+			MAX(key_name),
+			MAX(owner),
+			MAX(purpose),
+			COALESCE(SUM(request_count), 0),
+			COALESCE(SUM(success_count), 0),
+			COALESCE(SUM(error_count), 0),
+			COALESCE(SUM(request_tokens), 0),
+			COALESCE(SUM(response_tokens), 0),
+			COALESCE(SUM(total_tokens), 0)
+		FROM usage_rollups
+		WHERE 1=1`
+	args := []any{}
+	if !filter.StartTime.IsZero() {
+		query += " AND bucket_start >= ?"
+		args = append(args, filter.StartTime.UTC())
+	}
+	if !filter.EndTime.IsZero() {
+		query += " AND bucket_start < ?"
+		args = append(args, filter.EndTime.UTC().Add(24*time.Hour))
+	}
+	if filter.Model != "" {
+		query += " AND public_model = ?"
+		args = append(args, filter.Model)
+	}
+	if filter.Owner != "" {
+		query += " AND owner = ?"
+		args = append(args, filter.Owner)
+	}
+	query += " GROUP BY key_id ORDER BY key_id"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []usage.Summary
+	for rows.Next() {
+		var summary usage.Summary
+		if err := rows.Scan(
+			&summary.KeyID,
+			&summary.KeyName,
+			&summary.Owner,
+			&summary.Purpose,
+			&summary.RequestCount,
+			&summary.SuccessCount,
+			&summary.ErrorCount,
+			&summary.RequestTokens,
+			&summary.ResponseTokens,
+			&summary.TotalTokens,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, summary)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListUsageModels(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT public_model FROM usage_rollups WHERE public_model != '' ORDER BY public_model`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var models []string
+	for rows.Next() {
+		var model string
+		if err := rows.Scan(&model); err != nil {
+			return nil, err
+		}
+		models = append(models, model)
+	}
+	return models, rows.Err()
+}
+
+func (s *SQLiteStore) QueryUsageByModel(ctx context.Context, filter UsageFilter) ([]usage.ModelSummary, error) {
+	query := `
+		SELECT
+			public_model,
+			COALESCE(SUM(request_count), 0),
+			COALESCE(SUM(success_count), 0),
+			COALESCE(SUM(error_count), 0),
+			COALESCE(SUM(request_tokens), 0),
+			COALESCE(SUM(response_tokens), 0),
+			COALESCE(SUM(total_tokens), 0),
+			COUNT(DISTINCT key_id)
+		FROM usage_rollups
+		WHERE public_model != ''`
+	args := []any{}
+	if !filter.StartTime.IsZero() {
+		query += " AND bucket_start >= ?"
+		args = append(args, filter.StartTime.UTC())
+	}
+	if !filter.EndTime.IsZero() {
+		query += " AND bucket_start < ?"
+		args = append(args, filter.EndTime.UTC().Add(24*time.Hour))
+	}
+	if filter.Model != "" {
+		query += " AND public_model = ?"
+		args = append(args, filter.Model)
+	}
+	if filter.Owner != "" {
+		query += " AND owner = ?"
+		args = append(args, filter.Owner)
+	}
+	query += " GROUP BY public_model ORDER BY request_count DESC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []usage.ModelSummary
+	for rows.Next() {
+		var m usage.ModelSummary
+		if err := rows.Scan(
+			&m.Model,
+			&m.RequestCount,
+			&m.SuccessCount,
+			&m.ErrorCount,
+			&m.RequestTokens,
+			&m.ResponseTokens,
+			&m.TotalTokens,
+			&m.KeyCount,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 func (s *SQLiteStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }

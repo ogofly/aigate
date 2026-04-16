@@ -122,7 +122,7 @@ func proxyStreamBody(w http.ResponseWriter, flusher http.Flusher, body io.Reader
 	buf := make([]byte, 1024)
 	chunkCount := 0
 	bytesSent := 0
-	lastChunkAt := start
+	// lastChunkAt := start
 	firstChunkLogged := false
 	sseEventCount := 0
 	sawDone := false
@@ -140,15 +140,16 @@ func proxyStreamBody(w http.ResponseWriter, flusher http.Flusher, body io.Reader
 			if !firstChunkLogged {
 				log.Printf("method=%s path=%s op=chat_completions event=first_chunk request_id=%s provider=%s model=%s ttfb_ms=%d bytes=%d", method, path, requestID, providerName, model, now.Sub(start).Milliseconds(), n)
 				firstChunkLogged = true
-			} else if chunkCount == 5 || chunkCount%20 == 0 || now.Sub(lastChunkAt) >= 10*time.Second {
-				log.Printf("method=%s path=%s op=chat_completions event=stream_progress request_id=%s provider=%s model=%s chunk_count=%d bytes_sent=%d since_start_ms=%d since_last_chunk_ms=%d", method, path, requestID, providerName, model, chunkCount, bytesSent, now.Sub(start).Milliseconds(), now.Sub(lastChunkAt).Milliseconds())
 			}
+			// else if chunkCount == 5 || chunkCount%20 == 0 || now.Sub(lastChunkAt) >= 10*time.Second {
+			// 	log.Printf("method=%s path=%s op=chat_completions event=stream_progress request_id=%s provider=%s model=%s chunk_count=%d bytes_sent=%d since_start_ms=%d since_last_chunk_ms=%d", method, path, requestID, providerName, model, chunkCount, bytesSent, now.Sub(start).Milliseconds(), now.Sub(lastChunkAt).Milliseconds())
+			// }
 			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
 				log.Printf("method=%s path=%s op=chat_completions event=stream_abort request_id=%s provider=%s model=%s reason=downstream_write_error err=%v duration_ms=%d chunk_count=%d bytes_sent=%d sse_event_count=%d saw_done=%t last_events=%q", method, path, requestID, providerName, model, writeErr, time.Since(start).Milliseconds(), chunkCount, bytesSent, sseEventCount, sawDone, strings.Join(lastEvents, " | "))
 				return streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, writeErr
 			}
 			flusher.Flush()
-			lastChunkAt = now
+			// lastChunkAt = now
 		}
 		if readErr == nil {
 			continue
