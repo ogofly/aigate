@@ -290,6 +290,18 @@ func (h *Handler) handleAdminProvidersSave(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid form")
 		return
 	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "name is required")
+		return
+	}
+
+	if r.FormValue("_method") == "PUT" {
+		h.handleAdminProviderUpdate(w, r, name)
+		return
+	}
+
 	timeoutSeconds := 60
 	if v := strings.TrimSpace(r.FormValue("timeout")); v != "" {
 		var parsed int
@@ -298,7 +310,7 @@ func (h *Handler) handleAdminProvidersSave(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	providerCfg := config.ProviderConfig{
-		Name:             strings.TrimSpace(r.FormValue("name")),
+		Name:             name,
 		APIKey:           strings.TrimSpace(r.FormValue("api_key")),
 		BaseURL:          strings.TrimSpace(r.FormValue("base_url")),
 		AnthropicBaseURL: strings.TrimSpace(r.FormValue("anthropic_base_url")),
@@ -306,8 +318,8 @@ func (h *Handler) handleAdminProvidersSave(w http.ResponseWriter, r *http.Reques
 		APIKeyRef:        strings.TrimSpace(r.FormValue("api_key_ref")),
 		TimeoutSeconds:   timeoutSeconds,
 	}
-	if providerCfg.Name == "" || providerCfg.BaseURL == "" || (providerCfg.APIKey == "" && providerCfg.APIKeyRef == "") {
-		writeError(w, http.StatusBadRequest, "invalid_request", "name, base_url, and api_key or api_key_ref are required")
+	if providerCfg.BaseURL == "" || (providerCfg.APIKey == "" && providerCfg.APIKeyRef == "") {
+		writeError(w, http.StatusBadRequest, "invalid_request", "base_url, and api_key or api_key_ref are required")
 		return
 	}
 	if err := h.store.UpsertProvider(r.Context(), providerCfg); err != nil {
@@ -319,6 +331,52 @@ func (h *Handler) handleAdminProvidersSave(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	http.Redirect(w, r, "/admin/providers?flash=provider+saved", http.StatusSeeOther)
+}
+
+func (h *Handler) handleAdminProviderUpdate(w http.ResponseWriter, r *http.Request, name string) {
+	existing, err := h.store.GetProvider(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "admin_provider_update_error", "provider not found")
+		return
+	}
+
+	baseURL := strings.TrimSpace(r.FormValue("base_url"))
+	if baseURL == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "base_url is required")
+		return
+	}
+	apiKey := strings.TrimSpace(r.FormValue("api_key"))
+	apiKeyRef := strings.TrimSpace(r.FormValue("api_key_ref"))
+	if apiKey == "" && apiKeyRef == "" {
+		apiKey = existing.APIKey
+		apiKeyRef = existing.APIKeyRef
+	}
+
+	providerCfg := config.ProviderConfig{
+		Name:             name,
+		BaseURL:          baseURL,
+		AnthropicBaseURL: strings.TrimSpace(r.FormValue("anthropic_base_url")),
+		AnthropicVersion: strings.TrimSpace(r.FormValue("anthropic_version")),
+		APIKey:           apiKey,
+		APIKeyRef:        apiKeyRef,
+		TimeoutSeconds:   existing.TimeoutSeconds,
+	}
+	if v := strings.TrimSpace(r.FormValue("timeout")); v != "" {
+		var parsed int
+		if _, err := fmt.Sscanf(v, "%d", &parsed); err == nil && parsed > 0 {
+			providerCfg.TimeoutSeconds = parsed
+		}
+	}
+
+	if err := h.store.UpsertProvider(r.Context(), providerCfg); err != nil {
+		writeError(w, http.StatusBadRequest, "admin_provider_update_error", err.Error())
+		return
+	}
+	if err := h.reloadProvidersAndModels(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "admin_provider_reload_error", err.Error())
+		return
+	}
+	http.Redirect(w, r, "/admin/providers?flash=provider+updated", http.StatusSeeOther)
 }
 
 func (h *Handler) handleAdminProvidersDelete(w http.ResponseWriter, r *http.Request) {

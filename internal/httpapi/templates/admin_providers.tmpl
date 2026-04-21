@@ -10,10 +10,13 @@ table{width:100%;border-collapse:collapse;margin-top:24px;background:rgba(255,25
 th,td{padding:10px;border-bottom:1px solid #72757e;text-align:left}
 input{padding:10px;border:1px solid #72757e;border-radius:8px;margin-right:8px;min-width:140px;background:#fffffe;color:#010101}
 button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:8px;cursor:pointer;font-weight:600}
+.ghost{background:#72757e;color:#fffffe}
 .muted{color:#94a1b2}
 .flash{padding:10px 12px;background:#72757e;border-radius:8px;margin-top:16px;color:#fffffe}
 .mono{font-family:ui-monospace,SFMono-Regular,monospace}
 .sort-btn{background:none;border:0;color:#fffffe;padding:0;cursor:pointer;font:inherit}
+.view-row{display:table-row}
+.edit-row{display:none}
 </style>
 </head>
 <body>
@@ -46,7 +49,7 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
   </thead>
   <tbody>
     {{range .ProvidersCfg}}
-    <tr>
+    <tr class="view-row" data-name="{{.Name}}">
       <td>{{.Name}}</td>
       <td>{{.BaseURL}}</td>
       <td>{{if .APIKey}}configured{{else}}-{{end}}</td>
@@ -55,10 +58,30 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
       <td>{{if .APIKeyRef}}{{.APIKeyRef}}{{else}}-{{end}}</td>
       <td>{{.TimeoutSeconds}}s</td>
       <td>
-        <form method="post" action="/admin/providers/delete" onsubmit="return confirmDeleteProvider()">
+        <div style="display:flex;gap:8px">
+          <button type="button" class="ghost" onclick="startEdit(this)">Edit</button>
+          <form method="post" action="/admin/providers/delete" onsubmit="return confirmDeleteProvider()">
+            <input type="hidden" name="name" value="{{.Name}}">
+            <button type="submit">Delete</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    <tr class="edit-row" data-name="{{.Name}}">
+      <td colspan="8">
+        <form method="post" action="/admin/providers" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap" onsubmit="this.querySelector('button[type=submit]').disabled=true">
+          <input type="hidden" name="_method" value="PUT">
           <input type="hidden" name="name" value="{{.Name}}">
-          <button type="submit">Delete</button>
+          <span class="mono" style="min-width:80px">{{.Name}}</span>
+          <input name="base_url" value="{{.BaseURL}}" placeholder="base url">
+          <input name="anthropic_base_url" value="{{.AnthropicBaseURL}}" placeholder="anthropic base url (optional)">
+          <input name="anthropic_version" value="{{.AnthropicVersion}}" placeholder="anthropic version (optional)">
+          <input name="api_key" placeholder="api key (optional)">
+          <input name="api_key_ref" value="{{.APIKeyRef}}" placeholder="env var name (optional)">
+          <input name="timeout" value="{{.TimeoutSeconds}}" placeholder="timeout" style="min-width:80px">
+          <button type="submit">Save</button>
         </form>
+        <button type="button" class="ghost" style="margin-left:8px" onclick="cancelEdit(this)">Cancel</button>
       </td>
     </tr>
     {{else}}
@@ -66,27 +89,55 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
     {{end}}
   </tbody>
 </table>
+
 <script>
+function startEdit(btn){
+  const row = btn.closest('.view-row');
+  if(!row) return;
+  const name = row.dataset.name;
+  row.style.display = 'none';
+  const editRow = row.nextElementSibling;
+  if(editRow && editRow.classList.contains('edit-row') && editRow.dataset.name === name){
+    editRow.style.display = 'table-row';
+  }
+}
+
+function cancelEdit(btn){
+  const row = btn.closest('.edit-row');
+  if(!row) return;
+  const name = row.dataset.name;
+  row.style.display = 'none';
+  const viewRow = row.previousElementSibling;
+  if(viewRow && viewRow.classList.contains('view-row') && viewRow.dataset.name === name){
+    viewRow.style.display = 'table-row';
+  }
+}
+
 function sortTable(tableId, col, kind){
   const table = document.getElementById(tableId);
   if(!table || !table.tBodies || table.tBodies.length === 0){return;}
   const tbody = table.tBodies[0];
-  const rows = Array.from(tbody.rows);
-  if(rows.length === 0){return;}
-  const nextAsc = table.dataset.sortCol !== String(col) ? true : table.dataset.sortAsc !== "true";
-  rows.sort((a, b) => {
-    const av = (a.cells[col]?.textContent || "").trim();
-    const bv = (b.cells[col]?.textContent || "").trim();
+  // Sort pairs of view+edit rows together
+  const pairs = [];
+  for(let i = 0; i < tbody.rows.length; i += 2){
+    const viewRow = tbody.rows[i];
+    const editRow = tbody.rows[i + 1];
+    pairs.push([viewRow, editRow || null]);
+  }
+  pairs.sort((a, b) => {
+    const av = (a[0].cells[col]?.textContent || "").trim();
+    const bv = (b[0].cells[col]?.textContent || "").trim();
     if(kind === "num"){
       const an = Number.parseInt(av, 10) || 0;
       const bn = Number.parseInt(bv, 10) || 0;
-      return nextAsc ? an - bn : bn - an;
+      return an - bn;
     }
-    return nextAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+    return av.localeCompare(bv);
   });
-  for(const row of rows){tbody.appendChild(row);}
-  table.dataset.sortCol = String(col);
-  table.dataset.sortAsc = nextAsc ? "true" : "false";
+  for(const [vr, er] of pairs){
+    tbody.appendChild(vr);
+    if(er) tbody.appendChild(er);
+  }
 }
 
 function confirmDeleteProvider(){
