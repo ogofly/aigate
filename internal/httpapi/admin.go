@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,6 +14,7 @@ import (
 
 	"aigate/internal/auth"
 	"aigate/internal/config"
+	"aigate/internal/logger"
 	"aigate/internal/provider"
 	"aigate/internal/store"
 	"aigate/internal/usage"
@@ -667,7 +667,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 	if stream {
 		streamResp, err := h.client.ChatStream(r.Context(), providerCfg, chatReq, target.UpstreamModel)
 		if err != nil {
-			log.Printf("method=%s path=%s op=admin_playground_chat stream=true provider=%s error=%v", r.Method, r.URL.Path, target.ProviderName, err)
+			logger.L.Error("admin playground chat failed", "op", "admin_playground_chat", "stream", true, "provider", target.ProviderName, "error", err)
 			h.recordUsage(principal, "chat.completions", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", err.Error())
 			if buildErr != nil {
@@ -697,7 +697,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 	} else {
 		resp, err := h.client.Chat(r.Context(), providerCfg, chatReq, target.UpstreamModel)
 		if err != nil {
-			log.Printf("method=%s path=%s op=admin_playground_chat stream=false provider=%s error=%v", r.Method, r.URL.Path, target.ProviderName, err)
+			logger.L.Error("admin playground chat failed", "op", "admin_playground_chat", "stream", false, "provider", target.ProviderName, "error", err)
 			h.recordUsage(principal, "chat.completions", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", err.Error())
 			if buildErr != nil {

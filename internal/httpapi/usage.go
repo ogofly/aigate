@@ -1,18 +1,17 @@
 package httpapi
 
 import (
-	"log"
-	"net/http"
-
 	"aigate/internal/auth"
+	"aigate/internal/logger"
 	"aigate/internal/usage"
+	"net/http"
 )
 
 func (h *Handler) handleUsage(w http.ResponseWriter, r *http.Request) {
-	log.Printf("method=%s path=%s op=usage", r.Method, r.URL.Path)
+	logger.L.Info("request", "op", "usage")
 	principal, ok := h.auth.Authenticate(r)
 	if !ok {
-		log.Printf("method=%s path=%s op=usage auth=failed", r.Method, r.URL.Path)
+		logger.L.Warn("auth failed", "op", "usage")
 		writeError(w, http.StatusUnauthorized, "invalid_api_key", "invalid api key")
 		return
 	}
@@ -25,14 +24,14 @@ func (h *Handler) handleUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": h.decorateSummary(summary, principal),
 	})
-	log.Printf("method=%s path=%s op=usage key=%s status=%d", r.Method, r.URL.Path, principal.Key, http.StatusOK)
+	logger.L.Info("response", "op", "usage", "key", principal.Key, "status", http.StatusOK)
 }
 
 func (h *Handler) handleAdminUsage(w http.ResponseWriter, r *http.Request) {
-	log.Printf("method=%s path=%s op=admin_usage", r.Method, r.URL.Path)
+	logger.L.Info("request", "op", "admin_usage")
 	session, ok := h.webSession(r)
 	if !ok {
-		log.Printf("method=%s path=%s op=admin_usage session=failed", r.Method, r.URL.Path)
+		logger.L.Warn("session failed", "op", "admin_usage")
 		writeError(w, http.StatusUnauthorized, "web_auth_required", "web session required")
 		return
 	}
@@ -44,7 +43,7 @@ func (h *Handler) handleAdminUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": summaries,
 	})
-	log.Printf("method=%s path=%s op=admin_usage status=%d", r.Method, r.URL.Path, http.StatusOK)
+	logger.L.Info("response", "op", "admin_usage", "status", http.StatusOK)
 }
 
 func (h *Handler) emptySummary(principal auth.Principal) usage.Summary {

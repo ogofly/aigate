@@ -1,14 +1,14 @@
 package httpapi
 
 import (
-	"log"
+	"aigate/internal/logger"
 	"net/http"
 )
 
 func (h *Handler) handleModels(w http.ResponseWriter, r *http.Request) {
-	log.Printf("method=%s path=%s op=models", r.Method, r.URL.Path)
+	logger.L.Info("request", "op", "models")
 	if !h.auth.Check(r) {
-		log.Printf("method=%s path=%s op=models auth=failed", r.Method, r.URL.Path)
+		logger.L.Warn("auth failed", "op", "models")
 		writeError(w, http.StatusUnauthorized, "invalid_api_key", "invalid api key")
 		return
 	}
@@ -27,5 +27,5 @@ func (h *Handler) handleModels(w http.ResponseWriter, r *http.Request) {
 		"object": "list",
 		"data":   data,
 	})
-	log.Printf("method=%s path=%s op=models status=%d count=%d", r.Method, r.URL.Path, http.StatusOK, len(data))
+	logger.L.Info("response", "op", "models", "status", http.StatusOK, "count", len(data))
 }

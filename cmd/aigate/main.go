@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"aigate/internal/auth"
 	"aigate/internal/config"
 	"aigate/internal/httpapi"
+	"aigate/internal/logger"
 	"aigate/internal/router"
 	"aigate/internal/store"
 	"aigate/internal/usage"
@@ -30,25 +32,32 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	logger.Init()
+
 	sqliteStore, err := store.NewSQLite(cfg.Storage.SQLitePath)
 	if err != nil {
-		log.Fatalf("init sqlite: %v", err)
+		slog.Error("init sqlite", "error", err)
+		os.Exit(1)
 	}
 	defer sqliteStore.Close()
 
 	ctx := context.Background()
 	if err := sqliteStore.SeedProvidersIfEmpty(ctx, cfg.Providers); err != nil {
-		log.Fatalf("seed providers: %v", err)
+		slog.Error("seed providers", "error", err)
+		os.Exit(1)
 	}
 	if err := sqliteStore.SeedModelsIfEmpty(ctx, cfg.Models); err != nil {
-		log.Fatalf("seed models: %v", err)
+		slog.Error("seed models", "error", err)
+		os.Exit(1)
 	}
 	if err := sqliteStore.SeedAuthKeysIfEmpty(ctx, cfg.Auth.Keys); err != nil {
-		log.Fatalf("seed auth keys: %v", err)
+		slog.Error("seed auth keys", "error", err)
+		os.Exit(1)
 	}
 	providerConfigs, err := sqliteStore.ListProviders(ctx)
 	if err != nil {
-		log.Fatalf("load providers: %v", err)
+		slog.Error("load providers", "error", err)
+		os.Exit(1)
 	}
 	providerNames := make([]string, 0, len(providerConfigs))
 	for _, pc := range providerConfigs {
@@ -56,23 +65,27 @@ func main() {
 	}
 	models, err := sqliteStore.ListModels(ctx)
 	if err != nil {
-		log.Fatalf("load models: %v", err)
+		slog.Error("load models", "error", err)
+		os.Exit(1)
 	}
 	keyConfigs, err := sqliteStore.ListAuthKeys(ctx)
 	if err != nil {
-		log.Fatalf("load auth keys: %v", err)
+		slog.Error("load auth keys", "error", err)
+		os.Exit(1)
 	}
 
 	rt, err := router.New(models)
 	if err != nil {
-		log.Fatalf("init router: %v", err)
+		slog.Error("init router", "error", err)
+		os.Exit(1)
 	}
 
 	authenticator := auth.New(keyConfigs)
 	recorder := usage.New(1000)
 	summaries, err := sqliteStore.UsageSummaries(ctx)
 	if err != nil {
-		log.Fatalf("load usage summaries: %v", err)
+		slog.Error("load usage summaries", "error", err)
+		os.Exit(1)
 	}
 	recorder.SeedSummaries(summaries)
 
@@ -84,10 +97,9 @@ func main() {
 		Handler: handler,
 	}
 
-	log.Printf("aigate listening on %s", cfg.Server.Listen)
-	log.Printf("admin web open http://localhost%s/admin", adminPort(cfg.Server.Listen))
+	slog.Info("server starting", "addr", cfg.Server.Listen, "admin", "http://localhost"+adminPort(cfg.Server.Listen)+"/admin")
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Printf("server error: %v", err)
+		slog.Error("server error", "error", err)
 		os.Exit(1)
 	}
 }

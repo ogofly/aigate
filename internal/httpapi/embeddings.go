@@ -2,20 +2,20 @@ package httpapi
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"time"
 
+	"aigate/internal/logger"
 	"aigate/internal/provider"
 	"aigate/internal/usage"
 )
 
 func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	log.Printf("method=%s path=%s op=embeddings", r.Method, r.URL.Path)
+	logger.L.Info("request", "op", "embeddings", "method", r.Method, "path", r.URL.Path)
 	principal, ok := h.auth.Authenticate(r)
 	if !ok {
-		log.Printf("method=%s path=%s op=embeddings auth=failed", r.Method, r.URL.Path)
+		logger.L.Warn("auth failed", "op", "embeddings")
 		writeError(w, http.StatusUnauthorized, "invalid_api_key", "invalid api key")
 		return
 	}
@@ -29,7 +29,7 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	modelValue, ok := req["model"]
 	model, ok2 := modelValue.(string)
 	if !ok || !ok2 || model == "" {
-		log.Printf("method=%s path=%s op=embeddings error=model_required", r.Method, r.URL.Path)
+		logger.L.Warn("model required", "op", "embeddings")
 		h.recordUsage(principal, "embeddings", "", "", "", false, 0, 0, 0, http.StatusBadRequest, time.Since(start))
 		writeError(w, http.StatusBadRequest, "model_required", "model is required")
 		return
@@ -37,12 +37,12 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 
 	target, err := h.router.Resolve(model)
 	if err != nil {
-		log.Printf("method=%s path=%s op=embeddings model=%s error=model_not_found", r.Method, r.URL.Path, model)
+		logger.L.Warn("model not found", "op", "embeddings", "model", model)
 		h.recordUsage(principal, "embeddings", "", model, "", false, 0, 0, 0, http.StatusBadRequest, time.Since(start))
 		writeError(w, http.StatusBadRequest, "model_not_found", "model not found")
 		return
 	}
-	log.Printf("method=%s path=%s op=embeddings model=%s provider=%s upstream_model=%s", r.Method, r.URL.Path, model, target.ProviderName, target.UpstreamModel)
+	logger.L.Info("request resolved", "op", "embeddings", "model", model, "provider", target.ProviderName, "upstream_model", target.UpstreamModel)
 	providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
 	if err != nil {
 		h.recordUsage(principal, "embeddings", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
@@ -52,7 +52,7 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.client.Embed(r.Context(), providerCfg, req, target.UpstreamModel)
 	if err != nil {
-		log.Printf("method=%s path=%s op=embeddings model=%s provider=%s error=%v", r.Method, r.URL.Path, model, target.ProviderName, err)
+		logger.L.Error("embed request failed", "op", "embeddings", "model", model, "provider", target.ProviderName, "error", err)
 		h.recordUsage(principal, "embeddings", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 		writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 		return
@@ -61,5 +61,5 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	requestTokens, responseTokens, totalTokens := usage.ExtractUsage(map[string]any(*resp))
 	h.recordUsage(principal, "embeddings", target.ProviderName, model, target.UpstreamModel, true, requestTokens, responseTokens, totalTokens, http.StatusOK, time.Since(start))
 	writeJSON(w, http.StatusOK, resp)
-	log.Printf("method=%s path=%s op=embeddings model=%s provider=%s status=%d", r.Method, r.URL.Path, model, target.ProviderName, http.StatusOK)
+	logger.L.Info("embed complete", "op", "embeddings", "model", model, "provider", target.ProviderName, "status", http.StatusOK, "request_tokens", requestTokens, "response_tokens", responseTokens, "total_tokens", totalTokens, "duration_ms", time.Since(start).Milliseconds())
 }

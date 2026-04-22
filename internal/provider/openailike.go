@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"aigate/internal/config"
+	"aigate/internal/logger"
 )
 
 type OpenAILikeProvider struct {
@@ -73,7 +73,8 @@ func (c *OpenAILikeClient) Chat(ctx context.Context, provider config.ProviderCon
 	}
 	payload := *req
 	payload.Model = upstreamModel
-	log.Printf("provider=%s op=chat stream=false upstream_model=%s", provider.Name, upstreamModel)
+	logger.L.Info("chat request",
+		"provider", provider.Name, "stream", false, "model", upstreamModel)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -90,7 +91,8 @@ func (c *OpenAILikeClient) Chat(ctx context.Context, provider config.ProviderCon
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		log.Printf("provider=%s op=chat stream=false upstream_model=%s error=%v", provider.Name, upstreamModel, err)
+		logger.L.Error("chat request failed",
+			"provider", provider.Name, "stream", false, "model", upstreamModel, "error", err)
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -101,7 +103,8 @@ func (c *OpenAILikeClient) Chat(ctx context.Context, provider config.ProviderCon
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("provider=%s op=chat stream=false upstream_model=%s status=%d", provider.Name, upstreamModel, resp.StatusCode)
+		logger.L.Warn("chat upstream error",
+			"provider", provider.Name, "stream", false, "model", upstreamModel, "status", resp.Status)
 		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 
@@ -120,7 +123,8 @@ func (c *OpenAILikeClient) ChatStream(ctx context.Context, provider config.Provi
 	}
 	payload := *req
 	payload.Model = upstreamModel
-	log.Printf("provider=%s op=chat stream=true upstream_model=%s", provider.Name, upstreamModel)
+	logger.L.Info("chat stream request",
+		"provider", provider.Name, "stream", true, "model", upstreamModel)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -138,19 +142,17 @@ func (c *OpenAILikeClient) ChatStream(ctx context.Context, provider config.Provi
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		log.Printf("provider=%s op=chat stream=true upstream_model=%s error=%v", provider.Name, upstreamModel, err)
+		logger.L.Error("chat stream request failed",
+			"provider", provider.Name, "stream", true, "model", upstreamModel, "error", err)
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 
-	log.Printf(
-		"provider=%s op=chat stream=true upstream_model=%s upstream_status=%d content_type=%q transfer_encoding=%q content_encoding=%q",
-		provider.Name,
-		upstreamModel,
-		resp.StatusCode,
-		resp.Header.Get("Content-Type"),
-		strings.Join(resp.TransferEncoding, ","),
-		resp.Header.Get("Content-Encoding"),
-	)
+	logger.L.Info("chat stream response",
+		"provider", provider.Name, "model", upstreamModel,
+		"status", resp.Status,
+		"content_type", resp.Header.Get("Content-Type"),
+		"transfer_encoding", strings.Join(resp.TransferEncoding, ","),
+		"content_encoding", resp.Header.Get("Content-Encoding"))
 
 	return &StreamResponse{
 		StatusCode: resp.StatusCode,
@@ -169,7 +171,8 @@ func (c *OpenAILikeClient) Embed(ctx context.Context, provider config.ProviderCo
 		payload[k] = v
 	}
 	payload["model"] = upstreamModel
-	log.Printf("provider=%s op=embeddings upstream_model=%s", provider.Name, upstreamModel)
+	logger.L.Info("embeddings request",
+		"provider", provider.Name, "model", upstreamModel)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -186,7 +189,8 @@ func (c *OpenAILikeClient) Embed(ctx context.Context, provider config.ProviderCo
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		log.Printf("provider=%s op=embeddings upstream_model=%s error=%v", provider.Name, upstreamModel, err)
+		logger.L.Error("embeddings request failed",
+			"provider", provider.Name, "model", upstreamModel, "error", err)
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -197,7 +201,8 @@ func (c *OpenAILikeClient) Embed(ctx context.Context, provider config.ProviderCo
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("provider=%s op=embeddings upstream_model=%s status=%d", provider.Name, upstreamModel, resp.StatusCode)
+		logger.L.Warn("embeddings upstream error",
+			"provider", provider.Name, "model", upstreamModel, "status", resp.Status)
 		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 

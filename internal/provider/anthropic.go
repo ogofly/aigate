@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
 
 	"aigate/internal/config"
+	"aigate/internal/logger"
 )
 
 type AnthropicClient struct{}
@@ -24,7 +24,8 @@ func (c *AnthropicClient) Messages(ctx context.Context, provider config.Provider
 	}
 	payload := *req
 	payload.Model = upstreamModel
-	log.Printf("provider=%s op=messages stream=false upstream_model=%s", provider.Name, upstreamModel)
+	logger.L.Info("messages request",
+		"provider", provider.Name, "stream", false, "model", upstreamModel)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -41,7 +42,8 @@ func (c *AnthropicClient) Messages(ctx context.Context, provider config.Provider
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		log.Printf("provider=%s op=messages stream=false upstream_model=%s error=%v", provider.Name, upstreamModel, err)
+		logger.L.Error("messages request failed",
+			"provider", provider.Name, "stream", false, "model", upstreamModel, "error", err)
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -51,7 +53,8 @@ func (c *AnthropicClient) Messages(ctx context.Context, provider config.Provider
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("provider=%s op=messages stream=false upstream_model=%s status=%d", provider.Name, upstreamModel, resp.StatusCode)
+		logger.L.Warn("messages upstream error",
+			"provider", provider.Name, "stream", false, "model", upstreamModel, "status", resp.Status)
 		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, trimSpace(string(respBody)))
 	}
 
@@ -69,7 +72,8 @@ func (c *AnthropicClient) MessagesStream(ctx context.Context, provider config.Pr
 	}
 	payload := *req
 	payload.Model = upstreamModel
-	log.Printf("provider=%s op=messages stream=true upstream_model=%s", provider.Name, upstreamModel)
+	logger.L.Info("messages stream request",
+		"provider", provider.Name, "stream", true, "model", upstreamModel)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -87,18 +91,16 @@ func (c *AnthropicClient) MessagesStream(ctx context.Context, provider config.Pr
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		log.Printf("provider=%s op=messages stream=true upstream_model=%s error=%v", provider.Name, upstreamModel, err)
+		logger.L.Error("messages stream request failed",
+			"provider", provider.Name, "stream", true, "model", upstreamModel, "error", err)
 		return nil, fmt.Errorf("send request: %w", err)
 	}
-	log.Printf(
-		"provider=%s op=messages stream=true upstream_model=%s upstream_status=%d content_type=%q transfer_encoding=%q content_encoding=%q",
-		provider.Name,
-		upstreamModel,
-		resp.StatusCode,
-		resp.Header.Get("Content-Type"),
-		resp.TransferEncoding,
-		resp.Header.Get("Content-Encoding"),
-	)
+	logger.L.Info("messages stream response",
+		"provider", provider.Name, "model", upstreamModel,
+		"status", resp.Status,
+		"content_type", resp.Header.Get("Content-Type"),
+		"transfer_encoding", resp.TransferEncoding,
+		"content_encoding", resp.Header.Get("Content-Encoding"))
 
 	return &StreamResponse{
 		StatusCode: resp.StatusCode,

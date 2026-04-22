@@ -3,20 +3,20 @@ package httpapi
 import (
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
+	"aigate/internal/logger"
 	"aigate/internal/provider"
 	"aigate/internal/usage"
 )
 
 func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	log.Printf("method=%s path=%s op=messages", r.Method, r.URL.Path)
+	logger.L.Info("request", "op", "messages", "method", r.Method, "path", r.URL.Path)
 	principal, ok := h.auth.Authenticate(r)
 	if !ok {
-		log.Printf("method=%s path=%s op=messages auth=failed", r.Method, r.URL.Path)
+		logger.L.Warn("auth failed", "op", "messages")
 		writeError(w, http.StatusUnauthorized, "invalid_api_key", "invalid api key")
 		return
 	}
@@ -34,7 +34,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	target, err := h.router.Resolve(req.Model)
 	if err != nil {
-		log.Printf("method=%s path=%s op=messages model=%s error=model_not_found", r.Method, r.URL.Path, req.Model)
+		logger.L.Warn("model not found", "op", "messages", "model", req.Model)
 		h.recordUsage(principal, "messages", "", req.Model, "", false, 0, 0, 0, http.StatusBadRequest, time.Since(start))
 		writeError(w, http.StatusBadRequest, "model_not_found", "model not found")
 		return
@@ -50,7 +50,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		requestID := nextStreamRequestID()
 		streamResp, err := h.client.MessagesStream(r.Context(), providerCfg, &req, target.UpstreamModel)
 		if err != nil {
-			log.Printf("method=%s path=%s op=messages request_id=%s model=%s provider=%s error=%v", r.Method, r.URL.Path, requestID, req.Model, target.ProviderName, err)
+			logger.L.Error("stream request failed", "op", "messages", "request_id", requestID, "model", req.Model, "provider", target.ProviderName, "error", err)
 			h.recordUsage(principal, "messages", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 			writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 			return
@@ -68,14 +68,14 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		if streamResp.StatusCode < 200 || streamResp.StatusCode >= 300 {
 			bytesSent, copyErr := io.Copy(w, streamResp.Body)
 			if copyErr != nil {
-				log.Printf("method=%s path=%s op=messages event=stream_abort request_id=%s provider=%s model=%s reason=downstream_write_error err=%v duration_ms=%d bytes_sent=%d upstream_status=%d", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, copyErr, time.Since(start).Milliseconds(), bytesSent, streamResp.StatusCode)
+				logger.L.Error("stream abort", "op", "messages", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "reason", "downstream_write_error", "error", copyErr, "duration_ms", time.Since(start).Milliseconds(), "bytes_sent", bytesSent, "upstream_status", streamResp.StatusCode)
 				return
 			}
 			h.recordUsage(principal, "messages", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, streamResp.StatusCode, time.Since(start))
 			return
 		}
 
-		streamUsage, _, _, _, _, _, streamErr := proxyStreamBody(w, flusher, streamResp.Body, r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, start)
+		streamUsage, _, _, _, _, _, streamErr := proxyStreamBody(w, flusher, streamResp.Body, requestID, target.ProviderName, req.Model, start)
 		if streamErr != nil {
 			return
 		}
@@ -85,7 +85,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.client.Messages(r.Context(), providerCfg, &req, target.UpstreamModel)
 	if err != nil {
-		log.Printf("method=%s path=%s op=messages model=%s provider=%s error=%v", r.Method, r.URL.Path, req.Model, target.ProviderName, err)
+		logger.L.Error("messages request failed", "op", "messages", "model", req.Model, "provider", target.ProviderName, "error", err)
 		h.recordUsage(principal, "messages", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 		writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 		return
@@ -93,5 +93,5 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	requestTokens, responseTokens, totalTokens := usage.ExtractUsage(map[string]any(*resp))
 	h.recordUsage(principal, "messages", target.ProviderName, req.Model, target.UpstreamModel, true, requestTokens, responseTokens, totalTokens, http.StatusOK, time.Since(start))
 	writeJSON(w, http.StatusOK, resp)
-	log.Printf("method=%s path=%s op=messages model=%s provider=%s status=%d stream=%t", r.Method, r.URL.Path, req.Model, target.ProviderName, http.StatusOK, false)
+	logger.L.Info("messages complete", "op", "messages", "model", req.Model, "provider", target.ProviderName, "status", http.StatusOK, "request_tokens", requestTokens, "response_tokens", responseTokens, "total_tokens", totalTokens, "duration_ms", time.Since(start).Milliseconds())
 }

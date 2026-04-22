@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/textproto"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"aigate/internal/auth"
+	"aigate/internal/logger"
 	"aigate/internal/provider"
 	"aigate/internal/usage"
 )
@@ -27,10 +27,10 @@ type streamUsageSnapshot struct {
 
 func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	log.Printf("method=%s path=%s op=chat_completions", r.Method, r.URL.Path)
+	logger.L.Info("request", "op", "chat_completions", "method", r.Method, "path", r.URL.Path)
 	principal, ok := h.auth.Authenticate(r)
 	if !ok {
-		log.Printf("method=%s path=%s op=chat_completions auth=failed", r.Method, r.URL.Path)
+		logger.L.Warn("auth failed", "op", "chat_completions", "method", r.Method, "path", r.URL.Path)
 		writeError(w, http.StatusUnauthorized, "invalid_api_key", "invalid api key")
 		return
 	}
@@ -42,7 +42,7 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if req.Model == "" {
-		log.Printf("method=%s path=%s op=chat_completions error=model_required", r.Method, r.URL.Path)
+		logger.L.Warn("model required", "op", "chat_completions", "method", r.Method, "path", r.URL.Path)
 		h.recordUsage(principal, "chat.completions", "", req.Model, "", false, 0, 0, 0, http.StatusBadRequest, time.Since(start))
 		writeError(w, http.StatusBadRequest, "model_required", "model is required")
 		return
@@ -50,12 +50,12 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 	target, err := h.router.Resolve(req.Model)
 	if err != nil {
-		log.Printf("method=%s path=%s op=chat_completions model=%s error=model_not_found", r.Method, r.URL.Path, req.Model)
+		logger.L.Warn("model not found", "op", "chat_completions", "model", req.Model)
 		h.recordUsage(principal, "chat.completions", "", req.Model, "", false, 0, 0, 0, http.StatusBadRequest, time.Since(start))
 		writeError(w, http.StatusBadRequest, "model_not_found", "model not found")
 		return
 	}
-	log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s upstream_model=%s stream=%t", r.Method, r.URL.Path, req.Model, target.ProviderName, target.UpstreamModel, req.Stream)
+	logger.L.Info("request resolved", "op", "chat_completions", "model", req.Model, "provider", target.ProviderName, "upstream_model", target.UpstreamModel, "stream", req.Stream)
 	providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
 	if err != nil {
 		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
@@ -67,13 +67,13 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		requestID := nextStreamRequestID()
 		streamResp, err := h.client.ChatStream(r.Context(), providerCfg, &req, target.UpstreamModel)
 		if err != nil {
-			log.Printf("method=%s path=%s op=chat_completions request_id=%s model=%s provider=%s error=%v", r.Method, r.URL.Path, requestID, req.Model, target.ProviderName, err)
+			logger.L.Error("stream request failed", "op", "chat_completions", "request_id", requestID, "model", req.Model, "provider", target.ProviderName, "error", err)
 			h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 			writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 			return
 		}
 		defer streamResp.Body.Close()
-		log.Printf("method=%s path=%s op=chat_completions event=stream_start request_id=%s key_id=%s provider=%s model=%s upstream_model=%s remote_addr=%s user_agent=%q", r.Method, r.URL.Path, requestID, usage.KeyID(principal.Key), target.ProviderName, req.Model, target.UpstreamModel, r.RemoteAddr, r.UserAgent())
+		logger.L.Info("stream start", "op", "chat_completions", "request_id", requestID, "key_id", usage.KeyID(principal.Key), "provider", target.ProviderName, "model", req.Model, "upstream_model", target.UpstreamModel, "remote_addr", r.RemoteAddr, "user_agent", r.UserAgent())
 
 		flusher, ok := w.(http.Flusher)
 		if !ok {
@@ -87,26 +87,26 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		if streamResp.StatusCode < 200 || streamResp.StatusCode >= 300 {
 			bytesSent, copyErr := io.Copy(w, streamResp.Body)
 			if copyErr != nil {
-				log.Printf("method=%s path=%s op=chat_completions event=stream_abort request_id=%s provider=%s model=%s reason=downstream_write_error err=%v duration_ms=%d bytes_sent=%d upstream_status=%d", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, copyErr, time.Since(start).Milliseconds(), bytesSent, streamResp.StatusCode)
+				logger.L.Error("stream abort", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "reason", "downstream_write_error", "error", copyErr, "duration_ms", time.Since(start).Milliseconds(), "bytes_sent", bytesSent, "upstream_status", streamResp.StatusCode)
 				return
 			}
 			h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, streamResp.StatusCode, time.Since(start))
-			log.Printf("method=%s path=%s op=chat_completions event=stream_end request_id=%s provider=%s model=%s status=%d duration_ms=%d bytes_sent=%d stream=%t", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, streamResp.StatusCode, time.Since(start).Milliseconds(), bytesSent, true)
+			logger.L.Warn("stream error", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "upstream_status", streamResp.StatusCode, "duration_ms", time.Since(start).Milliseconds())
 			return
 		}
 
-		streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, streamErr := proxyStreamBody(w, flusher, streamResp.Body, r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, start)
+		streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, streamErr := proxyStreamBody(w, flusher, streamResp.Body, requestID, target.ProviderName, req.Model, start)
 		if streamErr != nil {
 			return
 		}
 		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, true, streamUsage.requestTokens, streamUsage.responseTokens, streamUsage.totalTokens, streamResp.StatusCode, time.Since(start))
-		log.Printf("method=%s path=%s op=chat_completions event=stream_end request_id=%s provider=%s model=%s status=%d duration_ms=%d chunk_count=%d bytes_sent=%d sse_event_count=%d saw_done=%t usage_present=%t request_tokens=%d response_tokens=%d total_tokens=%d last_events=%q stream=%t", r.Method, r.URL.Path, requestID, target.ProviderName, req.Model, streamResp.StatusCode, time.Since(start).Milliseconds(), chunkCount, bytesSent, sseEventCount, sawDone, streamUsage.present, streamUsage.requestTokens, streamUsage.responseTokens, streamUsage.totalTokens, strings.Join(lastEvents, " | "), true)
+		logger.L.Info("stream end", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "status", streamResp.StatusCode, "duration_ms", time.Since(start).Milliseconds(), "chunk_count", chunkCount, "bytes_sent", bytesSent, "sse_event_count", sseEventCount, "saw_done", sawDone, "usage_present", streamUsage.present, "request_tokens", streamUsage.requestTokens, "response_tokens", streamUsage.responseTokens, "total_tokens", streamUsage.totalTokens, "last_events", strings.Join(lastEvents, " | "))
 		return
 	}
 
 	resp, err := h.client.Chat(r.Context(), providerCfg, &req, target.UpstreamModel)
 	if err != nil {
-		log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s error=%v", r.Method, r.URL.Path, req.Model, target.ProviderName, err)
+		logger.L.Error("chat request failed", "op", "chat_completions", "model", req.Model, "provider", target.ProviderName, "error", err)
 		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 		writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 		return
@@ -115,14 +115,13 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	requestTokens, responseTokens, totalTokens := usage.ExtractUsage(map[string]any(*resp))
 	h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, true, requestTokens, responseTokens, totalTokens, http.StatusOK, time.Since(start))
 	writeJSON(w, http.StatusOK, resp)
-	log.Printf("method=%s path=%s op=chat_completions model=%s provider=%s status=%d stream=%t", r.Method, r.URL.Path, req.Model, target.ProviderName, http.StatusOK, false)
+	logger.L.Info("chat complete", "op", "chat_completions", "model", req.Model, "provider", target.ProviderName, "status", http.StatusOK, "request_tokens", requestTokens, "response_tokens", responseTokens, "total_tokens", totalTokens, "duration_ms", time.Since(start).Milliseconds())
 }
 
-func proxyStreamBody(w http.ResponseWriter, flusher http.Flusher, body io.Reader, method, path, requestID, providerName, model string, start time.Time) (streamUsageSnapshot, int, int, int, bool, []string, error) {
+func proxyStreamBody(w http.ResponseWriter, flusher http.Flusher, body io.Reader, requestID, providerName, model string, start time.Time) (streamUsageSnapshot, int, int, int, bool, []string, error) {
 	buf := make([]byte, 1024)
 	chunkCount := 0
 	bytesSent := 0
-	// lastChunkAt := start
 	firstChunkLogged := false
 	sseEventCount := 0
 	sawDone := false
@@ -138,18 +137,14 @@ func proxyStreamBody(w http.ResponseWriter, flusher http.Flusher, body io.Reader
 			bytesSent += n
 			partialLine, sseEventCount, sawDone, lastEvents, streamUsage = inspectSSEChunk(partialLine, string(buf[:n]), sseEventCount, sawDone, lastEvents, streamUsage)
 			if !firstChunkLogged {
-				log.Printf("method=%s path=%s op=chat_completions event=first_chunk request_id=%s provider=%s model=%s ttfb_ms=%d bytes=%d", method, path, requestID, providerName, model, now.Sub(start).Milliseconds(), n)
+				logger.L.Debug("first chunk", "op", "chat_completions", "request_id", requestID, "provider", providerName, "model", model, "ttfb_ms", now.Sub(start).Milliseconds(), "bytes", n)
 				firstChunkLogged = true
 			}
-			// else if chunkCount == 5 || chunkCount%20 == 0 || now.Sub(lastChunkAt) >= 10*time.Second {
-			// 	log.Printf("method=%s path=%s op=chat_completions event=stream_progress request_id=%s provider=%s model=%s chunk_count=%d bytes_sent=%d since_start_ms=%d since_last_chunk_ms=%d", method, path, requestID, providerName, model, chunkCount, bytesSent, now.Sub(start).Milliseconds(), now.Sub(lastChunkAt).Milliseconds())
-			// }
 			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
-				log.Printf("method=%s path=%s op=chat_completions event=stream_abort request_id=%s provider=%s model=%s reason=downstream_write_error err=%v duration_ms=%d chunk_count=%d bytes_sent=%d sse_event_count=%d saw_done=%t last_events=%q", method, path, requestID, providerName, model, writeErr, time.Since(start).Milliseconds(), chunkCount, bytesSent, sseEventCount, sawDone, strings.Join(lastEvents, " | "))
+				logger.L.Error("stream abort", "op", "chat_completions", "request_id", requestID, "provider", providerName, "model", model, "reason", "downstream_write_error", "error", writeErr, "duration_ms", time.Since(start).Milliseconds(), "chunk_count", chunkCount, "bytes_sent", bytesSent, "sse_event_count", sseEventCount, "saw_done", sawDone, "last_events", strings.Join(lastEvents, " | "))
 				return streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, writeErr
 			}
 			flusher.Flush()
-			// lastChunkAt = now
 		}
 		if readErr == nil {
 			continue
@@ -157,7 +152,7 @@ func proxyStreamBody(w http.ResponseWriter, flusher http.Flusher, body io.Reader
 		if readErr == io.EOF {
 			return streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, nil
 		}
-		log.Printf("method=%s path=%s op=chat_completions event=stream_abort request_id=%s provider=%s model=%s reason=%s err=%v duration_ms=%d chunk_count=%d bytes_sent=%d sse_event_count=%d saw_done=%t last_events=%q", method, path, requestID, providerName, model, streamAbortReason(readErr), readErr, time.Since(start).Milliseconds(), chunkCount, bytesSent, sseEventCount, sawDone, strings.Join(lastEvents, " | "))
+		logger.L.Error("stream abort", "op", "chat_completions", "request_id", requestID, "provider", providerName, "model", model, "reason", streamAbortReason(readErr), "error", readErr, "duration_ms", time.Since(start).Milliseconds(), "chunk_count", chunkCount, "bytes_sent", bytesSent, "sse_event_count", sseEventCount, "saw_done", sawDone, "last_events", strings.Join(lastEvents, " | "))
 		return streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, readErr
 	}
 }

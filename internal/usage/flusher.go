@@ -2,7 +2,7 @@ package usage
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 )
 
@@ -39,9 +39,9 @@ func flushOnce(ctx context.Context, recorder *Recorder, store RollupStore) {
 		return
 	}
 	if err := store.UpsertUsageRollups(ctx, rollups); err != nil {
-		log.Printf("usage_flush error=%v", err)
+		slog.Error("usage flush failed", "error", err)
 		recorder.RestorePending(rollups)
 		return
 	}
-	log.Printf("usage_flush rollups=%d", len(rollups))
+	slog.Info("usage flush", "rollups", len(rollups))
 }

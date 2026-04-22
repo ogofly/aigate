@@ -6,16 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
 	"aigate/internal/auth"
 	"aigate/internal/config"
 	"aigate/internal/httpapi"
+	"aigate/internal/logger"
 	"aigate/internal/provider"
 	"aigate/internal/router"
 	"aigate/internal/store"
@@ -396,13 +398,9 @@ func TestChatCompletionsStreamLogsLifecycle(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer sk-app-001")
 	req.Header.Set("Content-Type", "application/json")
 
-	var logs bytes.Buffer
-	origWriter := log.Writer()
-	origFlags := log.Flags()
-	log.SetOutput(&logs)
-	log.SetFlags(0)
-	defer log.SetOutput(origWriter)
-	defer log.SetFlags(origFlags)
+	var buf bytes.Buffer
+	logger.SetOutputWithLevel(&buf, slog.LevelDebug)
+	defer logger.SetOutput(os.Stdout)
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -410,14 +408,14 @@ func TestChatCompletionsStreamLogsLifecycle(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	output := logs.String()
-	if !strings.Contains(output, "event=stream_start") {
+	output := buf.String()
+	if !strings.Contains(output, "msg=\"stream start\"") {
 		t.Fatalf("missing stream_start log: %q", output)
 	}
-	if !strings.Contains(output, "event=first_chunk") {
+	if !strings.Contains(output, "msg=\"first chunk\"") {
 		t.Fatalf("missing first_chunk log: %q", output)
 	}
-	if !strings.Contains(output, "event=stream_end") {
+	if !strings.Contains(output, "msg=\"stream end\"") {
 		t.Fatalf("missing stream_end log: %q", output)
 	}
 	if !strings.Contains(output, "saw_done=true") {
