@@ -2,32 +2,15 @@ package httpapi
 
 import (
 	"embed"
-	"fmt"
 	"html/template"
-	"math"
 	"path/filepath"
 )
 
 //go:embed templates/*.tmpl
 var templatesFS embed.FS
 
-func formatTokens(n int) string {
-	if n < 10000 {
-		return fmt.Sprintf("%d", n)
-	}
-	if n < 1000000 {
-		v := float64(n) / 1000
-		return fmt.Sprintf("%.1fK", math.Round(v*10)/10)
-	}
-	v := float64(n) / 1000000
-	return fmt.Sprintf("%.2fM", math.Round(v*100)/100)
-}
-
 func mustLoadTemplate(path string) *template.Template {
-	funcMap := template.FuncMap{
-		"formatTokens": formatTokens,
-	}
-	t := template.Must(template.New(filepath.Base(path)).Funcs(funcMap).ParseFS(templatesFS, "templates/_partials.tmpl", path))
+	t := template.Must(template.ParseFS(templatesFS, "templates/_partials.tmpl", path))
 	page := t.Lookup(filepath.Base(path))
 	if page == nil {
 		panic("template not found: " + path)
