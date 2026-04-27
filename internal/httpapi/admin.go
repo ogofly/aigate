@@ -524,12 +524,13 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if filter.StartTime.IsZero() {
-		now := time.Now()
-		filter.StartTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		now := time.Now().UTC()
+		filter.StartTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 		startStr = filter.StartTime.Format("2006-01-02")
 	}
 	if filter.EndTime.IsZero() {
-		filter.EndTime = time.Now()
+		now := time.Now().UTC()
+		filter.EndTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 		endStr = filter.EndTime.Format("2006-01-02")
 	}
 

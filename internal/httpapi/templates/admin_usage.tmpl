@@ -33,11 +33,22 @@ a.clear-filters{color:#94a1b2;margin-left:auto;text-decoration:none;font-size:13
 
 {{if eq .View "by_model"}}
 <table><thead><tr><th>Model</th><th>Requests</th><th>Success</th><th>Errors</th><th>Total Tokens</th><th>Active Keys</th></tr></thead><tbody>
-{{range .ModelSummaries}}<tr><td>{{.Model}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td>{{.TotalTokens}}</td><td>{{.KeyCount}}</td></tr>{{else}}<tr><td colspan="6" class="muted">No usage yet</td></tr>{{end}}
+{{range .ModelSummaries}}<tr><td>{{.Model}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td><td>{{.KeyCount}}</td></tr>{{else}}<tr><td colspan="6" class="muted">No usage yet</td></tr>{{end}}
 </tbody></table>
 {{else}}
 <table><thead><tr><th>Key ID</th><th>Name</th>{{if .IsAdmin}}<th>Owner</th>{{end}}<th>Purpose</th><th>Requests</th><th>Success</th><th>Errors</th><th>Total Tokens</th></tr></thead><tbody>
-{{range .Usage}}<tr><td>{{.KeyID}}</td><td>{{.KeyName}}</td>{{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}<td>{{.Purpose}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td>{{.TotalTokens}}</td></tr>{{else}}<tr><td colspan="{{if .IsAdmin}}8{{else}}7{{end}}" class="muted">No usage yet</td></tr>{{end}}
+{{range .Usage}}<tr><td>{{.KeyID}}</td><td>{{.KeyName}}</td>{{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}<td>{{.Purpose}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td></tr>{{else}}<tr><td colspan="{{if .IsAdmin}}8{{else}}7{{end}}" class="muted">No usage yet</td></tr>{{end}}
 </tbody></table>
 {{end}}
+<script>
+function formatTokens(n){
+  if(n<10000)return String(n);
+  if(n<1000000)return(Math.round(n/100)/10).toFixed(1)+'K';
+  return(Math.round(n/10000)/100).toFixed(2)+'M';
+}
+document.querySelectorAll('.token-cell').forEach(function(el){
+  var n=parseInt(el.dataset.tokens,10);
+  if(!isNaN(n)&&n>=10000){el.textContent=formatTokens(n);}
+});
+</script>
 </body></html>
