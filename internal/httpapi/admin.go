@@ -524,7 +524,8 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if filter.StartTime.IsZero() {
-		filter.StartTime = time.Now().Add(-7 * 24 * time.Hour)
+		now := time.Now()
+		filter.StartTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 		startStr = filter.StartTime.Format("2006-01-02")
 	}
 	if filter.EndTime.IsZero() {
