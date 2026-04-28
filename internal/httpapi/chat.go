@@ -67,13 +67,13 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		requestID := nextStreamRequestID()
 		streamResp, err := h.client.ChatStream(r.Context(), providerCfg, &req, target.UpstreamModel)
 		if err != nil {
-			logger.L.Error("stream request failed", "op", "chat_completions", "request_id", requestID, "model", req.Model, "provider", target.ProviderName, "error", err)
+			logger.L.Error("stream request failed", "op", "chat_completions", "request_id", requestID, "model", req.Model, "provider", target.ProviderName, "client_ip", clientIP(r), "error", err)
 			h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 			writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 			return
 		}
 		defer streamResp.Body.Close()
-		logger.L.Info("stream start", "op", "chat_completions", "request_id", requestID, "key_id", usage.KeyID(principal.Key), "provider", target.ProviderName, "model", req.Model, "upstream_model", target.UpstreamModel, "remote_addr", r.RemoteAddr, "user_agent", r.UserAgent())
+		logger.L.Info("stream start", "op", "chat_completions", "request_id", requestID, "key_id", usage.KeyID(principal.Key), "provider", target.ProviderName, "model", req.Model, "upstream_model", target.UpstreamModel, "client_ip", clientIP(r), "user_agent", r.UserAgent())
 
 		flusher, ok := w.(http.Flusher)
 		if !ok {
@@ -87,11 +87,11 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		if streamResp.StatusCode < 200 || streamResp.StatusCode >= 300 {
 			bytesSent, copyErr := io.Copy(w, streamResp.Body)
 			if copyErr != nil {
-				logger.L.Error("stream abort", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "reason", "downstream_write_error", "error", copyErr, "duration_ms", time.Since(start).Milliseconds(), "bytes_sent", bytesSent, "upstream_status", streamResp.StatusCode)
+				logger.L.Error("stream abort", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "reason", "downstream_write_error", "error", copyErr, "client_ip", clientIP(r), "duration_ms", time.Since(start).Milliseconds(), "bytes_sent", bytesSent, "upstream_status", streamResp.StatusCode)
 				return
 			}
 			h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, streamResp.StatusCode, time.Since(start))
-			logger.L.Warn("stream error", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "upstream_status", streamResp.StatusCode, "duration_ms", time.Since(start).Milliseconds())
+			logger.L.Warn("stream error", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "upstream_status", streamResp.StatusCode, "client_ip", clientIP(r), "duration_ms", time.Since(start).Milliseconds())
 			return
 		}
 
@@ -100,13 +100,13 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, true, streamUsage.requestTokens, streamUsage.responseTokens, streamUsage.totalTokens, streamResp.StatusCode, time.Since(start))
-		logger.L.Info("stream end", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "status", streamResp.StatusCode, "duration_ms", time.Since(start).Milliseconds(), "chunk_count", chunkCount, "bytes_sent", bytesSent, "sse_event_count", sseEventCount, "saw_done", sawDone, "usage_present", streamUsage.present, "request_tokens", streamUsage.requestTokens, "response_tokens", streamUsage.responseTokens, "total_tokens", streamUsage.totalTokens, "last_events", strings.Join(lastEvents, " | "))
+		logger.L.Info("stream end", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "client_ip", clientIP(r), "status", streamResp.StatusCode, "duration_ms", time.Since(start).Milliseconds(), "chunk_count", chunkCount, "bytes_sent", bytesSent, "sse_event_count", sseEventCount, "saw_done", sawDone, "usage_present", streamUsage.present, "request_tokens", streamUsage.requestTokens, "response_tokens", streamUsage.responseTokens, "total_tokens", streamUsage.totalTokens, "last_events", strings.Join(lastEvents, " | "))
 		return
 	}
 
 	resp, err := h.client.Chat(r.Context(), providerCfg, &req, target.UpstreamModel)
 	if err != nil {
-		logger.L.Error("chat request failed", "op", "chat_completions", "model", req.Model, "provider", target.ProviderName, "error", err)
+		logger.L.Error("chat request failed", "op", "chat_completions", "model", req.Model, "provider", target.ProviderName, "client_ip", clientIP(r), "error", err)
 		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 		writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 		return
@@ -115,7 +115,7 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	requestTokens, responseTokens, totalTokens := usage.ExtractUsage(map[string]any(*resp))
 	h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, true, requestTokens, responseTokens, totalTokens, http.StatusOK, time.Since(start))
 	writeJSON(w, http.StatusOK, resp)
-	logger.L.Info("chat complete", "op", "chat_completions", "model", req.Model, "provider", target.ProviderName, "status", http.StatusOK, "request_tokens", requestTokens, "response_tokens", responseTokens, "total_tokens", totalTokens, "duration_ms", time.Since(start).Milliseconds())
+	logger.L.Info("chat complete", "op", "chat_completions", "model", req.Model, "provider", target.ProviderName, "client_ip", clientIP(r), "status", http.StatusOK, "request_tokens", requestTokens, "response_tokens", responseTokens, "total_tokens", totalTokens, "duration_ms", time.Since(start).Milliseconds())
 }
 
 func proxyStreamBody(w http.ResponseWriter, flusher http.Flusher, body io.Reader, requestID, providerName, model string, start time.Time) (streamUsageSnapshot, int, int, int, bool, []string, error) {

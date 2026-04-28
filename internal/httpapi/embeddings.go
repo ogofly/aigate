@@ -52,7 +52,7 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.client.Embed(r.Context(), providerCfg, req, target.UpstreamModel)
 	if err != nil {
-		logger.L.Error("embed request failed", "op", "embeddings", "model", model, "provider", target.ProviderName, "error", err)
+		logger.L.Error("embed request failed", "op", "embeddings", "model", model, "provider", target.ProviderName, "client_ip", clientIP(r), "error", err)
 		h.recordUsage(principal, "embeddings", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 		writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 		return
@@ -61,5 +61,5 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	requestTokens, responseTokens, totalTokens := usage.ExtractUsage(map[string]any(*resp))
 	h.recordUsage(principal, "embeddings", target.ProviderName, model, target.UpstreamModel, true, requestTokens, responseTokens, totalTokens, http.StatusOK, time.Since(start))
 	writeJSON(w, http.StatusOK, resp)
-	logger.L.Info("embed complete", "op", "embeddings", "model", model, "provider", target.ProviderName, "status", http.StatusOK, "request_tokens", requestTokens, "response_tokens", responseTokens, "total_tokens", totalTokens, "duration_ms", time.Since(start).Milliseconds())
+	logger.L.Info("embed complete", "op", "embeddings", "model", model, "provider", target.ProviderName, "client_ip", clientIP(r), "status", http.StatusOK, "request_tokens", requestTokens, "response_tokens", responseTokens, "total_tokens", totalTokens, "duration_ms", time.Since(start).Milliseconds())
 }

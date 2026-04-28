@@ -50,7 +50,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		requestID := nextStreamRequestID()
 		streamResp, err := h.client.MessagesStream(r.Context(), providerCfg, &req, target.UpstreamModel)
 		if err != nil {
-			logger.L.Error("stream request failed", "op", "messages", "request_id", requestID, "model", req.Model, "provider", target.ProviderName, "error", err)
+			logger.L.Error("stream request failed", "op", "messages", "request_id", requestID, "model", req.Model, "provider", target.ProviderName, "client_ip", clientIP(r), "error", err)
 			h.recordUsage(principal, "messages", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 			writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 			return
@@ -68,7 +68,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		if streamResp.StatusCode < 200 || streamResp.StatusCode >= 300 {
 			bytesSent, copyErr := io.Copy(w, streamResp.Body)
 			if copyErr != nil {
-				logger.L.Error("stream abort", "op", "messages", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "reason", "downstream_write_error", "error", copyErr, "duration_ms", time.Since(start).Milliseconds(), "bytes_sent", bytesSent, "upstream_status", streamResp.StatusCode)
+				logger.L.Error("stream abort", "op", "messages", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "reason", "downstream_write_error", "error", copyErr, "client_ip", clientIP(r), "duration_ms", time.Since(start).Milliseconds(), "bytes_sent", bytesSent, "upstream_status", streamResp.StatusCode)
 				return
 			}
 			h.recordUsage(principal, "messages", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, streamResp.StatusCode, time.Since(start))
@@ -85,7 +85,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.client.Messages(r.Context(), providerCfg, &req, target.UpstreamModel)
 	if err != nil {
-		logger.L.Error("messages request failed", "op", "messages", "model", req.Model, "provider", target.ProviderName, "error", err)
+		logger.L.Error("messages request failed", "op", "messages", "model", req.Model, "provider", target.ProviderName, "client_ip", clientIP(r), "error", err)
 		h.recordUsage(principal, "messages", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 		writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
 		return
@@ -93,5 +93,5 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	requestTokens, responseTokens, totalTokens := usage.ExtractUsage(map[string]any(*resp))
 	h.recordUsage(principal, "messages", target.ProviderName, req.Model, target.UpstreamModel, true, requestTokens, responseTokens, totalTokens, http.StatusOK, time.Since(start))
 	writeJSON(w, http.StatusOK, resp)
-	logger.L.Info("messages complete", "op", "messages", "model", req.Model, "provider", target.ProviderName, "status", http.StatusOK, "request_tokens", requestTokens, "response_tokens", responseTokens, "total_tokens", totalTokens, "duration_ms", time.Since(start).Milliseconds())
+	logger.L.Info("messages complete", "op", "messages", "model", req.Model, "provider", target.ProviderName, "client_ip", clientIP(r), "status", http.StatusOK, "request_tokens", requestTokens, "response_tokens", responseTokens, "total_tokens", totalTokens, "duration_ms", time.Since(start).Milliseconds())
 }
