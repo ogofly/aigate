@@ -686,6 +686,126 @@ func (s *SQLiteStore) UsageSummaries(ctx context.Context) ([]usage.Summary, erro
 	return out, rows.Err()
 }
 
+type TrendPoint struct {
+	Date           string `json:"date"`
+	RequestCount   int64  `json:"request_count"`
+	SuccessCount   int64  `json:"success_count"`
+	ErrorCount     int64  `json:"error_count"`
+	RequestTokens  int64  `json:"request_tokens"`
+	ResponseTokens int64  `json:"response_tokens"`
+	TotalTokens    int64  `json:"total_tokens"`
+}
+
+func (s *SQLiteStore) QueryUsageTrend(ctx context.Context, filter UsageFilter, groupBy string) ([]TrendPoint, error) {
+	query := `
+		SELECT
+			bucket_start,
+			COALESCE(SUM(request_count), 0),
+			COALESCE(SUM(success_count), 0),
+			COALESCE(SUM(error_count), 0),
+			COALESCE(SUM(request_tokens), 0),
+			COALESCE(SUM(response_tokens), 0),
+			COALESCE(SUM(total_tokens), 0)
+		FROM usage_rollups
+		WHERE 1=1`
+	args := []any{}
+	if !filter.StartTime.IsZero() {
+		query += " AND bucket_start >= ?"
+		args = append(args, filter.StartTime.UTC().Format(time.RFC3339))
+	}
+	if !filter.EndTime.IsZero() {
+		query += " AND bucket_start < ?"
+		args = append(args, filter.EndTime.UTC().Add(24*time.Hour).Format(time.RFC3339))
+	}
+	if filter.Model != "" {
+		query += " AND public_model = ?"
+		args = append(args, filter.Model)
+	}
+	if filter.Owner != "" {
+		query += " AND owner = ?"
+		args = append(args, filter.Owner)
+	}
+	query += " GROUP BY bucket_start ORDER BY 1"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Convert UTC bucket_start to local time and group
+	type partial struct {
+		bucket         string
+		requestCount   int64
+		successCount   int64
+		errorCount     int64
+		requestTokens  int64
+		responseTokens int64
+		totalTokens    int64
+	}
+	var buckets []partial
+	for rows.Next() {
+		var p partial
+		if err := rows.Scan(
+			&p.bucket,
+			&p.requestCount,
+			&p.successCount,
+			&p.errorCount,
+			&p.requestTokens,
+			&p.responseTokens,
+			&p.totalTokens,
+		); err != nil {
+			return nil, err
+		}
+		buckets = append(buckets, p)
+	}
+
+	type agg struct {
+		requestCount, successCount, errorCount, requestTokens, responseTokens, totalTokens int64
+	}
+	orderedKeys := make([]string, 0)
+	groups := make(map[string]*agg)
+	for _, p := range buckets {
+		t, err := time.Parse(time.RFC3339, p.bucket)
+		if err != nil {
+			continue
+		}
+		local := t.In(time.Local)
+		var key string
+		if groupBy == "hour" {
+			key = local.Format("2006-01-02 15:00")
+		} else {
+			key = local.Format("2006-01-02")
+		}
+		if _, ok := groups[key]; !ok {
+			groups[key] = &agg{}
+			orderedKeys = append(orderedKeys, key)
+		}
+		g := groups[key]
+		g.requestCount += p.requestCount
+		g.successCount += p.successCount
+		g.errorCount += p.errorCount
+		g.requestTokens += p.requestTokens
+		g.responseTokens += p.responseTokens
+		g.totalTokens += p.totalTokens
+	}
+
+	out := make([]TrendPoint, 0, len(groups))
+	for _, key := range orderedKeys {
+		g := groups[key]
+		out = append(out, TrendPoint{
+			Date:           key,
+			RequestCount:   g.requestCount,
+			SuccessCount:   g.successCount,
+			ErrorCount:     g.errorCount,
+			RequestTokens:  g.requestTokens,
+			ResponseTokens: g.responseTokens,
+			TotalTokens:    g.totalTokens,
+		})
+	}
+	return out, nil
+}
+
 type UsageFilter struct {
 	StartTime time.Time
 	EndTime   time.Time
@@ -711,11 +831,11 @@ func (s *SQLiteStore) QueryUsage(ctx context.Context, filter UsageFilter) ([]usa
 	args := []any{}
 	if !filter.StartTime.IsZero() {
 		query += " AND bucket_start >= ?"
-		args = append(args, filter.StartTime.UTC())
+		args = append(args, filter.StartTime.UTC().Format(time.RFC3339))
 	}
 	if !filter.EndTime.IsZero() {
 		query += " AND bucket_start < ?"
-		args = append(args, filter.EndTime.UTC().Add(24*time.Hour))
+		args = append(args, filter.EndTime.UTC().Add(24*time.Hour).Format(time.RFC3339))
 	}
 	if filter.Model != "" {
 		query += " AND public_model = ?"
@@ -789,11 +909,11 @@ func (s *SQLiteStore) QueryUsageByModel(ctx context.Context, filter UsageFilter)
 	args := []any{}
 	if !filter.StartTime.IsZero() {
 		query += " AND bucket_start >= ?"
-		args = append(args, filter.StartTime.UTC())
+		args = append(args, filter.StartTime.UTC().Format(time.RFC3339))
 	}
 	if !filter.EndTime.IsZero() {
 		query += " AND bucket_start < ?"
-		args = append(args, filter.EndTime.UTC().Add(24*time.Hour))
+		args = append(args, filter.EndTime.UTC().Add(24*time.Hour).Format(time.RFC3339))
 	}
 	if filter.Model != "" {
 		query += " AND public_model = ?"

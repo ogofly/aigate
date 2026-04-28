@@ -6,6 +6,7 @@ nav a{margin-right:16px;color:#fffffe;text-decoration:none}
 table{width:100%;border-collapse:collapse;margin-top:24px;background:rgba(255,255,255,.03)}
 th,td{padding:10px;border-bottom:1px solid #72757e;text-align:left}
 button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:8px;cursor:pointer;font-weight:600}
+button.active{background:#5a3ec8}
 .muted{color:#94a1b2}
 .tabs{display:flex;gap:0;margin-top:16px}
 .tab{padding:10px 16px;border-bottom:2px solid transparent;color:#94a1b2;cursor:pointer;text-decoration:none}
@@ -14,14 +15,16 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
 .filters label{display:flex;flex-direction:column;gap:4px;font-size:13px}
 .filters input,.filters select{padding:8px;border:1px solid #72757e;border-radius:8px;background:#fffffe;color:#010101}
 a.clear-filters{color:#94a1b2;margin-left:auto;text-decoration:none;font-size:13px}
+#trendChart{width:100%;height:400px;margin-top:20px}
+.trend-controls{display:flex;gap:8px;align-items:center;margin-top:12px;font-size:13px}
+.trend-controls button{padding:6px 12px;font-size:13px;border:1px solid #72757e;background:transparent;color:#94a1b2;border-radius:6px;cursor:pointer}
+.trend-controls button.active{background:#7f5af0;color:#fffffe;border-color:#7f5af0}
+.pie-chart{width:100%;height:300px;margin:16px 0}
+.no-data{text-align:center;padding:40px;color:#94a1b2;font-size:16px}
 </style>
 </head><body>
 {{template "admin_nav" .}}
 <h1>Usage</h1>
-<div class="tabs">
-  <a class="tab{{if eq .View "by_key"}} active{{end}}" href="/admin/usage/view?view=by_key{{if .FilterModel}}&model={{.FilterModel}}{{end}}">By Key</a>
-  <a class="tab{{if eq .View "by_model"}} active{{end}}" href="/admin/usage/view?view=by_model{{if .FilterModel}}&model={{.FilterModel}}{{end}}">By Model</a>
-</div>
 <form method="get" action="/admin/usage/view" class="filters">
   <input type="hidden" name="view" value="{{.View}}">
   <label>Start <input type="date" name="start" value="{{.FilterStart}}"></label>
@@ -30,25 +33,131 @@ a.clear-filters{color:#94a1b2;margin-left:auto;text-decoration:none;font-size:13
   <button type="submit">Filter</button>
   {{if or .FilterStart .FilterEnd .FilterModel}}<a class="clear-filters" href="/admin/usage/view?view={{.View}}">Clear</a>{{end}}
 </form>
+{{define "tabFilters"}}{{if .FilterStart}}&start={{.FilterStart}}{{end}}{{if .FilterEnd}}&end={{.FilterEnd}}{{end}}{{if .FilterModel}}&model={{.FilterModel}}{{end}}{{end}}
+<div class="tabs">
+  <a class="tab{{if eq .View "trend"}} active{{end}}" href="/admin/usage/view?view=trend{{template "tabFilters" .}}">Trend</a>
+  <a class="tab{{if eq .View "by_key"}} active{{end}}" href="/admin/usage/view?view=by_key{{template "tabFilters" .}}">By Key</a>
+  <a class="tab{{if eq .View "by_model"}} active{{end}}" href="/admin/usage/view?view=by_model{{template "tabFilters" .}}">By Model</a>
+</div>
 
-{{if eq .View "by_model"}}
+{{if eq .View "trend"}}
+<div id="trendControls" class="trend-controls">
+  <span>Granularity:</span>
+  <button type="button" class="gb-btn{{if ne .GroupBy "day"}} active{{end}}" data-group="hour">Hour</button>
+  <button type="button" class="gb-btn{{if eq .GroupBy "day"}} active{{end}}" data-group="day">Day</button>
+</div>
+<div id="trendChart"></div>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script>
+var trendGb = '{{if .GroupBy}}{{.GroupBy}}{{else}}hour{{end}}';
+var trendUrl = '/admin/usage/trend?groupBy=' + trendGb + '{{if .FilterStart}}&start={{.FilterStart}}{{end}}{{if .FilterEnd}}&end={{.FilterEnd}}{{end}}{{if .FilterModel}}&model={{.FilterModel}}{{end}}';
+
+function formatTokens(n){
+  if(n===0)return '0';
+  if(n<10000)return String(n);
+  if(n<1000000)return(Math.round(n/100)/10).toFixed(1)+'K';
+  return(Math.round(n/10000)/100).toFixed(2)+'M';
+}
+
+function renderTrend(data){
+  if(!data.length){
+    document.getElementById('trendChart').innerHTML = '<div class="no-data">No usage data for the selected period</div>';
+    return;
+  }
+  var dates = data.map(function(d){return d.date});
+  var requests = data.map(function(d){return d.request_count});
+  var total = data.map(function(d){return d.total_tokens});
+  var chart = echarts.init(document.getElementById('trendChart'));
+  chart.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
+    legend:{data:['Requests','Total Tokens'],textStyle:{color:'#fffffe'}},
+    grid:{left:'3%',right:'4%',bottom:'3%',containLabel:true},
+    xAxis:{type:'category',data:dates,axisLabel:{color:'#94a1b2'}},
+    yAxis:[
+      {type:'value',name:'Requests',position:'left',axisLabel:{color:'#94a1b2'},splitLine:{lineStyle:{color:'#72757e'}}},
+      {type:'value',name:'Tokens',position:'right',axisLabel:{formatter:function(v){return formatTokens(v)},color:'#94a1b2'},splitLine:{show:false}}
+    ],
+    series:[
+      {name:'Requests',type:'line',yAxisIndex:0,smooth:true,areaStyle:{opacity:0.1},data:requests,itemStyle:{color:'#7f5af0'}},
+      {name:'Total Tokens',type:'line',yAxisIndex:1,smooth:true,areaStyle:{opacity:0.1},data:total,itemStyle:{color:'#2cb67d'}}
+    ]
+  });
+  window.addEventListener('resize',function(){chart.resize()});
+}
+
+function loadTrend(groupBy){
+  var url = '/admin/usage/trend?groupBy=' + groupBy + '{{if .FilterStart}}&start={{.FilterStart}}{{end}}{{if .FilterEnd}}&end={{.FilterEnd}}{{end}}{{if .FilterModel}}&model={{.FilterModel}}{{end}}';
+  fetch(url).then(function(r){return r.json()}).then(renderTrend);
+}
+
+document.querySelectorAll('.gb-btn').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    var gb = btn.dataset.group;
+    document.querySelectorAll('.gb-btn').forEach(function(b){b.classList.remove('active')});
+    btn.classList.add('active');
+    loadTrend(gb);
+  });
+});
+
+loadTrend(trendGb);
+</script>
+{{else if eq .View "by_model"}}
+{{if .ModelSummaries}}
+<script id="modelPieData" type="application/json">{{range $i, $s := .ModelSummaries}}{{if $i}},{{end}}{"name":"{{.Model}}","value":{{.TotalTokens}}}{{end}}</script>
+<div id="modelPieChart" class="pie-chart"></div>
 <table><thead><tr><th>Model</th><th>Requests</th><th>Success</th><th>Errors</th><th>Total Tokens</th><th>Active Keys</th></tr></thead><tbody>
-{{range .ModelSummaries}}<tr><td>{{.Model}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td><td>{{.KeyCount}}</td></tr>{{else}}<tr><td colspan="6" class="muted">No usage yet</td></tr>{{end}}
+{{range .ModelSummaries}}<tr><td>{{.Model}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td><td>{{.KeyCount}}</td></tr>{{end}}
 </tbody></table>
 {{else}}
-<table><thead><tr><th>Key ID</th><th>Name</th>{{if .IsAdmin}}<th>Owner</th>{{end}}<th>Purpose</th><th>Requests</th><th>Success</th><th>Errors</th><th>Total Tokens</th></tr></thead><tbody>
-{{range .Usage}}<tr><td>{{.KeyID}}</td><td>{{.KeyName}}</td>{{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}<td>{{.Purpose}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td></tr>{{else}}<tr><td colspan="{{if .IsAdmin}}8{{else}}7{{end}}" class="muted">No usage yet</td></tr>{{end}}
-</tbody></table>
+<div class="no-data">No usage data for the selected period</div>
 {{end}}
+{{else}}
+{{if .Usage}}
+<script id="keyPieData" type="application/json">{{range $i, $u := .Usage}}{{if $i}},{{end}}{"name":"{{.KeyName}}{{if not .KeyName}} ({{.KeyID}}){{end}}","value":{{.TotalTokens}}}{{end}}</script>
+<div id="keyPieChart" class="pie-chart"></div>
+<table><thead><tr><th>Key ID</th><th>Name</th>{{if .IsAdmin}}<th>Owner</th>{{end}}<th>Purpose</th><th>Requests</th><th>Success</th><th>Errors</th><th>Total Tokens</th></tr></thead><tbody>
+{{range .Usage}}<tr><td>{{.KeyID}}</td><td>{{.KeyName}}</td>{{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}<td>{{.Purpose}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td></tr>{{end}}
+</tbody></table>
+{{else}}
+<div class="no-data">No usage data for the selected period</div>
+{{end}}
+{{end}}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 <script>
-function formatTokens(n){
+function formatTokensTable(n){
   if(n<10000)return String(n);
   if(n<1000000)return(Math.round(n/100)/10).toFixed(1)+'K';
   return(Math.round(n/10000)/100).toFixed(2)+'M';
 }
 document.querySelectorAll('.token-cell').forEach(function(el){
   var n=parseInt(el.dataset.tokens,10);
-  if(!isNaN(n)&&n>=10000){el.textContent=formatTokens(n);}
+  if(!isNaN(n)&&n>=10000){el.textContent=formatTokensTable(n);}
 });
+{{if eq .View "by_model"}}
+(function(){
+  var el=document.getElementById('modelPieData');if(!el||!el.textContent.trim())return;
+  var data=JSON.parse('['+el.textContent+']');
+  var chart=echarts.init(document.getElementById('modelPieChart'));
+  chart.setOption({
+    backgroundColor:'rgba(255,255,255,.03)',
+    tooltip:{trigger:'item',formatter:'{b}: {c} tokens ({d}%)'},
+    series:[{type:'pie',radius:['40%','70%'],avoidLabelOverlap:false,label:{color:'#fffffe'},labelLine:{show:true},data:data}]
+  });
+  window.addEventListener('resize',function(){chart.resize()});
+})();
+{{else if eq .View "by_key"}}
+(function(){
+  var el=document.getElementById('keyPieData');if(!el||!el.textContent.trim())return;
+  var data=JSON.parse('['+el.textContent+']');
+  var chart=echarts.init(document.getElementById('keyPieChart'));
+  chart.setOption({
+    backgroundColor:'rgba(255,255,255,.03)',
+    tooltip:{trigger:'item',formatter:'{b}: {c} tokens ({d}%)'},
+    series:[{type:'pie',radius:['40%','70%'],avoidLabelOverlap:false,label:{color:'#fffffe'},labelLine:{show:true},data:data}]
+  });
+  window.addEventListener('resize',function(){chart.resize()});
+})();
+{{end}}
 </script>
 </body></html>

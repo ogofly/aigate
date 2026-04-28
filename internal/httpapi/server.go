@@ -73,6 +73,7 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /admin/playground/chat", h.handleAdminPlaygroundChat)
 	h.mux.HandleFunc("POST /admin/playground/chat/ajax", h.handleAdminPlaygroundChatAJAX)
 	h.mux.HandleFunc("GET /admin/usage/view", h.handleAdminUsagePage)
+	h.mux.HandleFunc("GET /admin/usage/trend", h.handleAdminUsageTrend)
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

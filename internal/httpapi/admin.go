@@ -97,6 +97,7 @@ type adminViewData struct {
 	View          string
 	ModelSummaries []usage.ModelSummary
 	HasAnthropicProvider bool
+	GroupBy       string
 }
 
 func (h *Handler) handleAdminLoginPage(w http.ResponseWriter, r *http.Request) {
@@ -502,8 +503,9 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 	endStr := r.URL.Query().Get("end")
 	model := r.URL.Query().Get("model")
 	view := r.URL.Query().Get("view")
+	groupBy := r.URL.Query().Get("groupBy")
 	if view == "" {
-		view = "by_key"
+		view = "trend"
 	}
 
 	filter := store.UsageFilter{
@@ -514,23 +516,23 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if startStr != "" {
-		if t, err := time.Parse("2006-01-02", startStr); err == nil {
+		if t, err := time.ParseInLocation("2006-01-02", startStr, time.Local); err == nil {
 			filter.StartTime = t
 		}
 	}
 	if endStr != "" {
-		if t, err := time.Parse("2006-01-02", endStr); err == nil {
+		if t, err := time.ParseInLocation("2006-01-02", endStr, time.Local); err == nil {
 			filter.EndTime = t
 		}
 	}
 	if filter.StartTime.IsZero() {
-		now := time.Now().UTC()
-		filter.StartTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+		now := time.Now()
+		filter.StartTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 		startStr = filter.StartTime.Format("2006-01-02")
 	}
 	if filter.EndTime.IsZero() {
-		now := time.Now().UTC()
-		filter.EndTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+		now := time.Now()
+		filter.EndTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 		endStr = filter.EndTime.Format("2006-01-02")
 	}
 
@@ -543,6 +545,8 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "admin_usage_error", err.Error())
 			return
 		}
+	} else if view == "trend" {
+		// chart data loaded via AJAX
 	} else {
 		var err error
 		summaries, err = h.store.QueryUsage(r.Context(), filter)
@@ -570,8 +574,54 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 		FilterModel:   model,
 		View:          view,
 		ModelSummaries: modelSummaries,
+		GroupBy:       groupBy,
 	}
 	_ = adminUsageTemplate.Execute(w, data)
+}
+
+func (h *Handler) handleAdminUsageTrend(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireWebSession(w, r)
+	if !ok {
+		return
+	}
+
+	startStr := r.URL.Query().Get("start")
+	endStr := r.URL.Query().Get("end")
+	model := r.URL.Query().Get("model")
+	groupBy := r.URL.Query().Get("groupBy")
+
+	filter := store.UsageFilter{
+		Model: model,
+	}
+	if session.Role != roleAdmin {
+		filter.Owner = session.Username
+	}
+
+	if startStr != "" {
+		if t, err := time.ParseInLocation("2006-01-02", startStr, time.Local); err == nil {
+			filter.StartTime = t
+		}
+	}
+	if endStr != "" {
+		if t, err := time.ParseInLocation("2006-01-02", endStr, time.Local); err == nil {
+			filter.EndTime = t
+		}
+	}
+	if filter.StartTime.IsZero() {
+		now := time.Now()
+		filter.StartTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	}
+	if filter.EndTime.IsZero() {
+		now := time.Now()
+		filter.EndTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	}
+
+	points, err := h.store.QueryUsageTrend(r.Context(), filter, groupBy)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, points)
 }
 
 func (h *Handler) handleAdminPlaygroundPage(w http.ResponseWriter, r *http.Request) {
