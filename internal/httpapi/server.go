@@ -57,6 +57,7 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /v1/usage", h.handleUsage)
 	h.mux.HandleFunc("GET /admin/usage", h.handleAdminUsage)
 	h.mux.HandleFunc("GET /admin", h.handleAdminHome)
+	h.mux.HandleFunc("GET /", h.handleAdminHome)
 	h.mux.HandleFunc("GET /admin/login", h.handleAdminLoginPage)
 	h.mux.HandleFunc("POST /admin/login", h.handleAdminLogin)
 	h.mux.HandleFunc("POST /admin/logout", h.handleAdminLogout)

@@ -69,35 +69,35 @@ func (s *adminSessionStore) Delete(token string) {
 }
 
 type adminViewData struct {
-	Title         string
-	Error         string
-	IsAdmin       bool
-	CurrentUser   string
-	Keys          []config.KeyConfig
-	ProvidersCfg  []config.ProviderConfig
-	Providers     []string
-	Models        []config.ModelConfig
-	Usage         []usage.Summary
-	CurrentPath   string
-	Flash         string
-	DefaultPublic string
-	PlayModels    []string
-	PlayAPIBase   string
-	PlayAPIKey    string
-	PlayModel     string
-	PlayMessage   string
-	PlayStream    bool
-	PlayResult    string
-	PlayError     string
-	APIBase       string
-	UsageModels   []string
-	FilterStart   string
-	FilterEnd     string
-	FilterModel   string
-	View          string
-	ModelSummaries []usage.ModelSummary
+	Title                string
+	Error                string
+	IsAdmin              bool
+	CurrentUser          string
+	Keys                 []config.KeyConfig
+	ProvidersCfg         []config.ProviderConfig
+	Providers            []string
+	Models               []config.ModelConfig
+	Usage                []usage.Summary
+	CurrentPath          string
+	Flash                string
+	DefaultPublic        string
+	PlayModels           []string
+	PlayAPIBase          string
+	PlayAPIKey           string
+	PlayModel            string
+	PlayMessage          string
+	PlayStream           bool
+	PlayResult           string
+	PlayError            string
+	APIBase              string
+	UsageModels          []string
+	FilterStart          string
+	FilterEnd            string
+	FilterModel          string
+	View                 string
+	ModelSummaries       []usage.ModelSummary
 	HasAnthropicProvider bool
-	GroupBy       string
+	GroupBy              string
 }
 
 func (h *Handler) handleAdminLoginPage(w http.ResponseWriter, r *http.Request) {
@@ -157,15 +157,7 @@ func (h *Handler) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleAdminHome(w http.ResponseWriter, r *http.Request) {
-	session, ok := h.requireWebSession(w, r)
-	if !ok {
-		return
-	}
-	if session.Role == roleAdmin {
-		http.Redirect(w, r, "/admin/providers", http.StatusSeeOther)
-		return
-	}
-	http.Redirect(w, r, "/admin/keys", http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/usage/view", http.StatusSeeOther)
 }
 
 func (h *Handler) handleAdminKeysPage(w http.ResponseWriter, r *http.Request) {
@@ -563,18 +555,18 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := adminViewData{
-		Title:         "Usage",
-		IsAdmin:       session.Role == roleAdmin,
-		CurrentUser:   session.Username,
-		Usage:         summaries,
-		CurrentPath:   "/admin/usage/view",
-		UsageModels:   usageModels,
-		FilterStart:   startStr,
-		FilterEnd:     endStr,
-		FilterModel:   model,
-		View:          view,
+		Title:          "Usage",
+		IsAdmin:        session.Role == roleAdmin,
+		CurrentUser:    session.Username,
+		Usage:          summaries,
+		CurrentPath:    "/admin/usage/view",
+		UsageModels:    usageModels,
+		FilterStart:    startStr,
+		FilterEnd:      endStr,
+		FilterModel:    model,
+		View:           view,
 		ModelSummaries: modelSummaries,
-		GroupBy:       groupBy,
+		GroupBy:        groupBy,
 	}
 	_ = adminUsageTemplate.Execute(w, data)
 }
@@ -960,18 +952,18 @@ func (h *Handler) buildPlaygroundViewData(ctx context.Context, r *http.Request, 
 
 	return adminViewData{
 		Title:                "Playground",
-		IsAdmin:             session.Role == roleAdmin,
-		CurrentUser:         session.Username,
-		CurrentPath:         "/admin/playground",
-		Keys:                keys,
-		PlayModels:          models,
-		PlayAPIBase:         publicAPIBaseURL(r),
-		PlayAPIKey:          selectedKey,
-		PlayModel:           selectedModel,
-		PlayMessage:         strings.TrimSpace(message),
-		PlayStream:          stream,
-		PlayResult:          result,
-		PlayError:           errMsg,
+		IsAdmin:              session.Role == roleAdmin,
+		CurrentUser:          session.Username,
+		CurrentPath:          "/admin/playground",
+		Keys:                 keys,
+		PlayModels:           models,
+		PlayAPIBase:          publicAPIBaseURL(r),
+		PlayAPIKey:           selectedKey,
+		PlayModel:            selectedModel,
+		PlayMessage:          strings.TrimSpace(message),
+		PlayStream:           stream,
+		PlayResult:           result,
+		PlayError:            errMsg,
 		HasAnthropicProvider: hasAnthropic,
 	}, nil
 }
