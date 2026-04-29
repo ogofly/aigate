@@ -109,6 +109,50 @@ func (c *OpenAILikeClient) Chat(ctx context.Context, provider config.ProviderCon
 	return &out, nil
 }
 
+func (c *OpenAILikeClient) Responses(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*OpenAIResponse, error) {
+	p, err := newOpenAILikeProvider(provider)
+	if err != nil {
+		return nil, err
+	}
+	payload := *req
+	payload.Model = upstreamModel
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/responses", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+
+	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var out OpenAIResponse
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return &out, nil
+}
+
 func (c *OpenAILikeClient) ChatStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*StreamResponse, error) {
 	p, err := newOpenAILikeProviderWithStream(provider, true)
 	if err != nil {

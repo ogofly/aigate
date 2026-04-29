@@ -54,6 +54,7 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /v1/chat/completions", h.handleChatCompletions)
 	h.mux.HandleFunc("POST /anthropic/v1/messages", h.handleMessages)
 	h.mux.HandleFunc("POST /v1/embeddings", h.handleEmbeddings)
+	h.mux.HandleFunc("POST /v1/responses", h.handleResponses)
 	h.mux.HandleFunc("GET /v1/usage", h.handleUsage)
 	h.mux.HandleFunc("GET /admin/usage", h.handleAdminUsage)
 	h.mux.HandleFunc("GET /admin", h.handleAdminHome)

@@ -143,6 +143,15 @@ func (s *stubProvider) Embed(_ context.Context, _ config.ProviderConfig, req pro
 	return s.embedResp, nil
 }
 
+func (s *stubProvider) Responses(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (*provider.OpenAIResponse, error) {
+	s.lastModel = upstreamModel
+	s.lastChat = req
+	if s.returnError != nil {
+		return nil, s.returnError
+	}
+	return s.response, nil
+}
+
 func newHandler(t *testing.T, keys []config.KeyConfig, rt *router.Router, recorder *usage.Recorder, client provider.Client) http.Handler {
 	t.Helper()
 	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
@@ -1371,5 +1380,74 @@ func TestMessagesStreamRecordsUsageFromMessageDelta(t *testing.T) {
 	}
 	if summary.TotalTokens != 224 {
 		t.Fatalf("TotalTokens = %d, want %d", summary.TotalTokens, 224)
+	}
+}
+
+func TestResponsesRoutesToExpectedProviderModel(t *testing.T) {
+	resp := provider.OpenAIResponse{
+		"id":     "resp-test",
+		"object": "response",
+	}
+	p := &stubProvider{response: &resp}
+	rt, err := router.New([]config.ModelConfig{
+		{
+			PublicName:   "gpt-4o-mini",
+			Provider:     "openai",
+			UpstreamName: "gpt-4o-mini-upstream",
+		},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
+	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","input":"hello"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if p.lastModel != "gpt-4o-mini-upstream" {
+		t.Fatalf("lastModel = %q, want %q", p.lastModel, "gpt-4o-mini-upstream")
+	}
+	if p.lastChat == nil {
+		t.Fatalf("lastChat = nil")
+	}
+	if input, ok := p.lastChat.Raw["input"].(string); !ok || input != "hello" {
+		t.Fatalf("input = %#v, want %q", p.lastChat.Raw["input"], "hello")
+	}
+}
+
+func TestResponsesPreservesUnknownFields(t *testing.T) {
+	resp := provider.OpenAIResponse{"id": "resp-test"}
+	p := &stubProvider{response: &resp}
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
+	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","input":[{"type":"message","role":"user","content":"hi"}],"tools":[{"type":"function","name":"test"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if p.lastChat == nil {
+		t.Fatal("lastChat = nil")
+	}
+	if got, ok := p.lastChat.Raw["tools"].([]any); !ok || len(got) != 1 {
+		t.Fatalf("tools = %#v, want one tool", p.lastChat.Raw["tools"])
 	}
 }
