@@ -66,6 +66,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		copyProxyHeaders(w.Header(), streamResp.Header)
 		w.WriteHeader(streamResp.StatusCode)
 		if streamResp.StatusCode < 200 || streamResp.StatusCode >= 300 {
+			logger.L.Error("stream request failed", "op", "messages", "request_id", requestID, "model", req.Model, "provider", target.ProviderName, "client_ip", clientIP(r), "upstream_status", streamResp.StatusCode, "client_ip", clientIP(r), "duration_ms", time.Since(start).Milliseconds())
 			bytesSent, copyErr := io.Copy(w, streamResp.Body)
 			if copyErr != nil {
 				logger.L.Error("stream abort", "op", "messages", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "reason", "downstream_write_error", "error", copyErr, "client_ip", clientIP(r), "duration_ms", time.Since(start).Milliseconds(), "bytes_sent", bytesSent, "upstream_status", streamResp.StatusCode)

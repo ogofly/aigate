@@ -85,13 +85,13 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(streamResp.StatusCode)
 
 		if streamResp.StatusCode < 200 || streamResp.StatusCode >= 300 {
+			logger.L.Warn("stream error", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "upstream_status", streamResp.StatusCode, "client_ip", clientIP(r), "duration_ms", time.Since(start).Milliseconds())
 			bytesSent, copyErr := io.Copy(w, streamResp.Body)
 			if copyErr != nil {
 				logger.L.Error("stream abort", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "reason", "downstream_write_error", "error", copyErr, "client_ip", clientIP(r), "duration_ms", time.Since(start).Milliseconds(), "bytes_sent", bytesSent, "upstream_status", streamResp.StatusCode)
 				return
 			}
 			h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, streamResp.StatusCode, time.Since(start))
-			logger.L.Warn("stream error", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "upstream_status", streamResp.StatusCode, "client_ip", clientIP(r), "duration_ms", time.Since(start).Milliseconds())
 			return
 		}
 
