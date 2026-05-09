@@ -44,6 +44,7 @@ textarea{min-height:180px;resize:vertical}
 <div><label>Model</label><select name="model" id="model">{{range .PlayModels}}<option value="{{.}}" {{if eq $.PlayModel .}}selected{{end}}>{{.}}</option>{{end}}</select></div>
 </div>
 
+<div id="playgroundMain" style="display:none">
 <div style="margin-bottom:10px">
 <div class="field-label">API Style</div>
 <div class="radio-group">
@@ -66,7 +67,14 @@ textarea{min-height:180px;resize:vertical}
 
 <div style="margin-bottom:10px"><label>Message</label><textarea name="message" id="message" placeholder="Say something...">{{.PlayMessage}}</textarea></div>
 <div class="actions"><button type="submit" id="sendBtn">Send</button><a class="hint" href="/admin/playground">Clear</a><span id="loadingHint" class="hint" style="display:none">Sending...</span></div>
+</div>
 </form>
+{{if or .PlayError .PlayResult}}
+<script>
+document.getElementById('playgroundMain').style.display = '';
+document.getElementById('connectKv').style.display = '';
+</script>
+{{end}}
 {{if .PlayError}}<div class="error">{{.PlayError}}</div>{{end}}
 <div id="errorDiv" class="error" style="display:none"></div>
 <div id="resultDiv" class="result" style="display:none"></div>
@@ -75,9 +83,11 @@ textarea{min-height:180px;resize:vertical}
 <aside class="card">
 <h2 class="title">Connect Settings</h2>
 <p class="muted" id="modeHint">OpenAI Chat Completions. Copy into your client app.</p>
+<div id="connectKv" style="display:none">
 <div class="kv"><div class="muted">API Base URL</div><div class="mono" id="cfgBase">{{.PlayAPIBase}}/v1</div><button type="button" class="ghost" onclick="copyText('cfgBase', this)">Copy</button></div>
 <div class="kv"><div class="muted">API Key</div><div class="mono" id="cfgKey">{{.PlayAPIKey}}</div><button type="button" class="ghost" onclick="copyText('cfgKey', this)">Copy</button></div>
 <div class="kv"><div class="muted">Model</div><div class="mono" id="cfgModel">{{.PlayModel}}</div><button type="button" class="ghost" onclick="copyText('cfgModel', this)">Copy</button></div>
+</div>
 <div class="hint" id="endpointHint">Use endpoint: <span class="mono">/chat/completions</span></div>
 </aside>
 </div>
@@ -125,6 +135,8 @@ const modeHint = document.getElementById('modeHint');
 const cfgBase = document.getElementById('cfgBase');
 const endpointHint = document.getElementById('endpointHint');
 const openaiSub = document.getElementById('openaiSub');
+const playgroundMain = document.getElementById('playgroundMain');
+const connectKv = document.getElementById('connectKv');
 const apiBaseEl = document.getElementById('apiBaseData');
 const apiBase = apiBaseEl ? apiBaseEl.textContent : '';
 
@@ -154,6 +166,18 @@ function updateModeUI(){
 
 document.querySelectorAll('input[name="api_style"]').forEach(r => r.addEventListener('change', updateModeUI));
 document.querySelectorAll('input[name="api_type"]').forEach(r => r.addEventListener('change', updateModeUI));
+
+function toggleMain(){
+	const hasKey = document.getElementById('apiKey').value !== '';
+	playgroundMain.style.display = hasKey ? '' : 'none';
+	connectKv.style.display = hasKey ? '' : 'none';
+}
+
+document.getElementById('apiKey').addEventListener('change', () => {
+	playgroundMain.style.display = '';
+	connectKv.style.display = '';
+	updateModeUI();
+});
 
 form.addEventListener('submit', async (e) => {
 	e.preventDefault();
