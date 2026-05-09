@@ -1,3 +1,6 @@
+ ### stream
+
+ ```
  curl -v https://api.wecodemaster.com/v1/responses \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer sk-xxxx" \
@@ -7,7 +10,10 @@
     "input": "you just say hi",
     "max_output_tokens": 100
   }'
+```
 
+Response:
+```
 event: response.created
 data: {"type":"response.created","response":{"id":"resp_0629a39e58871cdd0169fea7cb22a081989ac36e4474a865f7","object":"response","created_at":1778296779,"status":"in_progress","background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":null,"max_tool_calls":null,"model":"gpt-5.4","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":"e2890056-03f3-dcb8-d3ec-7c33cf5b6ed8","prompt_cache_retention":"24h","reasoning":{"effort":"none","summary":null},"safety_identifier":"user-U6UGWZpN0G6OXdW0RaF9Mz4H","service_tier":"auto","store":false,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
 
@@ -34,3 +40,6 @@ data: {"type":"response.output_item.done","item":{"id":"msg_0629a39e58871cdd0169
 
 event: response.completed
 data: {"type":"response.completed","response":{"id":"resp_0629a39e58871cdd0169fea7cb22a081989ac36e4474a865f7","object":"response","created_at":1778296779,"status":"completed","background":false,"completed_at":1778296779,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":null,"max_output_tokens":null,"max_tool_calls":null,"model":"gpt-5.4","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":"e2890056-03f3-dcb8-d3ec-7c33cf5b6ed8","prompt_cache_retention":"24h","reasoning":{"effort":"none","summary":null},"safety_identifier":"user-U6UGWZpN0G6OXdW0RaF9Mz4H","service_tier":"default","store":false,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":10,"input_tokens_details":{"cached_tokens":0},"output_tokens":5,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":15},"user":null,"metadata":{}},"sequence_number":8}
+```
+
+### normal response

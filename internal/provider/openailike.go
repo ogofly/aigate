@@ -129,6 +129,7 @@ func (c *OpenAILikeClient) Responses(ctx context.Context, provider config.Provid
 
 	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {

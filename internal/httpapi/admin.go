@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"time"
@@ -801,8 +803,6 @@ func (h *Handler) handleAdminPlaygroundChatAJAX(w http.ResponseWriter, r *http.R
 	if apiType == "" {
 		apiType = "chat_completions"
 	}
-	useAnthropic := apiStyle == "anthropic"
-	useResponses := apiStyle == "openai" && apiType == "responses"
 
 	if key == "" || model == "" || message == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "api_key, model and message are required"})
@@ -819,174 +819,79 @@ func (h *Handler) handleAdminPlaygroundChatAJAX(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	target, err := h.router.Resolve(model)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "model not found"})
-		return
-	}
-	providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
-		return
-	}
+	// Build the API endpoint path and request body, then call the actual API handler.
+	// This ensures playground and real API share identical auth, routing, upstream call,
+	// token recording, and error handling.
+	var apiPath string
+	var reqBody io.Reader
+	contentType := "application/json"
 
-	if useAnthropic && strings.TrimSpace(providerCfg.AnthropicBaseURL) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "provider does not have anthropic_base_url configured"})
-		return
-	}
-
-	start := time.Now()
-	if useAnthropic {
-		// Anthropic style request
-		chatReq := &provider.ChatRequest{
-			Model:  model,
-			Stream: stream,
-			Raw: map[string]any{
-				"model":      target.UpstreamModel,
-				"messages":   []map[string]any{{"role": "user", "content": message}},
-				"max_tokens": 4096,
-				"stream":     stream,
+	if apiStyle == "anthropic" {
+		apiPath = "/anthropic/v1/messages"
+		body, _ := json.Marshal(map[string]any{
+			"model":      model,
+			"messages":   []map[string]any{{"role": "user", "content": message}},
+			"max_tokens": 4096,
+			"stream":     stream,
+		})
+		reqBody = bytes.NewReader(body)
+	} else if apiType == "responses" {
+		apiPath = "/v1/responses"
+		body, _ := json.Marshal(map[string]any{
+			"model":  model,
+			"input":  message,
+			"stream": stream,
+		})
+		reqBody = bytes.NewReader(body)
+	} else {
+		apiPath = "/v1/chat/completions"
+		body, _ := json.Marshal(map[string]any{
+			"model": model,
+			"messages": []map[string]any{
+				{"role": "user", "content": message},
 			},
-		}
+			"stream": stream,
+		})
+		reqBody = bytes.NewReader(body)
+	}
 
-		if stream {
-			streamResp, err := h.client.MessagesStream(r.Context(), providerCfg, chatReq, target.UpstreamModel)
-			if err != nil {
-				logger.L.Error("admin playground anthropic chat failed", "op", "admin_playground_chat_anthropic", "stream", true, "provider", target.ProviderName, "error", err)
-				h.recordUsage(principal, "messages", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-				return
-			}
-			defer streamResp.Body.Close()
-			body, err := io.ReadAll(streamResp.Body)
-			if err != nil {
-				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-				return
-			}
-			success := streamResp.StatusCode >= 200 && streamResp.StatusCode < 300
-			h.recordUsage(principal, "messages", target.ProviderName, model, target.UpstreamModel, success, 0, 0, 0, streamResp.StatusCode, time.Since(start))
-			if !success {
-				writeJSON(w, http.StatusBadGateway, map[string]any{"error": fmt.Sprintf("upstream status %d\n%s", streamResp.StatusCode, strings.TrimSpace(string(body)))})
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"result": strings.TrimSpace(string(body))})
-		} else {
-			resp, err := h.client.Messages(r.Context(), providerCfg, chatReq, target.UpstreamModel)
-			if err != nil {
-				logger.L.Error("admin playground anthropic chat failed", "op", "admin_playground_chat_anthropic", "stream", false, "provider", target.ProviderName, "error", err)
-				h.recordUsage(principal, "messages", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-				return
-			}
-			h.recordUsage(principal, "messages", target.ProviderName, model, target.UpstreamModel, true, 0, 0, 0, http.StatusOK, time.Since(start))
-			output := extractAnthropicText(resp)
-			if output == "" {
-				pretty, _ := json.MarshalIndent(resp, "", "  ")
-				output = string(pretty)
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"result": output})
-		}
-	} else if useResponses {
-		// OpenAI Responses API
-		chatReq := &provider.ChatRequest{
-			Model:  model,
-			Stream: stream,
-			Raw: map[string]any{
-				"model": target.UpstreamModel,
-				"input": message,
-				"stream": stream,
-			},
-		}
+	// Call our own handler to go through the full API path.
+	apiReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, apiPath, reqBody)
+	apiReq.Header.Set("Authorization", "Bearer "+key)
+	apiReq.Header.Set("Content-Type", contentType)
 
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, apiReq)
+
+	resp := rec.Result()
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		if stream {
-			streamResp, err := h.client.ResponsesStream(r.Context(), providerCfg, chatReq, target.UpstreamModel)
-			if err != nil {
-				logger.L.Error("admin playground responses stream failed", "op", "admin_playground_chat_responses", "stream", true, "provider", target.ProviderName, "error", err)
-				h.recordUsage(principal, "responses", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-				return
-			}
-			defer streamResp.Body.Close()
-			body, err := io.ReadAll(streamResp.Body)
-			if err != nil {
-				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-				return
-			}
-			success := streamResp.StatusCode >= 200 && streamResp.StatusCode < 300
-			h.recordUsage(principal, "responses", target.ProviderName, model, target.UpstreamModel, success, 0, 0, 0, streamResp.StatusCode, time.Since(start))
-			if !success {
-				writeJSON(w, http.StatusBadGateway, map[string]any{"error": fmt.Sprintf("upstream status %d\n%s", streamResp.StatusCode, strings.TrimSpace(string(body)))})
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"result": strings.TrimSpace(string(body))})
+			writeJSON(w, http.StatusOK, map[string]any{"result": strings.TrimSpace(string(respBody))})
 		} else {
-			resp, err := h.client.Responses(r.Context(), providerCfg, chatReq, target.UpstreamModel)
-			if err != nil {
-				logger.L.Error("admin playground responses failed", "op", "admin_playground_chat_responses", "stream", false, "provider", target.ProviderName, "error", err)
-				h.recordUsage(principal, "responses", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-				return
-			}
-			requestTokens, responseTokens, totalTokens := usage.ExtractUsage(map[string]any(*resp))
-			h.recordUsage(principal, "responses", target.ProviderName, model, target.UpstreamModel, true, requestTokens, responseTokens, totalTokens, http.StatusOK, time.Since(start))
-			output := extractResponsesText(resp)
+			output := extractAPIResponseText(apiPath, respBody)
 			if output == "" {
-				pretty, _ := json.MarshalIndent(resp, "", "  ")
-				output = string(pretty)
+				output = strings.TrimSpace(string(respBody))
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"result": output})
 		}
 	} else {
-		// OpenAI Chat Completions style request
-		chatReq := &provider.ChatRequest{
-			Model:  model,
-			Stream: stream,
-			Raw: map[string]any{
-				"model": model,
-				"messages": []map[string]any{
-					{"role": "user", "content": message},
-				},
-				"stream": stream,
-			},
-		}
-
-		if stream {
-			streamResp, err := h.client.ChatStream(r.Context(), providerCfg, chatReq, target.UpstreamModel)
-			if err != nil {
-				logger.L.Error("admin playground chat failed", "op", "admin_playground_chat", "stream", true, "provider", target.ProviderName, "error", err)
-				h.recordUsage(principal, "chat.completions", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-				return
-			}
-			defer streamResp.Body.Close()
-			body, err := io.ReadAll(streamResp.Body)
-			if err != nil {
-				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-				return
-			}
-			success := streamResp.StatusCode >= 200 && streamResp.StatusCode < 300
-			h.recordUsage(principal, "chat.completions", target.ProviderName, model, target.UpstreamModel, success, 0, 0, 0, streamResp.StatusCode, time.Since(start))
-			if !success {
-				writeJSON(w, http.StatusBadGateway, map[string]any{"error": fmt.Sprintf("upstream status %d\n%s", streamResp.StatusCode, strings.TrimSpace(string(body)))})
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"result": strings.TrimSpace(string(body))})
+		// Try to extract OpenAI-style error message from the response
+		if apiStyle == "anthropic" {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": strings.TrimSpace(string(respBody))})
 		} else {
-			resp, err := h.client.Chat(r.Context(), providerCfg, chatReq, target.UpstreamModel)
-			if err != nil {
-				logger.L.Error("admin playground chat failed", "op", "admin_playground_chat", "stream", false, "provider", target.ProviderName, "error", err)
-				h.recordUsage(principal, "chat.completions", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-				return
+			var errResp struct {
+				Error struct {
+					Message string `json:"message"`
+				} `json:"error"`
 			}
-			requestTokens, responseTokens, totalTokens := usage.ExtractUsage(map[string]any(*resp))
-			h.recordUsage(principal, "chat.completions", target.ProviderName, model, target.UpstreamModel, true, requestTokens, responseTokens, totalTokens, http.StatusOK, time.Since(start))
-			output := extractChatText(resp)
-			if output == "" {
-				pretty, _ := json.MarshalIndent(resp, "", "  ")
-				output = string(pretty)
+			if err := json.Unmarshal(respBody, &errResp); err != nil || errResp.Error.Message == "" {
+				writeJSON(w, http.StatusBadGateway, map[string]any{"error": strings.TrimSpace(string(respBody))})
+			} else {
+				writeJSON(w, http.StatusBadGateway, map[string]any{"error": errResp.Error.Message})
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"result": output})
 		}
 	}
 }
@@ -1056,6 +961,24 @@ func publicAPIBaseURL(r *http.Request) string {
 		}
 	}
 	return scheme + "://" + r.Host
+}
+
+func extractAPIResponseText(path string, body []byte) string {
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return ""
+	}
+	switch {
+	case strings.Contains(path, "/messages"):
+		resp := provider.AnthropicResponse(raw)
+		return extractAnthropicText(&resp)
+	case strings.Contains(path, "/responses"):
+		resp := provider.OpenAIResponse(raw)
+		return extractResponsesText(&resp)
+	default:
+		resp := provider.OpenAIResponse(raw)
+		return extractChatText(&resp)
+	}
 }
 
 func extractChatText(resp *provider.OpenAIResponse) string {
