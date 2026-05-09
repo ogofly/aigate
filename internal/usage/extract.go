@@ -1,11 +1,22 @@
 package usage
 
 func ExtractUsage(payload map[string]any) (requestTokens, responseTokens, totalTokens int) {
-	rawUsage, ok := payload["usage"].(map[string]any)
-	if !ok {
-		return 0, 0, 0
+	// OpenAI Chat Completions / standard: {"usage": {...}}
+	if usage, ok := payload["usage"].(map[string]any); ok {
+		return extractTokens(usage)
 	}
 
+	// OpenAI Responses API: {"type":"response.completed","response":{"usage":{...}}}
+	if resp, ok := payload["response"].(map[string]any); ok {
+		if usage, ok := resp["usage"].(map[string]any); ok {
+			return extractTokens(usage)
+		}
+	}
+
+	return 0, 0, 0
+}
+
+func extractTokens(rawUsage map[string]any) (requestTokens, responseTokens, totalTokens int) {
 	requestTokens = intValue(rawUsage["prompt_tokens"])
 	if requestTokens == 0 {
 		requestTokens = intValue(rawUsage["input_tokens"])

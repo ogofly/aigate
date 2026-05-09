@@ -187,6 +187,40 @@ func (c *OpenAILikeClient) ChatStream(ctx context.Context, provider config.Provi
 	}, nil
 }
 
+func (c *OpenAILikeClient) ResponsesStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*StreamResponse, error) {
+	p, err := newOpenAILikeProviderWithStream(provider, true)
+	if err != nil {
+		return nil, err
+	}
+	payload := *req
+	payload.Model = upstreamModel
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/responses", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+
+	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+
+	return &StreamResponse{
+		StatusCode: resp.StatusCode,
+		Header:     resp.Header.Clone(),
+		Body:       resp.Body,
+	}, nil
+}
+
 func (c *OpenAILikeClient) Embed(ctx context.Context, provider config.ProviderConfig, req EmbeddingRequest, upstreamModel string) (*EmbeddingResponse, error) {
 	p, err := newOpenAILikeProvider(provider)
 	if err != nil {

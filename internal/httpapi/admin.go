@@ -87,6 +87,8 @@ type adminViewData struct {
 	PlayModel            string
 	PlayMessage          string
 	PlayStream           bool
+	PlayUseAnthropic     bool
+	PlayUseResponses     bool
 	PlayResult           string
 	PlayError            string
 	APIBase              string
@@ -621,7 +623,7 @@ func (h *Handler) handleAdminPlaygroundPage(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	data, err := h.buildPlaygroundViewData(r.Context(), r, session, "", "", false, "", "", "")
+	data, err := h.buildPlaygroundViewData(r.Context(), r, session, "", "", false, false, false, "", "", "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "admin_playground_error", err.Error())
 		return
@@ -643,9 +645,16 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 	model := strings.TrimSpace(r.FormValue("model"))
 	message := strings.TrimSpace(r.FormValue("message"))
 	stream := r.FormValue("stream") == "on"
+	apiStyle := r.FormValue("api_style")
+	apiType := r.FormValue("api_type")
+	if apiStyle == "" {
+		apiStyle = "openai"
+	}
+	useResponses := apiStyle == "openai" && apiType == "responses"
+	useAnthropic := apiStyle == "anthropic"
 
 	if key == "" || model == "" || message == "" {
-		data, err := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", "api_key, model and message are required")
+		data, err := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, useAnthropic, useResponses, message, "", "api_key, model and message are required")
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "admin_playground_error", err.Error())
 			return
@@ -656,7 +665,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 
 	principal, ok := h.authenticateAPIKeyValue(key)
 	if !ok {
-		data, err := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", "invalid api key")
+		data, err := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, useAnthropic, useResponses, message, "", "invalid api key")
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "admin_playground_error", err.Error())
 			return
@@ -665,7 +674,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if session.Role != roleAdmin && principal.Owner != session.Username {
-		data, err := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", "selected api key is not owned by current user")
+		data, err := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, useAnthropic, useResponses, message, "", "selected api key is not owned by current user")
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "admin_playground_error", err.Error())
 			return
@@ -676,7 +685,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 
 	target, err := h.router.Resolve(model)
 	if err != nil {
-		data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", "model not found")
+		data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, useAnthropic, useResponses, message, "", "model not found")
 		if buildErr != nil {
 			writeError(w, http.StatusInternalServerError, "admin_playground_error", buildErr.Error())
 			return
@@ -686,7 +695,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 	}
 	providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
 	if err != nil {
-		data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", err.Error())
+		data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, useAnthropic, useResponses, message, "", err.Error())
 		if buildErr != nil {
 			writeError(w, http.StatusInternalServerError, "admin_playground_error", buildErr.Error())
 			return
@@ -714,7 +723,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 		if err != nil {
 			logger.L.Error("admin playground chat failed", "op", "admin_playground_chat", "stream", true, "provider", target.ProviderName, "error", err)
 			h.recordUsage(principal, "chat.completions", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", err.Error())
+			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, useAnthropic, useResponses, message, "", err.Error())
 			if buildErr != nil {
 				writeError(w, http.StatusInternalServerError, "admin_playground_error", buildErr.Error())
 				return
@@ -725,7 +734,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 		defer streamResp.Body.Close()
 		body, err := io.ReadAll(streamResp.Body)
 		if err != nil {
-			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", err.Error())
+			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, useAnthropic, useResponses, message, "", err.Error())
 			if buildErr != nil {
 				writeError(w, http.StatusInternalServerError, "admin_playground_error", buildErr.Error())
 				return
@@ -744,7 +753,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 		if err != nil {
 			logger.L.Error("admin playground chat failed", "op", "admin_playground_chat", "stream", false, "provider", target.ProviderName, "error", err)
 			h.recordUsage(principal, "chat.completions", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, "", err.Error())
+			data, buildErr := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, useAnthropic, useResponses, message, "", err.Error())
 			if buildErr != nil {
 				writeError(w, http.StatusInternalServerError, "admin_playground_error", buildErr.Error())
 				return
@@ -761,7 +770,7 @@ func (h *Handler) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	data, err := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, message, output, "")
+	data, err := h.buildPlaygroundViewData(r.Context(), r, session, key, model, stream, useAnthropic, useResponses, message, output, "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "admin_playground_error", err.Error())
 		return
@@ -784,7 +793,16 @@ func (h *Handler) handleAdminPlaygroundChatAJAX(w http.ResponseWriter, r *http.R
 	model := strings.TrimSpace(r.PostFormValue("model"))
 	message := strings.TrimSpace(r.PostFormValue("message"))
 	stream := r.PostFormValue("stream") == "on"
-	useAnthropic := r.PostFormValue("use_anthropic") == "on"
+	apiStyle := r.PostFormValue("api_style")
+	apiType := r.PostFormValue("api_type")
+	if apiStyle == "" {
+		apiStyle = "openai"
+	}
+	if apiType == "" {
+		apiType = "chat_completions"
+	}
+	useAnthropic := apiStyle == "anthropic"
+	useResponses := apiStyle == "openai" && apiType == "responses"
 
 	if key == "" || model == "" || message == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "api_key, model and message are required"})
@@ -868,8 +886,58 @@ func (h *Handler) handleAdminPlaygroundChatAJAX(w http.ResponseWriter, r *http.R
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"result": output})
 		}
+	} else if useResponses {
+		// OpenAI Responses API
+		chatReq := &provider.ChatRequest{
+			Model:  model,
+			Stream: stream,
+			Raw: map[string]any{
+				"model": target.UpstreamModel,
+				"input": message,
+				"stream": stream,
+			},
+		}
+
+		if stream {
+			streamResp, err := h.client.ResponsesStream(r.Context(), providerCfg, chatReq, target.UpstreamModel)
+			if err != nil {
+				logger.L.Error("admin playground responses stream failed", "op", "admin_playground_chat_responses", "stream", true, "provider", target.ProviderName, "error", err)
+				h.recordUsage(principal, "responses", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
+				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+				return
+			}
+			defer streamResp.Body.Close()
+			body, err := io.ReadAll(streamResp.Body)
+			if err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+				return
+			}
+			success := streamResp.StatusCode >= 200 && streamResp.StatusCode < 300
+			h.recordUsage(principal, "responses", target.ProviderName, model, target.UpstreamModel, success, 0, 0, 0, streamResp.StatusCode, time.Since(start))
+			if !success {
+				writeJSON(w, http.StatusBadGateway, map[string]any{"error": fmt.Sprintf("upstream status %d\n%s", streamResp.StatusCode, strings.TrimSpace(string(body)))})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"result": strings.TrimSpace(string(body))})
+		} else {
+			resp, err := h.client.Responses(r.Context(), providerCfg, chatReq, target.UpstreamModel)
+			if err != nil {
+				logger.L.Error("admin playground responses failed", "op", "admin_playground_chat_responses", "stream", false, "provider", target.ProviderName, "error", err)
+				h.recordUsage(principal, "responses", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
+				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+				return
+			}
+			requestTokens, responseTokens, totalTokens := usage.ExtractUsage(map[string]any(*resp))
+			h.recordUsage(principal, "responses", target.ProviderName, model, target.UpstreamModel, true, requestTokens, responseTokens, totalTokens, http.StatusOK, time.Since(start))
+			output := extractResponsesText(resp)
+			if output == "" {
+				pretty, _ := json.MarshalIndent(resp, "", "  ")
+				output = string(pretty)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"result": output})
+		}
 	} else {
-		// OpenAI compatible style request
+		// OpenAI Chat Completions style request
 		chatReq := &provider.ChatRequest{
 			Model:  model,
 			Stream: stream,
@@ -923,7 +991,7 @@ func (h *Handler) handleAdminPlaygroundChatAJAX(w http.ResponseWriter, r *http.R
 	}
 }
 
-func (h *Handler) buildPlaygroundViewData(ctx context.Context, r *http.Request, session webSession, selectedKey, selectedModel string, stream bool, message, result, errMsg string) (adminViewData, error) {
+func (h *Handler) buildPlaygroundViewData(ctx context.Context, r *http.Request, session webSession, selectedKey, selectedModel string, stream, useAnthropic, useResponses bool, message, result, errMsg string) (adminViewData, error) {
 	keys, err := h.visibleKeys(ctx, session)
 	if err != nil {
 		return adminViewData{}, err
@@ -962,6 +1030,8 @@ func (h *Handler) buildPlaygroundViewData(ctx context.Context, r *http.Request, 
 		PlayModel:            selectedModel,
 		PlayMessage:          strings.TrimSpace(message),
 		PlayStream:           stream,
+		PlayUseAnthropic:     useAnthropic,
+		PlayUseResponses:     useResponses,
 		PlayResult:           result,
 		PlayError:            errMsg,
 		HasAnthropicProvider: hasAnthropic,
@@ -1006,6 +1076,37 @@ func extractChatText(resp *provider.OpenAIResponse) string {
 	}
 	content, _ := message["content"].(string)
 	return strings.TrimSpace(content)
+}
+
+func extractResponsesText(resp *provider.OpenAIResponse) string {
+	if resp == nil {
+		return ""
+	}
+	rawOutput, ok := (*resp)["output"].([]any)
+	if !ok || len(rawOutput) == 0 {
+		return ""
+	}
+	var texts []string
+	for _, item := range rawOutput {
+		itemMap, ok := item.(map[string]any)
+		if !ok || itemMap["type"] != "message" {
+			continue
+		}
+		content, ok := itemMap["content"].([]any)
+		if !ok {
+			continue
+		}
+		for _, part := range content {
+			partMap, ok := part.(map[string]any)
+			if !ok || partMap["type"] != "output_text" {
+				continue
+			}
+			if text, ok := partMap["text"].(string); ok {
+				texts = append(texts, text)
+			}
+		}
+	}
+	return strings.Join(texts, "")
 }
 
 func extractAnthropicText(resp *provider.AnthropicResponse) string {

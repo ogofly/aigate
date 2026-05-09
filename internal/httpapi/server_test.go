@@ -152,6 +152,12 @@ func (s *stubProvider) Responses(_ context.Context, _ config.ProviderConfig, req
 	return s.response, nil
 }
 
+func (s *stubProvider) ResponsesStream(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (*provider.StreamResponse, error) {
+	s.lastModel = upstreamModel
+	s.lastChat = req
+	return s.streamResp, nil
+}
+
 func newHandler(t *testing.T, keys []config.KeyConfig, rt *router.Router, recorder *usage.Recorder, client provider.Client) http.Handler {
 	t.Helper()
 	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")

@@ -37,6 +37,7 @@ type Client interface {
 	MessagesStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*StreamResponse, error)
 	Embed(ctx context.Context, provider config.ProviderConfig, req EmbeddingRequest, upstreamModel string) (*EmbeddingResponse, error)
 	Responses(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*OpenAIResponse, error)
+	ResponsesStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*StreamResponse, error)
 }
 
 // defaultClient combines OpenAI and Anthropic implementations to satisfy Client.
@@ -67,6 +68,10 @@ func (c *defaultClient) Embed(ctx context.Context, provider config.ProviderConfi
 
 func (c *defaultClient) Responses(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*OpenAIResponse, error) {
 	return c.openai.Responses(ctx, provider, req, upstreamModel)
+}
+
+func (c *defaultClient) ResponsesStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*StreamResponse, error) {
+	return c.openai.ResponsesStream(ctx, provider, req, upstreamModel)
 }
 
 // NewClient returns a neutral Client that supports both OpenAI-compatible and Anthropic protocols.

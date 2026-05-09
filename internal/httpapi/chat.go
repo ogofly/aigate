@@ -272,5 +272,18 @@ func extractUsageFromSSEPayload(payload string) (streamUsageSnapshot, bool) {
 		}
 	}
 
+	// OpenAI Responses API: {"type":"response.completed","response":{"usage":{...}}}
+	if resp, ok := raw["response"].(map[string]any); ok {
+		if _, ok := resp["usage"].(map[string]any); ok {
+			requestTokens, responseTokens, totalTokens := usage.ExtractUsage(raw)
+			return streamUsageSnapshot{
+				requestTokens:  requestTokens,
+				responseTokens: responseTokens,
+				totalTokens:    totalTokens,
+				present:        true,
+			}, true
+		}
+	}
+
 	return streamUsageSnapshot{}, false
 }

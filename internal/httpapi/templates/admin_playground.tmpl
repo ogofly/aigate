@@ -16,7 +16,6 @@ button:disabled{opacity:0.5;cursor:not-allowed}
 .title{font-size:20px;margin:0 0 8px}
 .muted{color:var(--muted)}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
-.row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px}
 select,input,textarea{width:100%;padding:10px;border:1px solid #72757e;border-radius:10px;background:#fffffe;color:#010101}
 textarea{min-height:180px;resize:vertical}
 .actions{display:flex;gap:10px;align-items:center}
@@ -26,6 +25,10 @@ textarea{min-height:180px;resize:vertical}
 .kv{display:grid;grid-template-columns:120px 1fr auto;gap:8px;align-items:center;margin-bottom:8px}
 .mono{font-family:ui-monospace,SFMono-Regular,monospace;font-size:13px;word-break:break-all}
 .hidden{display:none}
+.radio-group{display:flex;gap:16px;flex-wrap:wrap}
+.radio-group label{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px}
+.radio-group input{width:auto}
+.field-label{font-size:13px;color:var(--muted);margin-bottom:6px}
 @media (max-width:900px){.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}}
 </style>
 </head><body><div class="wrap">
@@ -40,13 +43,27 @@ textarea{min-height:180px;resize:vertical}
 <div><label>API Key</label><select name="api_key" id="apiKey">{{range .Keys}}<option value="{{.Key}}" {{if eq $.PlayAPIKey .Key}}selected{{end}}>{{if .Name}}{{.Name}}{{else}}(unnamed){{end}} / {{.Key}}</option>{{end}}</select></div>
 <div><label>Model</label><select name="model" id="model">{{range .PlayModels}}<option value="{{.}}" {{if eq $.PlayModel .}}selected{{end}}>{{.}}</option>{{end}}</select></div>
 </div>
-<div class="row-3" style="margin-bottom:10px">
-<div><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="stream" id="stream" {{if .PlayStream}}checked{{end}} style="width:auto"> Stream</label></div>
-{{if .HasAnthropicProvider}}
-<div><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="use_anthropic" id="useAnthropic" style="width:auto"> Use Anthropic</label></div>
-{{end}}
-<div></div>
+
+<div style="margin-bottom:10px">
+<div class="field-label">API Style</div>
+<div class="radio-group">
+<label><input type="radio" name="api_style" value="openai" {{if not .PlayUseAnthropic}}checked{{end}}> OpenAI</label>
+<label><input type="radio" name="api_style" value="anthropic" {{if .PlayUseAnthropic}}checked{{end}}> Anthropic</label>
 </div>
+</div>
+
+<div id="openaiSub" style="margin-bottom:10px{{if .PlayUseAnthropic}};display:none{{end}}">
+<div class="field-label">OpenAI Endpoint</div>
+<div class="radio-group">
+<label><input type="radio" name="api_type" value="chat_completions" {{if not .PlayUseResponses}}checked{{end}}> Chat Completions</label>
+<label><input type="radio" name="api_type" value="responses" {{if .PlayUseResponses}}checked{{end}}> Responses</label>
+</div>
+</div>
+
+<div style="margin-bottom:10px">
+<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="stream" id="stream" {{if .PlayStream}}checked{{end}} style="width:auto"> Stream</label>
+</div>
+
 <div style="margin-bottom:10px"><label>Message</label><textarea name="message" id="message" placeholder="Say something...">{{.PlayMessage}}</textarea></div>
 <div class="actions"><button type="submit" id="sendBtn">Send</button><a class="hint" href="/admin/playground">Clear</a><span id="loadingHint" class="hint" style="display:none">Sending...</span></div>
 </form>
@@ -57,7 +74,7 @@ textarea{min-height:180px;resize:vertical}
 </section>
 <aside class="card">
 <h2 class="title">Connect Settings</h2>
-<p class="muted" id="modeHint">OpenAI compatible. Copy into your client app.</p>
+<p class="muted" id="modeHint">OpenAI Chat Completions. Copy into your client app.</p>
 <div class="kv"><div class="muted">API Base URL</div><div class="mono" id="cfgBase">{{.PlayAPIBase}}/v1</div><button type="button" class="ghost" onclick="copyText('cfgBase', this)">Copy</button></div>
 <div class="kv"><div class="muted">API Key</div><div class="mono" id="cfgKey">{{.PlayAPIKey}}</div><button type="button" class="ghost" onclick="copyText('cfgKey', this)">Copy</button></div>
 <div class="kv"><div class="muted">Model</div><div class="mono" id="cfgModel">{{.PlayModel}}</div><button type="button" class="ghost" onclick="copyText('cfgModel', this)">Copy</button></div>
@@ -104,29 +121,39 @@ const sendBtn = document.getElementById('sendBtn');
 const loadingHint = document.getElementById('loadingHint');
 const resultDiv = document.getElementById('resultDiv');
 const errorDiv = document.getElementById('errorDiv');
-const useAnthropicCheckbox = document.getElementById('useAnthropic');
 const modeHint = document.getElementById('modeHint');
 const cfgBase = document.getElementById('cfgBase');
 const endpointHint = document.getElementById('endpointHint');
+const openaiSub = document.getElementById('openaiSub');
 const apiBaseEl = document.getElementById('apiBaseData');
 const apiBase = apiBaseEl ? apiBaseEl.textContent : '';
 
-function updateModeUI() {
-	const useAnthropic = useAnthropicCheckbox && useAnthropicCheckbox.checked;
-	if (useAnthropic) {
+function getApiStyle(){ return document.querySelector('input[name="api_style"]:checked')?.value || 'openai'; }
+function getApiType(){ return document.querySelector('input[name="api_type"]:checked')?.value || 'chat_completions'; }
+
+function updateModeUI(){
+	const style = getApiStyle();
+	const apiType = getApiType();
+
+	openaiSub.style.display = style === 'openai' ? '' : 'none';
+
+	if (style === 'anthropic') {
 		modeHint.textContent = 'Anthropic Messages API. Copy into your client app.';
 		cfgBase.textContent = apiBase + '/anthropic';
 		endpointHint.innerHTML = 'Use endpoint: <span class="mono">/messages</span>';
+	} else if (apiType === 'responses') {
+		modeHint.textContent = 'OpenAI Responses API. Copy into your client app.';
+		cfgBase.textContent = apiBase + '/v1';
+		endpointHint.innerHTML = 'Use endpoint: <span class="mono">/responses</span>';
 	} else {
-		modeHint.textContent = 'OpenAI compatible. Copy into your client app.';
+		modeHint.textContent = 'OpenAI Chat Completions. Copy into your client app.';
 		cfgBase.textContent = apiBase + '/v1';
 		endpointHint.innerHTML = 'Use endpoint: <span class="mono">/chat/completions</span>';
 	}
 }
 
-if (useAnthropicCheckbox) {
-	useAnthropicCheckbox.addEventListener('change', updateModeUI);
-}
+document.querySelectorAll('input[name="api_style"]').forEach(r => r.addEventListener('change', updateModeUI));
+document.querySelectorAll('input[name="api_type"]').forEach(r => r.addEventListener('change', updateModeUI));
 
 form.addEventListener('submit', async (e) => {
 	e.preventDefault();
@@ -139,11 +166,10 @@ form.addEventListener('submit', async (e) => {
 	params.append('api_key', document.getElementById('apiKey').value);
 	params.append('model', document.getElementById('model').value);
 	params.append('message', document.getElementById('message').value);
+	params.append('api_style', getApiStyle());
+	params.append('api_type', getApiType());
 	if (document.getElementById('stream').checked) {
 		params.append('stream', 'on');
-	}
-	if (useAnthropicCheckbox && useAnthropicCheckbox.checked) {
-		params.append('use_anthropic', 'on');
 	}
 
 	try {
