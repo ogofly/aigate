@@ -1562,6 +1562,46 @@ func TestAdminPlaygroundRequiresSession(t *testing.T) {
 	}
 }
 
+func TestAdminPlaygroundInitializesChatWindow(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "openai/gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001", Name: "alice"}}, rt, usage.New(100), &stubProvider{})
+
+	loginBody := bytes.NewBufferString("username=admin&password=pass")
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/playground", nil)
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "toggleMain();") || !strings.Contains(body, "updateConnectionValues();") || !strings.Contains(body, "updateModeUI();") {
+		t.Fatalf("playground body missing init calls: %q", body)
+	}
+	if !strings.Contains(body, "overflow-wrap:anywhere") || !strings.Contains(body, ".grid>*{min-width:0}") {
+		t.Fatalf("playground body missing long-content overflow guards: %q", body)
+	}
+	if strings.Contains(body, "document.getElementById('connectKv').style.display = '';") {
+		t.Fatalf("playground body still contains stale inline connectKv display script: %q", body)
+	}
+}
+
 func TestAdminPlaygroundChatWorks(t *testing.T) {
 	resp := provider.OpenAIResponse{
 		"choices": []map[string]any{

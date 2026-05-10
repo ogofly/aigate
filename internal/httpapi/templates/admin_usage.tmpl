@@ -1,37 +1,45 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>{{.Title}}</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title>
 <style>
-body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:1280px;margin:32px auto;padding:0 16px;color:#fffffe;background:#16161a}
-nav a{margin-right:16px;color:#fffffe;text-decoration:none}
-table{width:100%;border-collapse:collapse;margin-top:24px;background:rgba(255,255,255,.03)}
-th,td{padding:10px;border-bottom:1px solid #72757e;text-align:left}
-button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:8px;cursor:pointer;font-weight:600}
-button.active{background:#5a3ec8}
-.muted{color:#94a1b2}
-.tabs{display:flex;gap:0;margin-top:16px}
-.tab{padding:10px 16px;border-bottom:2px solid transparent;color:#94a1b2;cursor:pointer;text-decoration:none}
-.tab.active{border-bottom-color:#7f5af0;color:#fffffe}
-.filters{display:flex;gap:8px;align-items:flex-end;margin-top:12px}
-.filters label{display:flex;flex-direction:column;gap:4px;font-size:13px}
-.filters input,.filters select{padding:8px;border:1px solid #72757e;border-radius:8px;background:#fffffe;color:#010101}
-a.clear-filters{color:#94a1b2;margin-left:auto;text-decoration:none;font-size:13px}
+{{template "admin_common_styles" .}}
+button.active{background:var(--accent-strong)}
+.page-intro{margin:0 0 16px}
+.tabs{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;padding-bottom:2px}
+.tab{padding:10px 16px;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer;text-decoration:none}
+.tab.active{border-bottom-color:var(--accent);color:#fffffe}
+.filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:10px;align-items:end;margin-top:12px}
+.filters label{display:flex;flex-direction:column;gap:6px;font-size:13px;min-width:0}
+.filter-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
 #trendChart{width:100%;height:400px;margin-top:20px}
-.trend-controls{display:flex;gap:8px;align-items:center;margin-top:12px;font-size:13px}
-.trend-controls button{padding:6px 12px;font-size:13px;border:1px solid #72757e;background:transparent;color:#94a1b2;border-radius:6px;cursor:pointer}
-.trend-controls button.active{background:#7f5af0;color:#fffffe;border-color:#7f5af0}
+.trend-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;font-size:13px}
+.trend-controls button{padding:6px 12px;font-size:13px;border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:6px;cursor:pointer}
+.trend-controls button.active{background:var(--accent);color:#fffffe;border-color:var(--accent)}
 .pie-chart{width:100%;height:300px;margin:16px 0}
-.no-data{text-align:center;padding:40px;color:#94a1b2;font-size:16px}
+.no-data{text-align:center;padding:40px;color:var(--muted);font-size:16px}
+@media (max-width:720px){
+.filters{grid-template-columns:1fr}
+.tabs{flex-wrap:nowrap;overflow-x:auto}
+.tab{white-space:nowrap;flex:0 0 auto}
+#trendChart{height:300px}
+.pie-chart{height:240px}
+}
 </style>
-</head><body>
+</head><body><div class="page">
 {{template "admin_nav" .}}
 <h1>Usage</h1>
+<section class="panel">
+<h2 class="panel-title">Usage Explorer</h2>
+<p class="panel-copy page-intro">Filter by date and model. On small screens, tables scroll horizontally.</p>
 <form method="get" action="/admin/usage/view" class="filters">
   <input type="hidden" name="view" value="{{.View}}">
   <label>Start <input type="date" name="start" value="{{.FilterStart}}"></label>
   <label>End <input type="date" name="end" value="{{.FilterEnd}}"></label>
   <label>Model <select name="model"><option value="">All</option>{{range .UsageModels}}<option value="{{.}}" {{if eq . $.FilterModel}}selected{{end}}>{{.}}</option>{{end}}</select></label>
-  <button type="submit">Filter</button>
-  {{if or .FilterStart .FilterEnd .FilterModel}}<a class="clear-filters" href="/admin/usage/view?view={{.View}}">Clear</a>{{end}}
+  <div class="filter-actions">
+    <button type="submit">Filter</button>
+    {{if or .FilterStart .FilterEnd .FilterModel}}<a class="clear-filters" href="/admin/usage/view?view={{.View}}">Clear</a>{{end}}
+  </div>
 </form>
 {{define "tabFilters"}}{{if .FilterStart}}&start={{.FilterStart}}{{end}}{{if .FilterEnd}}&end={{.FilterEnd}}{{end}}{{if .FilterModel}}&model={{.FilterModel}}{{end}}{{end}}
 <div class="tabs">
@@ -39,6 +47,7 @@ a.clear-filters{color:#94a1b2;margin-left:auto;text-decoration:none;font-size:13
   <a class="tab{{if eq .View "by_key"}} active{{end}}" href="/admin/usage/view?view=by_key{{template "tabFilters" .}}">By Key</a>
   <a class="tab{{if eq .View "by_model"}} active{{end}}" href="/admin/usage/view?view=by_model{{template "tabFilters" .}}">By Model</a>
 </div>
+</section>
 
 {{if eq .View "trend"}}
 <div id="trendControls" class="trend-controls">
@@ -73,14 +82,14 @@ function renderTrend(data){
     tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
     legend:{data:['Requests','Total Tokens'],textStyle:{color:'#fffffe'}},
     grid:{left:'3%',right:'4%',bottom:'3%',containLabel:true},
-    xAxis:{type:'category',data:dates,axisLabel:{color:'#94a1b2'}},
+    xAxis:{type:'category',data:dates,axisLabel:{color:'#b2a8cf'}},
     yAxis:[
-      {type:'value',name:'Requests',position:'left',axisLabel:{color:'#94a1b2'},splitLine:{lineStyle:{color:'#72757e'}}},
-      {type:'value',name:'Tokens',position:'right',axisLabel:{formatter:function(v){return formatTokens(v)},color:'#94a1b2'},splitLine:{show:false}}
+      {type:'value',name:'Requests',position:'left',axisLabel:{color:'#b2a8cf'},splitLine:{lineStyle:{color:'rgba(176,139,255,.14)'}}},
+      {type:'value',name:'Tokens',position:'right',axisLabel:{formatter:function(v){return formatTokens(v)},color:'#b2a8cf'},splitLine:{show:false}}
     ],
     series:[
-      {name:'Requests',type:'line',yAxisIndex:0,smooth:true,areaStyle:{opacity:0.1},data:requests,itemStyle:{color:'#7f5af0'}},
-      {name:'Total Tokens',type:'line',yAxisIndex:1,smooth:true,areaStyle:{opacity:0.1},data:total,itemStyle:{color:'#2cb67d'}}
+      {name:'Requests',type:'line',yAxisIndex:0,smooth:true,areaStyle:{opacity:0.1},data:requests,itemStyle:{color:'#8b5cf6'}},
+      {name:'Total Tokens',type:'line',yAxisIndex:1,smooth:true,areaStyle:{opacity:0.1},data:total,itemStyle:{color:'#c084fc'}}
     ]
   });
   window.addEventListener('resize',function(){chart.resize()});
@@ -106,9 +115,9 @@ loadTrend(trendGb);
 {{if .ModelSummaries}}
 <script id="modelPieData" type="application/json">{{range $i, $s := .ModelSummaries}}{{if $i}},{{end}}{"name":"{{.Model}}","value":{{.TotalTokens}}}{{end}}</script>
 <div id="modelPieChart" class="pie-chart"></div>
-<table><thead><tr><th>Model</th><th>Requests</th><th>Success</th><th>Errors</th><th>Total Tokens</th><th>Active Keys</th></tr></thead><tbody>
+<div class="table-wrap"><table><thead><tr><th>Model</th><th>Requests</th><th>Success</th><th>Errors</th><th>Total Tokens</th><th>Active Keys</th></tr></thead><tbody>
 {{range .ModelSummaries}}<tr><td>{{.Model}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td><td>{{.KeyCount}}</td></tr>{{end}}
-</tbody></table>
+</tbody></table></div>
 {{else}}
 <div class="no-data">No usage data for the selected period</div>
 {{end}}
@@ -116,9 +125,9 @@ loadTrend(trendGb);
 {{if .Usage}}
 <script id="keyPieData" type="application/json">{{range $i, $u := .Usage}}{{if $i}},{{end}}{"name":"{{.KeyName}}{{if not .KeyName}} ({{.KeyID}}){{end}}","value":{{.TotalTokens}}}{{end}}</script>
 <div id="keyPieChart" class="pie-chart"></div>
-<table><thead><tr><th>Key ID</th><th>Name</th>{{if .IsAdmin}}<th>Owner</th>{{end}}<th>Purpose</th><th>Requests</th><th>Success</th><th>Errors</th><th>Total Tokens</th></tr></thead><tbody>
+<div class="table-wrap"><table><thead><tr><th>Key ID</th><th>Name</th>{{if .IsAdmin}}<th>Owner</th>{{end}}<th>Purpose</th><th>Requests</th><th>Success</th><th>Errors</th><th>Total Tokens</th></tr></thead><tbody>
 {{range .Usage}}<tr><td>{{.KeyID}}</td><td>{{.KeyName}}</td>{{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}<td>{{.Purpose}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td></tr>{{end}}
-</tbody></table>
+</tbody></table></div>
 {{else}}
 <div class="no-data">No usage data for the selected period</div>
 {{end}}
@@ -160,4 +169,4 @@ document.querySelectorAll('.token-cell').forEach(function(el){
 })();
 {{end}}
 </script>
-</body></html>
+</div></body></html>

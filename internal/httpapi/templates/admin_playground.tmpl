@@ -1,43 +1,55 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>{{.Title}}</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title>
 <style>
-:root{--bg:#16161a;--card:rgba(0,30,29,.45);--line:#72757e;--text:#fffffe;--muted:#94a1b2;--accent:#7f5af0}
-*{box-sizing:border-box}
-body{margin:0;background:#16161a;color:var(--text);font-family:-apple-system,BlinkMacSystemFont,sans-serif}
-.wrap{max-width:1280px;margin:24px auto;padding:0 16px}
-nav{display:flex;gap:14px;align-items:center;margin-bottom:18px}
-nav a{text-decoration:none;color:#fffffe}
-.logout{margin-left:auto}
-button{border:0;background:#7f5af0;color:#fffffe;border-radius:10px;padding:9px 14px;cursor:pointer;font-weight:600}
+{{template "admin_common_styles" .}}
+.playground-page{padding-top:8px}
+:root{--card:rgba(22,16,40,.72)}
 button:disabled{opacity:0.5;cursor:not-allowed}
-.ghost{background:#72757e;color:#fffffe}
 .grid{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
-.title{font-size:20px;margin:0 0 8px}
-.muted{color:var(--muted)}
-.row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
-select,input,textarea{width:100%;padding:10px;border:1px solid #72757e;border-radius:10px;background:#fffffe;color:#010101}
+.grid>*{min-width:0}
+.card{min-width:0;background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.025));border:1px solid var(--line);border-radius:22px;padding:18px;box-shadow:var(--shadow);backdrop-filter:blur(8px)}
+.title{font-size:20px;margin:0 0 6px}
+.subtle-copy{margin:0 0 16px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.stack{display:grid;gap:12px}
+.section{padding:14px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.025)}
 textarea{min-height:180px;resize:vertical}
-.actions{display:flex;gap:10px;align-items:center}
+.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .hint{font-size:12px;color:var(--muted)}
-.result{margin-top:12px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.02);padding:12px;white-space:pre-wrap;max-height:360px;overflow:auto}
-.error{margin-top:10px;padding:10px;border-radius:10px;background:#fff2f2;color:#9f2d2d;border:1px solid #ffd1d1}
-.kv{display:grid;grid-template-columns:120px 1fr auto;gap:8px;align-items:center;margin-bottom:8px}
-.mono{font-family:ui-monospace,SFMono-Regular,monospace;font-size:13px;word-break:break-all}
+.hint[href]{text-decoration:none}
+.hint-row{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:10px}
+.result{margin-top:12px;width:100%;max-width:100%;min-width:0;border:1px solid rgba(139,92,246,.16);border-radius:16px;background:rgba(11,8,22,.82);padding:14px 16px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;max-height:420px;overflow:auto;overscroll-behavior:contain;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+.result-title{display:block;margin-bottom:8px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.error{margin-top:12px;padding:12px 14px;border-radius:16px;background:#fff2f2;color:#9f2d2d;border:1px solid #ffd1d1}
+.kv{display:grid;grid-template-columns:110px minmax(0,1fr) auto;gap:10px;align-items:center;margin-bottom:10px}
+.mono{font-size:13px;word-break:break-all}
 .hidden{display:none}
 .radio-group{display:flex;gap:16px;flex-wrap:wrap}
 .radio-group label{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px}
 .radio-group input{width:auto}
 .field-label{font-size:13px;color:var(--muted);margin-bottom:6px}
+.metric{padding:12px 14px;border-radius:16px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.025)}
+.metric-label{font-size:12px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.metric-value{margin-top:6px;font-size:13px;overflow-wrap:anywhere}
+aside .hint{margin-top:12px;display:block}
 @media (max-width:900px){.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}}
+@media (max-width:640px){
+.card{padding:14px}
+.section{padding:12px}
+.kv{grid-template-columns:1fr}
+.kv button{width:100%}
+.actions button,.actions a{width:100%;text-align:center}
+.hint-row{align-items:flex-start;flex-direction:column}
+textarea{min-height:140px}
+}
 </style>
-</head><body><div class="wrap">
+</head><body><div class="page playground-page">
 {{template "admin_nav" .}}
 <div id="apiBaseData" class="hidden">{{.PlayAPIBase}}</div>
 <div class="grid">
 <section class="card">
 <h1 class="title">Playground</h1>
-<p class="muted">Use a managed API key to test one message quickly.</p>
+<p class="muted subtle-copy">Use a managed API key to test one message quickly.</p>
 <form id="playgroundForm">
 <div class="row">
 <div><label>API Key</label><select name="api_key" id="apiKey">{{range .Keys}}<option value="{{.Key}}" {{if eq $.PlayAPIKey .Key}}selected{{end}}>{{if .Name}}{{.Name}}{{else}}(unnamed){{end}} / {{.Key}}</option>{{end}}</select></div>
@@ -45,7 +57,8 @@ textarea{min-height:180px;resize:vertical}
 </div>
 
 <div id="playgroundMain" style="display:none">
-<div style="margin-bottom:10px">
+<div class="stack">
+<div class="section">
 <div class="field-label">API Style</div>
 <div class="radio-group">
 <label><input type="radio" name="api_style" value="openai" {{if not .PlayUseAnthropic}}checked{{end}}> OpenAI</label>
@@ -53,7 +66,7 @@ textarea{min-height:180px;resize:vertical}
 </div>
 </div>
 
-<div id="openaiSub" style="margin-bottom:10px{{if .PlayUseAnthropic}};display:none{{end}}">
+<div id="openaiSub" class="section" style="{{if .PlayUseAnthropic}}display:none{{end}}">
 <div class="field-label">OpenAI Endpoint</div>
 <div class="radio-group">
 <label><input type="radio" name="api_type" value="chat_completions" {{if not .PlayUseResponses}}checked{{end}}> Chat Completions</label>
@@ -61,32 +74,38 @@ textarea{min-height:180px;resize:vertical}
 </div>
 </div>
 
-<div style="margin-bottom:10px">
+<div class="section">
 <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="stream" id="stream" {{if .PlayStream}}checked{{end}} style="width:auto"> Stream</label>
 </div>
 
-<div style="margin-bottom:10px"><label>Message</label><textarea name="message" id="message" placeholder="Say something...">{{.PlayMessage}}</textarea></div>
-<div class="actions"><button type="submit" id="sendBtn">Send</button><a class="hint" href="/admin/playground">Clear</a><span id="loadingHint" class="hint" style="display:none">Sending...</span></div>
+<div>
+<label>Message</label>
+<textarea name="message" id="message" placeholder="Say something...">{{.PlayMessage}}</textarea>
+<div class="hint-row">
+<span class="hint">Best for quick validation of key, model and endpoint behavior.</span>
+<span id="loadingHint" class="hint" style="display:none">Sending...</span>
+</div>
+</div>
+<div class="actions"><button type="submit" id="sendBtn">Send</button><a class="hint" href="/admin/playground">Clear</a></div>
+</div>
 </div>
 </form>
-{{if or .PlayError .PlayResult}}
-<script>
-document.getElementById('playgroundMain').style.display = '';
-document.getElementById('connectKv').style.display = '';
-</script>
-{{end}}
 {{if .PlayError}}<div class="error">{{.PlayError}}</div>{{end}}
 <div id="errorDiv" class="error" style="display:none"></div>
 <div id="resultDiv" class="result" style="display:none"></div>
-{{if .PlayResult}}<div class="result">{{.PlayResult}}</div>{{end}}
+{{if .PlayResult}}<div class="result"><span class="result-title">Reply</span>{{.PlayResult}}</div>{{end}}
 </section>
 <aside class="card">
 <h2 class="title">Connect Settings</h2>
-<p class="muted" id="modeHint">OpenAI Chat Completions. Copy into your client app.</p>
-<div id="connectKv" style="display:none">
+<p class="muted subtle-copy" id="modeHint">OpenAI Chat Completions. Copy into your client app.</p>
+<div id="connectKv" style="display:none" class="stack">
 <div class="kv"><div class="muted">API Base URL</div><div class="mono" id="cfgBase">{{.PlayAPIBase}}/v1</div><button type="button" class="ghost" onclick="copyText('cfgBase', this)">Copy</button></div>
 <div class="kv"><div class="muted">API Key</div><div class="mono" id="cfgKey">{{.PlayAPIKey}}</div><button type="button" class="ghost" onclick="copyText('cfgKey', this)">Copy</button></div>
 <div class="kv"><div class="muted">Model</div><div class="mono" id="cfgModel">{{.PlayModel}}</div><button type="button" class="ghost" onclick="copyText('cfgModel', this)">Copy</button></div>
+<div class="metric">
+<div class="metric-label">Request Shape</div>
+<div class="metric-value">Same auth, routing and upstream call path as the public API.</div>
+</div>
 </div>
 <div class="hint" id="endpointHint">Use endpoint: <span class="mono">/chat/completions</span></div>
 </aside>
@@ -133,10 +152,14 @@ const resultDiv = document.getElementById('resultDiv');
 const errorDiv = document.getElementById('errorDiv');
 const modeHint = document.getElementById('modeHint');
 const cfgBase = document.getElementById('cfgBase');
+const cfgKey = document.getElementById('cfgKey');
+const cfgModel = document.getElementById('cfgModel');
 const endpointHint = document.getElementById('endpointHint');
 const openaiSub = document.getElementById('openaiSub');
 const playgroundMain = document.getElementById('playgroundMain');
 const connectKv = document.getElementById('connectKv');
+const apiKeySelect = document.getElementById('apiKey');
+const modelSelect = document.getElementById('model');
 const apiBaseEl = document.getElementById('apiBaseData');
 const apiBase = apiBaseEl ? apiBaseEl.textContent : '';
 
@@ -168,16 +191,23 @@ document.querySelectorAll('input[name="api_style"]').forEach(r => r.addEventList
 document.querySelectorAll('input[name="api_type"]').forEach(r => r.addEventListener('change', updateModeUI));
 
 function toggleMain(){
-	const hasKey = document.getElementById('apiKey').value !== '';
+	const hasKey = apiKeySelect.value !== '';
 	playgroundMain.style.display = hasKey ? '' : 'none';
 	connectKv.style.display = hasKey ? '' : 'none';
 }
 
-document.getElementById('apiKey').addEventListener('change', () => {
-	playgroundMain.style.display = '';
-	connectKv.style.display = '';
+function updateConnectionValues(){
+	cfgKey.textContent = apiKeySelect.value;
+	cfgModel.textContent = modelSelect.value;
+}
+
+apiKeySelect.addEventListener('change', () => {
+	toggleMain();
+	updateConnectionValues();
 	updateModeUI();
 });
+
+modelSelect.addEventListener('change', updateConnectionValues);
 
 form.addEventListener('submit', async (e) => {
 	e.preventDefault();
@@ -186,9 +216,9 @@ form.addEventListener('submit', async (e) => {
 	resultDiv.style.display = 'none';
 	errorDiv.style.display = 'none';
 
-	const params = new URLSearchParams();
-	params.append('api_key', document.getElementById('apiKey').value);
-	params.append('model', document.getElementById('model').value);
+const params = new URLSearchParams();
+	params.append('api_key', apiKeySelect.value);
+	params.append('model', modelSelect.value);
 	params.append('message', document.getElementById('message').value);
 	params.append('api_style', getApiStyle());
 	params.append('api_type', getApiType());
@@ -209,14 +239,19 @@ form.addEventListener('submit', async (e) => {
 			throw new Error(data.error || 'Request failed');
 		}
 		resultDiv.textContent = data.result;
+		resultDiv.insertAdjacentHTML('afterbegin', '<span class="result-title">Reply</span>');
 		resultDiv.style.display = 'block';
 	} catch (err) {
 		errorDiv.textContent = err.message;
 		errorDiv.style.display = 'block';
 	} finally {
 		sendBtn.disabled = false;
-		loadingHint.style.display = 'none';
+	loadingHint.style.display = 'none';
 	}
 });
+
+toggleMain();
+updateConnectionValues();
+updateModeUI();
 </script>
 </body></html>

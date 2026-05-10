@@ -2,44 +2,42 @@
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
 <style>
-body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:1280px;margin:32px auto;padding:0 16px;color:#fffffe;background:#16161a}
-nav a{margin-right:16px;color:#fffffe;text-decoration:none}
-table{width:100%;border-collapse:collapse;margin-top:24px;background:rgba(255,255,255,.03)}
-th,td{padding:10px;border-bottom:1px solid #72757e;text-align:left}
-input{padding:10px;border:1px solid #72757e;border-radius:8px;margin-right:8px;min-width:120px;background:#fffffe;color:#010101}
-label{margin-right:12px}
-button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:8px;cursor:pointer;font-weight:600}
-.muted{color:#94a1b2}
-.flash{padding:10px 12px;background:#72757e;border-radius:8px;margin-top:16px;color:#fffffe}
+{{template "admin_common_styles" .}}
 .key-cell{display:flex;align-items:center;gap:8px}
-.key-text{font-family:ui-monospace,SFMono-Regular,monospace;cursor:pointer;color:#7f5af0}
-.ghost{background:#f3f3f3;color:#111}
-.key-gen{display:inline-flex;align-items:stretch;margin-right:8px}
-#new-key-input{margin-right:0;border-radius:8px 0 0 8px}
-.gen-btn{border-radius:0 8px 8px 0}
+.key-text{font-family:ui-monospace,SFMono-Regular,monospace;cursor:pointer;color:var(--accent)}
+.page-copy{margin-top:8px}
+.keys-form{margin-top:20px}
+.key-cell{flex-wrap:wrap}
+.key-text{overflow-wrap:anywhere}
+.key-create-form{display:flex;flex-direction:column;gap:12px}
+.key-create-grid{gap:10px;align-items:start}
+.key-span{grid-column:1 / -1}
+.key-gen{display:flex;align-items:stretch;min-width:0}
+#new-key-input,.gen-btn{height:42px}
+#new-key-input{flex:1 1 auto;min-width:0;margin-right:0;border-radius:10px 0 0 10px}
+.gen-btn{flex:0 0 auto;padding:0 14px;border-radius:0 10px 10px 0;white-space:nowrap}
 </style>
 </head>
-<body>
+<body><div class="page">
 {{template "admin_nav" .}}
 <h1>Keys</h1>
 {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
-<div class="muted" style="margin-top:8px">OpenAI compatible: base URL <span class="key-text" style="cursor:text">{{.APIBase}}/v1</span>, use <span class="key-text" style="cursor:text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
+<section class="panel">
+<div class="panel-toolbar">
+  <div>
+    <h2 class="panel-title">Key Management</h2>
+    <p class="panel-copy">Issue managed API keys and hand teammates an exact base URL without exposing upstream secrets.</p>
+  </div>
+  <div class="panel-actions"><button type="button" onclick="openDialog('keyCreateDialog')">Create Key</button></div>
+</div>
+<div class="muted page-copy">OpenAI compatible: base URL <span class="key-text" style="cursor:text">{{.APIBase}}/v1</span>, use <span class="key-text" style="cursor:text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
 <div class="muted" style="margin-top:4px">Anthropic: base URL <span class="key-text" style="cursor:text">{{.APIBase}}/anthropic</span>, use <span class="key-text" style="cursor:text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
+</section>
 
-<form method="post" action="/admin/keys" style="margin-top:20px">
-  <span class="key-gen">
-    <input id="new-key-input" name="key" placeholder="api key">
-    <button type="button" class="ghost gen-btn" onclick="generateKey()">Generate</button>
-  </span>
-  <input name="name" placeholder="name">
-  {{if .IsAdmin}}<input name="owner" placeholder="owner">{{end}}
-  <input name="purpose" placeholder="purpose">
-  <button type="submit">Save</button>
-</form>
-
-<table>
+<div class="table-wrap"><table>
   <thead>
     <tr>
       <th>Name</th>
@@ -72,9 +70,59 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
     <tr><td colspan="{{if .IsAdmin}}5{{else}}4{{end}}" class="muted">No keys</td></tr>
     {{end}}
   </tbody>
-</table>
+</table></div>
+<dialog id="keyCreateDialog" class="modal-dialog">
+  <div class="modal-inner">
+    <div class="modal-head">
+      <div>
+        <h2 class="panel-title">Create Key</h2>
+        <p class="modal-copy">Generate a managed key and optionally attach owner and purpose metadata.</p>
+      </div>
+      <button type="button" class="modal-close ghost" onclick="closeDialog('keyCreateDialog')" aria-label="Close">×</button>
+    </div>
+    <form method="post" action="/admin/keys" class="modal-form key-create-form">
+      <div class="modal-grid key-create-grid">
+        <div class="field-group key-span">
+          <label for="new-key-input">API Key</label>
+          <div class="key-gen">
+            <input id="new-key-input" name="key" placeholder="api key">
+            <button type="button" class="ghost gen-btn" onclick="generateKey()">Generate</button>
+          </div>
+        </div>
+        <div class="field-group">
+          <label for="key-name">Name</label>
+          <input id="key-name" name="name" placeholder="name">
+        </div>
+        {{if .IsAdmin}}
+        <div class="field-group">
+          <label for="key-owner">Owner</label>
+          <input id="key-owner" name="owner" placeholder="owner">
+        </div>
+        {{end}}
+        <div class="field-group key-span">
+          <label for="key-purpose">Purpose</label>
+          <input id="key-purpose" name="purpose" placeholder="purpose">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="ghost" onclick="closeDialog('keyCreateDialog')">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+</dialog>
 
 <script>
+function openDialog(id){
+  const dialog = document.getElementById(id);
+  if(dialog && typeof dialog.showModal === 'function'){dialog.showModal();}
+}
+
+function closeDialog(id){
+  const dialog = document.getElementById(id);
+  if(dialog){dialog.close();}
+}
+
 function toggleKeyText(text){
   const hidden = text.textContent === '****';
   text.textContent = hidden ? text.dataset.key : '****';
@@ -142,6 +190,12 @@ function generateKey(){
 function confirmDeleteKey(){
   return window.confirm("Delete this API key?");
 }
+
+document.getElementById('keyCreateDialog')?.addEventListener('click', function(e){
+  const rect = this.getBoundingClientRect();
+  const inside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+  if(!inside){this.close();}
+});
 </script>
-</body>
+</div></body>
 </html>

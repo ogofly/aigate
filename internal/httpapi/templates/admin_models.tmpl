@@ -2,34 +2,34 @@
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
 <style>
-body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:1280px;margin:32px auto;padding:0 16px;color:#fffffe;background:#16161a}
-nav a{margin-right:16px;color:#fffffe;text-decoration:none}
-table{width:100%;border-collapse:collapse;margin-top:24px;background:rgba(255,255,255,.03)}
-th,td{padding:10px;border-bottom:1px solid #72757e;text-align:left}
-input,select{padding:10px;border:1px solid #72757e;border-radius:8px;margin-right:8px;background:#fffffe;color:#010101}
-button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:8px;cursor:pointer;font-weight:600}
-.muted{color:#94a1b2}
-.flash{padding:10px 12px;background:#72757e;border-radius:8px;margin-top:16px;color:#fffffe}
+{{template "admin_common_styles" .}}
+.page-intro{margin-top:12px}
 .sort-btn{background:none;border:0;color:#fffffe;padding:0;cursor:pointer;font:inherit}
+.row-form{margin-top:20px}
+.cell-form{margin:0}
 </style>
 </head>
-<body>
+<body><div class="page">
 {{template "admin_nav" .}}
 <h1>Models</h1>
 {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+<section class="panel">
+<div class="panel-toolbar">
+<div>
+<h2 class="panel-title">Model Routing</h2>
 {{if .IsAdmin}}
-<form method="post" action="/admin/models" style="margin-top:20px">
-  <input name="public_name" placeholder="public name">
-  <select name="provider">{{range .Providers}}<option value="{{.}}">{{.}}</option>{{end}}</select>
-  <input name="upstream_name" placeholder="upstream name">
-  <button type="submit">Save</button>
-</form>
+<p class="panel-copy page-intro">Map each public model name to one upstream provider and model identifier.</p>
 {{else}}
-<div class="muted" style="margin-top:12px">OpenAI compatible models list for current user.</div>
+<p class="panel-copy page-intro">OpenAI compatible models list for current user.</p>
 {{end}}
-<table id="models-table">
+</div>
+{{if .IsAdmin}}<div class="panel-actions"><button type="button" onclick="openDialog('modelCreateDialog')">Add Model</button></div>{{end}}
+</div>
+</section>
+<div class="table-wrap"><table id="models-table">
   <thead>
     <tr>
       <th><button type="button" class="sort-btn" onclick="sortTable('models-table',0)">Public</button></th>
@@ -46,7 +46,7 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
       <td>{{.UpstreamName}}</td>
       {{if $.IsAdmin}}
       <td>
-        <form method="post" action="/admin/models/delete" onsubmit="return confirmDeleteModel()">
+        <form method="post" action="/admin/models/delete" class="cell-form" onsubmit="return confirmDeleteModel()">
           <input type="hidden" name="public_name" value="{{.PublicName}}">
           <button type="submit">Delete</button>
         </form>
@@ -57,8 +57,51 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
     <tr><td colspan="{{if .IsAdmin}}4{{else}}3{{end}}" class="muted">No models</td></tr>
     {{end}}
   </tbody>
-</table>
+</table></div>
+{{if .IsAdmin}}
+<dialog id="modelCreateDialog" class="modal-dialog">
+  <div class="modal-inner">
+    <div class="modal-head">
+      <div>
+        <h2 class="panel-title">Add Model</h2>
+        <p class="modal-copy">Create one public name and route it to exactly one provider target.</p>
+      </div>
+      <button type="button" class="modal-close ghost" onclick="closeDialog('modelCreateDialog')" aria-label="Close">×</button>
+    </div>
+    <form method="post" action="/admin/models" class="modal-form">
+      <div class="modal-grid">
+        <div class="field-group">
+          <label for="model-public-name">Public Name</label>
+          <input id="model-public-name" name="public_name" placeholder="public name">
+        </div>
+        <div class="field-group">
+          <label for="model-provider">Provider</label>
+          <select id="model-provider" name="provider">{{range .Providers}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+        </div>
+      </div>
+      <div class="field-group">
+        <label for="model-upstream-name">Upstream Name</label>
+        <input id="model-upstream-name" name="upstream_name" placeholder="upstream name">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="ghost" onclick="closeDialog('modelCreateDialog')">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+{{end}}
 <script>
+function openDialog(id){
+  const dialog = document.getElementById(id);
+  if(dialog && typeof dialog.showModal === 'function'){dialog.showModal();}
+}
+
+function closeDialog(id){
+  const dialog = document.getElementById(id);
+  if(dialog){dialog.close();}
+}
+
 function sortTable(tableId, col){
   const table = document.getElementById(tableId);
   if(!table || !table.tBodies || table.tBodies.length === 0){return;}
@@ -79,6 +122,12 @@ function sortTable(tableId, col){
 function confirmDeleteModel(){
   return window.confirm("Delete this model?");
 }
+
+document.getElementById('modelCreateDialog')?.addEventListener('click', function(e){
+  const rect = this.getBoundingClientRect();
+  const inside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+  if(!inside){this.close();}
+});
 </script>
-</body>
+</div></body>
 </html>

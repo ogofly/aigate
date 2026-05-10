@@ -2,39 +2,34 @@
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
 <style>
-body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:1280px;margin:32px auto;padding:0 16px;color:#fffffe;background:#16161a}
-nav a{margin-right:16px;color:#fffffe;text-decoration:none}
-table{width:100%;border-collapse:collapse;margin-top:24px;background:rgba(255,255,255,.03)}
-th,td{padding:10px;border-bottom:1px solid #72757e;text-align:left}
-input{padding:10px;border:1px solid #72757e;border-radius:8px;margin-right:8px;min-width:140px;background:#fffffe;color:#010101}
-button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:8px;cursor:pointer;font-weight:600}
-.ghost{background:#72757e;color:#fffffe}
-.muted{color:#94a1b2}
-.flash{padding:10px 12px;background:#72757e;border-radius:8px;margin-top:16px;color:#fffffe}
-.mono{font-family:ui-monospace,SFMono-Regular,monospace}
+{{template "admin_common_styles" .}}
 .sort-btn{background:none;border:0;color:#fffffe;padding:0;cursor:pointer;font:inherit}
-.view-row{display:table-row}
-.edit-row{display:none}
+.providers-form{margin-top:20px}
+.providers-form>*{flex:1 1 220px}
+.providers-note{margin-top:8px}
+.row-actions{display:flex;gap:8px;flex-wrap:wrap}
+.row-actions form{margin:0}
+.provider-edit-form>*{flex:1 1 220px}
 </style>
 </head>
-<body>
+<body><div class="page">
 {{template "admin_nav" .}}
 <h1>Providers</h1>
 {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
-<form method="post" action="/admin/providers" style="margin-top:20px">
-  <input name="name" placeholder="name">
-  <input name="base_url" placeholder="base url">
-  <input name="anthropic_base_url" placeholder="anthropic base url (optional)">
-  <input name="anthropic_version" placeholder="anthropic version (optional)">
-  <input name="api_key" placeholder="api key (optional)">
-  <input name="api_key_ref" placeholder="env var name (optional)">
-  <input name="timeout" placeholder="timeout seconds" value="60">
-  <button type="submit">Save</button>
-</form>
-<div class="muted" style="margin-top:8px">Fill either <span class="mono">api_key</span> or <span class="mono">api_key_ref</span>.</div>
-<table id="providers-table">
+<section class="panel">
+<div class="panel-toolbar">
+  <div>
+    <h2 class="panel-title">Upstream Providers</h2>
+    <p class="panel-copy">Keep each record lean: endpoint, credential source and timeout. Everything else stays in code.</p>
+  </div>
+  <div class="panel-actions"><button type="button" onclick="openDialog('providerCreateDialog')">Add Provider</button></div>
+</div>
+<div class="muted providers-note">Fill either <span class="mono">api_key</span> or <span class="mono">api_key_ref</span>.</div>
+</section>
+<div class="table-wrap"><table id="providers-table">
   <thead>
     <tr>
       <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',0,'text')">Name</button></th>
@@ -48,101 +43,181 @@ button{padding:8px 12px;border:0;background:#7f5af0;color:#fffffe;border-radius:
     </tr>
   </thead>
   <tbody>
-    {{range .ProvidersCfg}}
-    <tr class="view-row" data-name="{{.Name}}">
-      <td>{{.Name}}</td>
-      <td>{{.BaseURL}}</td>
+    {{range $i, $provider := .ProvidersCfg}}
+    <tr data-name="{{$provider.Name}}">
+      <td>{{$provider.Name}}</td>
+      <td>{{$provider.BaseURL}}</td>
       <td>{{if .APIKey}}configured{{else}}-{{end}}</td>
-      <td>{{if .AnthropicBaseURL}}{{.AnthropicBaseURL}}{{else}}-{{end}}</td>
-      <td>{{if .AnthropicVersion}}{{.AnthropicVersion}}{{else}}-{{end}}</td>
-      <td>{{if .APIKeyRef}}{{.APIKeyRef}}{{else}}-{{end}}</td>
-      <td>{{.TimeoutSeconds}}s</td>
+      <td>{{if $provider.AnthropicBaseURL}}{{$provider.AnthropicBaseURL}}{{else}}-{{end}}</td>
+      <td>{{if $provider.AnthropicVersion}}{{$provider.AnthropicVersion}}{{else}}-{{end}}</td>
+      <td>{{if $provider.APIKeyRef}}{{$provider.APIKeyRef}}{{else}}-{{end}}</td>
+      <td>{{$provider.TimeoutSeconds}}s</td>
       <td>
-        <div style="display:flex;gap:8px">
-          <button type="button" class="ghost" onclick="startEdit(this)">Edit</button>
+        <div class="table-actions">
+          <button type="button" class="ghost" onclick="openDialog('providerEditDialog{{$i}}')">Edit</button>
           <form method="post" action="/admin/providers/delete" onsubmit="return confirmDeleteProvider()">
-            <input type="hidden" name="name" value="{{.Name}}">
+            <input type="hidden" name="name" value="{{$provider.Name}}">
             <button type="submit">Delete</button>
           </form>
         </div>
-      </td>
-    </tr>
-    <tr class="edit-row" data-name="{{.Name}}">
-      <td colspan="8">
-        <form method="post" action="/admin/providers" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap" onsubmit="this.querySelector('button[type=submit]').disabled=true">
-          <input type="hidden" name="_method" value="PUT">
-          <input type="hidden" name="name" value="{{.Name}}">
-          <span class="mono" style="min-width:80px">{{.Name}}</span>
-          <input name="base_url" value="{{.BaseURL}}" placeholder="base url">
-          <input name="anthropic_base_url" value="{{.AnthropicBaseURL}}" placeholder="anthropic base url (optional)">
-          <input name="anthropic_version" value="{{.AnthropicVersion}}" placeholder="anthropic version (optional)">
-          <input name="api_key" placeholder="api key (optional)">
-          <input name="api_key_ref" value="{{.APIKeyRef}}" placeholder="env var name (optional)">
-          <input name="timeout" value="{{.TimeoutSeconds}}" placeholder="timeout" style="min-width:80px">
-          <button type="submit">Save</button>
-        </form>
-        <button type="button" class="ghost" style="margin-left:8px" onclick="cancelEdit(this)">Cancel</button>
       </td>
     </tr>
     {{else}}
     <tr><td colspan="8" class="muted">No providers</td></tr>
     {{end}}
   </tbody>
-</table>
+</table></div>
+<dialog id="providerCreateDialog" class="modal-dialog">
+  <div class="modal-inner">
+    <div class="modal-head">
+      <div>
+        <h2 class="panel-title">Add Provider</h2>
+        <p class="modal-copy">Register one upstream and point models to it later.</p>
+      </div>
+      <button type="button" class="modal-close ghost" onclick="closeDialog('providerCreateDialog')" aria-label="Close">×</button>
+    </div>
+    <form method="post" action="/admin/providers" class="modal-form">
+      <div class="modal-grid">
+        <div class="field-group">
+          <label for="provider-name">Name</label>
+          <input id="provider-name" name="name" placeholder="name">
+        </div>
+        <div class="field-group">
+          <label for="provider-timeout">Timeout</label>
+          <input id="provider-timeout" name="timeout" placeholder="timeout seconds" value="60">
+        </div>
+      </div>
+      <div class="field-group">
+        <label for="provider-base-url">Base URL</label>
+        <input id="provider-base-url" name="base_url" placeholder="base url">
+      </div>
+      <div class="modal-grid">
+        <div class="field-group">
+          <label for="provider-anthropic-base-url">Anthropic Base URL</label>
+          <input id="provider-anthropic-base-url" name="anthropic_base_url" placeholder="anthropic base url (optional)">
+        </div>
+        <div class="field-group">
+          <label for="provider-anthropic-version">Anthropic Version</label>
+          <input id="provider-anthropic-version" name="anthropic_version" placeholder="anthropic version (optional)">
+        </div>
+      </div>
+      <div class="modal-grid">
+        <div class="field-group">
+          <label for="provider-api-key">API Key</label>
+          <input id="provider-api-key" name="api_key" placeholder="api key (optional)">
+        </div>
+        <div class="field-group">
+          <label for="provider-api-key-ref">Secret Ref</label>
+          <input id="provider-api-key-ref" name="api_key_ref" placeholder="env var name (optional)">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="ghost" onclick="closeDialog('providerCreateDialog')">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+{{range $i, $provider := .ProvidersCfg}}
+<dialog id="providerEditDialog{{$i}}" class="modal-dialog">
+  <div class="modal-inner">
+    <div class="modal-head">
+      <div>
+        <h2 class="panel-title">Edit Provider</h2>
+        <p class="modal-copy">Update timeout, endpoint or credential reference for {{$provider.Name}}.</p>
+      </div>
+      <button type="button" class="modal-close ghost" onclick="closeDialog('providerEditDialog{{$i}}')" aria-label="Close">×</button>
+    </div>
+    <form method="post" action="/admin/providers" class="modal-form provider-edit-form" onsubmit="this.querySelector('button[type=submit]').disabled=true">
+      <input type="hidden" name="_method" value="PUT">
+      <input type="hidden" name="name" value="{{$provider.Name}}">
+      <div class="modal-grid">
+        <div class="field-group">
+          <label>Name</label>
+          <input value="{{$provider.Name}}" disabled>
+        </div>
+        <div class="field-group">
+          <label for="provider-timeout-{{$i}}">Timeout</label>
+          <input id="provider-timeout-{{$i}}" name="timeout" value="{{$provider.TimeoutSeconds}}" placeholder="timeout">
+        </div>
+      </div>
+      <div class="field-group">
+        <label for="provider-base-url-{{$i}}">Base URL</label>
+        <input id="provider-base-url-{{$i}}" name="base_url" value="{{$provider.BaseURL}}" placeholder="base url">
+      </div>
+      <div class="modal-grid">
+        <div class="field-group">
+          <label for="provider-anthropic-base-url-{{$i}}">Anthropic Base URL</label>
+          <input id="provider-anthropic-base-url-{{$i}}" name="anthropic_base_url" value="{{$provider.AnthropicBaseURL}}" placeholder="anthropic base url (optional)">
+        </div>
+        <div class="field-group">
+          <label for="provider-anthropic-version-{{$i}}">Anthropic Version</label>
+          <input id="provider-anthropic-version-{{$i}}" name="anthropic_version" value="{{$provider.AnthropicVersion}}" placeholder="anthropic version (optional)">
+        </div>
+      </div>
+      <div class="modal-grid">
+        <div class="field-group">
+          <label for="provider-api-key-{{$i}}">API Key</label>
+          <input id="provider-api-key-{{$i}}" name="api_key" placeholder="api key (optional)">
+        </div>
+        <div class="field-group">
+          <label for="provider-api-key-ref-{{$i}}">Secret Ref</label>
+          <input id="provider-api-key-ref-{{$i}}" name="api_key_ref" value="{{$provider.APIKeyRef}}" placeholder="env var name (optional)">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="ghost" onclick="closeDialog('providerEditDialog{{$i}}')">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+{{end}}
 
 <script>
-function startEdit(btn){
-  const row = btn.closest('.view-row');
-  if(!row) return;
-  const name = row.dataset.name;
-  row.style.display = 'none';
-  const editRow = row.nextElementSibling;
-  if(editRow && editRow.classList.contains('edit-row') && editRow.dataset.name === name){
-    editRow.style.display = 'table-row';
-  }
+function openDialog(id){
+  const dialog = document.getElementById(id);
+  if(dialog && typeof dialog.showModal === 'function'){dialog.showModal();}
 }
 
-function cancelEdit(btn){
-  const row = btn.closest('.edit-row');
-  if(!row) return;
-  const name = row.dataset.name;
-  row.style.display = 'none';
-  const viewRow = row.previousElementSibling;
-  if(viewRow && viewRow.classList.contains('view-row') && viewRow.dataset.name === name){
-    viewRow.style.display = 'table-row';
-  }
+function closeDialog(id){
+  const dialog = document.getElementById(id);
+  if(dialog){dialog.close();}
 }
 
 function sortTable(tableId, col, kind){
   const table = document.getElementById(tableId);
   if(!table || !table.tBodies || table.tBodies.length === 0){return;}
   const tbody = table.tBodies[0];
-  // Sort pairs of view+edit rows together
-  const pairs = [];
-  for(let i = 0; i < tbody.rows.length; i += 2){
-    const viewRow = tbody.rows[i];
-    const editRow = tbody.rows[i + 1];
-    pairs.push([viewRow, editRow || null]);
-  }
-  pairs.sort((a, b) => {
-    const av = (a[0].cells[col]?.textContent || "").trim();
-    const bv = (b[0].cells[col]?.textContent || "").trim();
+  const rows = Array.from(tbody.rows);
+  if(rows.length === 0){return;}
+  const nextAsc = table.dataset.sortCol !== String(col) ? true : table.dataset.sortAsc !== "true";
+  rows.sort((a, b) => {
+    const av = (a.cells[col]?.textContent || "").trim();
+    const bv = (b.cells[col]?.textContent || "").trim();
     if(kind === "num"){
       const an = Number.parseInt(av, 10) || 0;
       const bn = Number.parseInt(bv, 10) || 0;
-      return an - bn;
+      return nextAsc ? an - bn : bn - an;
     }
-    return av.localeCompare(bv);
+    return nextAsc ? av.localeCompare(bv) : bv.localeCompare(av);
   });
-  for(const [vr, er] of pairs){
-    tbody.appendChild(vr);
-    if(er) tbody.appendChild(er);
-  }
+  for(const row of rows){tbody.appendChild(row);}
+  table.dataset.sortCol = String(col);
+  table.dataset.sortAsc = nextAsc ? "true" : "false";
 }
 
 function confirmDeleteProvider(){
   return window.confirm("Delete this provider?");
 }
+
+document.querySelectorAll('dialog.modal-dialog').forEach(function(dialog){
+  dialog.addEventListener('click', function(e){
+    const rect = this.getBoundingClientRect();
+    const inside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+    if(!inside){this.close();}
+  });
+});
 </script>
-</body>
+</div></body>
 </html>
