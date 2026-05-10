@@ -4,15 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
+{{template "admin_head_assets" .}}
 <style>
 {{template "admin_common_styles" .}}
 .sort-btn{background:none;border:0;color:inherit;padding:0;cursor:pointer;font:inherit}
 .providers-form{margin-top:20px}
 .providers-form>*{flex:1 1 220px}
-.providers-note{margin-top:8px}
 .row-actions{display:flex;gap:8px;flex-wrap:wrap}
 .row-actions form{margin:0}
 .provider-edit-form>*{flex:1 1 220px}
+.providers-table{table-layout:fixed;min-width:0}
+.providers-table th,.providers-table td{overflow-wrap:anywhere}
+.providers-table th:nth-child(1){width:15%}
+.providers-table th:nth-child(2){width:29%}
+.providers-table th:nth-child(3){width:23%}
+.providers-table th:nth-child(4){width:15%}
+.providers-table th:nth-child(5){width:8%}
+.providers-table th:nth-child(6){width:10%}
 </style>
 </head>
 <body><div class="page">
@@ -27,18 +35,15 @@
   </div>
   <div class="panel-actions"><button type="button" onclick="openDialog('providerCreateDialog')">New Provider</button></div>
 </div>
-<div class="muted providers-note">Set either <span class="mono">api_key</span> or <span class="mono">api_key_ref</span>.</div>
 </section>
-<div class="table-wrap"><table id="providers-table">
+<div class="table-wrap"><table id="providers-table" class="providers-table">
   <thead>
     <tr>
       <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',0,'text')">Name</button></th>
       <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',1,'text')">Base URL</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',2,'text')">API Key</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',3,'text')">Anthropic URL</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',4,'text')">Anthropic Version</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',5,'text')">Secret Ref</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',6,'num')">Timeout</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',2,'text')">Anthropic</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',3,'text')">Credentials</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',4,'num')">Timeout</button></th>
       <th></th>
     </tr>
   </thead>
@@ -47,10 +52,8 @@
     <tr data-name="{{$provider.Name}}">
       <td>{{$provider.Name}}</td>
       <td>{{$provider.BaseURL}}</td>
-      <td>{{if .APIKey}}configured{{else}}-{{end}}</td>
-      <td>{{if $provider.AnthropicBaseURL}}{{$provider.AnthropicBaseURL}}{{else}}-{{end}}</td>
-      <td>{{if $provider.AnthropicVersion}}{{$provider.AnthropicVersion}}{{else}}-{{end}}</td>
-      <td>{{if $provider.APIKeyRef}}{{$provider.APIKeyRef}}{{else}}-{{end}}</td>
+      <td>{{if $provider.AnthropicBaseURL}}{{$provider.AnthropicBaseURL}}{{if $provider.AnthropicVersion}}<br><span class="muted">{{$provider.AnthropicVersion}}</span>{{end}}{{else}}-{{end}}</td>
+      <td>{{if $provider.APIKeyRef}}<span class="mono">{{$provider.APIKeyRef}}</span>{{else if $provider.APIKey}}configured{{else}}-{{end}}</td>
       <td>{{$provider.TimeoutSeconds}}s</td>
       <td>
         <div class="table-actions">
@@ -63,7 +66,7 @@
       </td>
     </tr>
     {{else}}
-    <tr><td colspan="8" class="muted">No providers configured</td></tr>
+    <tr><td colspan="6" class="muted">No providers configured</td></tr>
     {{end}}
   </tbody>
 </table></div>
@@ -111,6 +114,7 @@
           <input id="provider-api-key-ref" name="api_key_ref" placeholder="Environment variable name (optional)">
         </div>
       </div>
+      <p class="form-hint">Use an inline API key or a secret reference. Leave both empty only when the provider does not require credentials.</p>
       <div class="modal-actions">
         <button type="button" class="ghost" onclick="closeDialog('providerCreateDialog')">Cancel</button>
         <button type="submit">Save</button>
@@ -165,6 +169,7 @@
           <input id="provider-api-key-ref-{{$i}}" name="api_key_ref" value="{{$provider.APIKeyRef}}" placeholder="Environment variable name (optional)">
         </div>
       </div>
+      <p class="form-hint">Use an inline API key or a secret reference. Leave both empty only when the provider does not require credentials.</p>
       <div class="modal-actions">
         <button type="button" class="ghost" onclick="closeDialog('providerEditDialog{{$i}}')">Cancel</button>
         <button type="submit">Save</button>

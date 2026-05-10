@@ -14,7 +14,7 @@ input,select,textarea{width:100%;max-width:100%;padding:10px 12px;border:1px sol
 select option{background:#1c1e23;color:var(--text)}
 input::placeholder,textarea::placeholder{color:#686d77}
 input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(139,92,246,.46);box-shadow:0 0 0 2px rgba(139,92,246,.1);background:rgba(31,34,39,.95)}
-button{padding:10px 14px;border:1px solid var(--line);background:linear-gradient(180deg, rgba(210,214,220,.06), rgba(210,214,220,.032));color:var(--text);border-radius:6px;cursor:pointer;font-weight:600;box-shadow:0 5px 14px rgba(0,0,0,.12),inset 0 1px 0 rgba(210,214,220,.035);transition:transform .18s ease,border-color .18s ease,background-color .18s ease,box-shadow .18s ease}
+button{padding:8px 11px;border:1px solid var(--line);background:linear-gradient(180deg, rgba(210,214,220,.06), rgba(210,214,220,.032));color:var(--text);border-radius:5px;cursor:pointer;font-size:13px;font-weight:600;box-shadow:0 5px 14px rgba(0,0,0,.12),inset 0 1px 0 rgba(210,214,220,.035);transition:transform .18s ease,border-color .18s ease,background-color .18s ease,box-shadow .18s ease}
 button:hover{border-color:rgba(139,92,246,.62);background:linear-gradient(180deg, rgba(210,214,220,.075), rgba(210,214,220,.038));transform:translateY(-1px)}
 button:active{transform:translateY(0)}
 .ghost{background:var(--ghost);color:var(--muted);box-shadow:none;border:1px solid rgba(210,214,220,.08)}
@@ -37,12 +37,13 @@ th{font-size:12px;letter-spacing:0;text-transform:uppercase;color:#9ca1aa;backgr
 tbody tr:last-child td{border-bottom:0}
 tbody tr:hover td{background:rgba(210,214,220,.035)}
 tbody tr:hover td:first-child{box-shadow:inset 2px 0 0 rgba(139,92,246,.62)}
-.table-wrap button{padding:4px 8px;border-radius:2px;font-size:12px;box-shadow:none;background:rgba(210,214,220,.035);border-color:rgba(210,214,220,.08)}
+.table-wrap button{padding:3px 7px;border-radius:2px;font-size:11px;box-shadow:none;background:rgba(210,214,220,.035);border-color:rgba(210,214,220,.08)}
 .table-actions{display:flex;gap:6px;flex-wrap:wrap}
 .inline-form{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
 .inline-form>*{flex:1 1 180px}
 .inline-form .form-actions{flex:0 0 auto}
 .field-group{display:flex;flex-direction:column;gap:6px;min-width:0}
+.form-hint{margin:0;color:var(--muted);font-size:12px}
 .mono{font-family:ui-monospace,SFMono-Regular,monospace}
 .modal-dialog{width:min(680px,calc(100% - 24px));position:relative;overflow:hidden;padding:0;border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg, rgba(34,36,41,.98), rgba(24,26,30,.98));color:var(--text);box-shadow:0 20px 52px rgba(0,0,0,.32)}
 .modal-dialog::before{content:"";position:absolute;left:18px;top:0;width:48px;height:1px;background:linear-gradient(90deg, rgba(139,92,246,.42), rgba(139,92,246,0))}
@@ -54,10 +55,11 @@ tbody tr:hover td:first-child{box-shadow:inset 2px 0 0 rgba(139,92,246,.62)}
 .modal-form{display:grid;gap:14px}
 .modal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}
+.brand-logo{width:34px;height:34px;display:block;flex:0 0 auto}
 .nav{display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;margin-bottom:24px;padding:14px 16px;border:1px solid var(--line);border-radius:6px;background:rgba(24,26,30,.72);backdrop-filter:blur(8px);box-shadow:0 7px 18px rgba(0,0,0,.13)}
-.nav-brand{display:flex;flex-direction:column;gap:2px;min-width:0;text-decoration:none;color:var(--text);margin-right:6px}
+.nav-brand{display:flex;align-items:center;gap:10px;min-width:0;text-decoration:none;color:var(--text);margin-right:6px}
+.nav-brand-text{display:flex;flex-direction:column;gap:2px;min-width:0}
 .nav-brand-title{font-size:13px;font-weight:700;letter-spacing:0;text-transform:uppercase;color:#c4c7ce}
-.nav-brand-copy{font-size:11px;color:#7c818b}
 .nav-links{display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap}
 .nav a{text-decoration:none;color:var(--text)}
 .nav-link{padding:8px 12px;color:var(--muted);border-radius:2px;transition:background-color .18s ease,color .18s ease,box-shadow .18s ease}
@@ -85,11 +87,17 @@ table{min-width:560px}
 }
 {{end}}
 
+{{define "admin_head_assets"}}
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+{{end}}
+
 {{define "admin_nav"}}
 <nav class="nav">
 <a class="nav-brand" href="/admin/usage/view">
+<img class="brand-logo" src="/assets/logo.svg" alt="" width="34" height="34">
+<span class="nav-brand-text">
 <span class="nav-brand-title">LLM Gateway</span>
-<span class="nav-brand-copy">Gateway Console</span>
+</span>
 </a>
 <div class="nav-links">
 {{if .IsAdmin}}<a class="nav-link{{if eq .CurrentPath "/admin/providers"}} active{{end}}" href="/admin/providers">Providers</a>{{end}}

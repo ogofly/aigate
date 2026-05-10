@@ -50,6 +50,8 @@ func NewWithClient(authenticator *auth.Auth, admin config.AdminConfig, client pr
 
 func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /healthz", h.handleHealth)
+	h.mux.HandleFunc("GET /assets/logo.svg", h.handleAdminLogo)
+	h.mux.HandleFunc("GET /favicon.svg", h.handleAdminLogo)
 	h.mux.HandleFunc("GET /v1/models", h.handleModels)
 	h.mux.HandleFunc("GET /v1/models/{model...}", h.handleModel)
 	h.mux.HandleFunc("POST /v1/chat/completions", h.handleChatCompletions)
@@ -85,6 +87,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) handleAdminLogo(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(adminLogoSVG)
 }
 
 func (h *Handler) ReloadModelsFromStore(ctx context.Context) error {

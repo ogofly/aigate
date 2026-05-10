@@ -1,5 +1,5 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title>{{template "admin_head_assets" .}}
 <style>
 {{template "admin_common_styles" .}}
 .playground-page{padding-top:8px}
@@ -16,7 +16,7 @@ aside.card{background:linear-gradient(180deg, rgba(210,214,220,.038), rgba(210,2
 .row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
 .stack{display:grid;gap:12px}
 .section{padding:14px;border:1px solid rgba(210,214,220,.08);border-radius:10px;background:rgba(210,214,220,.026)}
-textarea{min-height:180px;resize:vertical}
+textarea{min-height:64px;resize:vertical}
 .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .hint{font-size:12px;color:var(--muted)}
 .hint[href]{text-decoration:none}
@@ -43,7 +43,7 @@ aside .hint{margin-top:12px;display:block}
 .kv button{width:100%}
 .actions button,.actions a{width:100%;text-align:center}
 .hint-row{align-items:flex-start;flex-direction:column}
-textarea{min-height:140px}
+textarea{min-height:64px}
 }
 </style>
 </head><body><div class="page playground-page">
@@ -55,7 +55,7 @@ textarea{min-height:140px}
 <p class="muted subtle-copy">Send a quick test request with a managed key to verify auth, routing, and endpoint behavior.</p>
 <form id="playgroundForm">
 <div class="row">
-<div><label>API Key</label><select name="api_key" id="apiKey">{{range .Keys}}<option value="{{.Key}}" {{if eq $.PlayAPIKey .Key}}selected{{end}}>{{if .Name}}{{.Name}}{{else}}(unnamed){{end}} / {{.Key}}</option>{{end}}</select></div>
+<div><label>API Key</label><select name="api_key" id="apiKey">{{range .Keys}}<option value="{{.Key}}" data-mask="{{maskID .Key}}" {{if eq $.PlayAPIKey .Key}}selected{{end}}>{{if .Name}}{{.Name}}{{else}}(unnamed){{end}} / {{maskID .Key}}</option>{{end}}</select></div>
 <div><label>Model</label><select name="model" id="model">{{range .PlayModels}}<option value="{{.}}" {{if eq $.PlayModel .}}selected{{end}}>{{.}}</option>{{end}}</select></div>
 </div>
 
@@ -103,7 +103,7 @@ textarea{min-height:140px}
 <p class="muted subtle-copy" id="modeHint">OpenAI Chat Completions settings for your client.</p>
 <div id="connectKv" style="display:none" class="stack">
 <div class="kv"><div class="muted">API Base URL</div><div class="mono" id="cfgBase">{{.PlayAPIBase}}/v1</div><button type="button" class="ghost" onclick="copyText('cfgBase', this)">Copy</button></div>
-<div class="kv"><div class="muted">API Key</div><div class="mono" id="cfgKey">{{.PlayAPIKey}}</div><button type="button" class="ghost" onclick="copyText('cfgKey', this)">Copy</button></div>
+<div class="kv"><div class="muted">API Key</div><div class="mono" id="cfgKey" data-copy="{{.PlayAPIKey}}">{{maskID .PlayAPIKey}}</div><button type="button" class="ghost" onclick="copyText('cfgKey', this)">Copy</button></div>
 <div class="kv"><div class="muted">Model</div><div class="mono" id="cfgModel">{{.PlayModel}}</div><button type="button" class="ghost" onclick="copyText('cfgModel', this)">Copy</button></div>
 <div class="metric">
 <div class="metric-label">Request Path</div>
@@ -119,7 +119,7 @@ async function copyText(id, button){
 	const el = document.getElementById(id);
 	if(!el){return;}
 	try{
-		await copyWithFallback(el.textContent || "");
+		await copyWithFallback(el.dataset.copy || el.textContent || "");
 		const origin = button.textContent;
 		button.textContent = "Copied";
 		setTimeout(()=>{button.textContent = origin;}, 1000);
@@ -200,7 +200,9 @@ function toggleMain(){
 }
 
 function updateConnectionValues(){
-	cfgKey.textContent = apiKeySelect.value;
+	const selectedKey = apiKeySelect.options[apiKeySelect.selectedIndex];
+	cfgKey.textContent = selectedKey ? selectedKey.dataset.mask || '' : '';
+	cfgKey.dataset.copy = apiKeySelect.value;
 	cfgModel.textContent = modelSelect.value;
 }
 
