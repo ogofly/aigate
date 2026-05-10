@@ -709,6 +709,10 @@ func (s *SQLiteStore) QueryUsageTrend(ctx context.Context, filter UsageFilter, g
 		FROM usage_rollups
 		WHERE 1=1`
 	args := []any{}
+	if filter.KeyID != "" {
+		query += " AND key_id = ?"
+		args = append(args, filter.KeyID)
+	}
 	if !filter.StartTime.IsZero() {
 		query += " AND bucket_start >= ?"
 		args = append(args, filter.StartTime.UTC().Format(time.RFC3339))
@@ -809,6 +813,7 @@ func (s *SQLiteStore) QueryUsageTrend(ctx context.Context, filter UsageFilter, g
 type UsageFilter struct {
 	StartTime time.Time
 	EndTime   time.Time
+	KeyID     string
 	Model     string
 	Owner     string
 }
@@ -829,6 +834,10 @@ func (s *SQLiteStore) QueryUsage(ctx context.Context, filter UsageFilter) ([]usa
 		FROM usage_rollups
 		WHERE 1=1`
 	args := []any{}
+	if filter.KeyID != "" {
+		query += " AND key_id = ?"
+		args = append(args, filter.KeyID)
+	}
 	if !filter.StartTime.IsZero() {
 		query += " AND bucket_start >= ?"
 		args = append(args, filter.StartTime.UTC().Format(time.RFC3339))
@@ -907,6 +916,10 @@ func (s *SQLiteStore) QueryUsageByModel(ctx context.Context, filter UsageFilter)
 		FROM usage_rollups
 		WHERE public_model != ''`
 	args := []any{}
+	if filter.KeyID != "" {
+		query += " AND key_id = ?"
+		args = append(args, filter.KeyID)
+	}
 	if !filter.StartTime.IsZero() {
 		query += " AND bucket_start >= ?"
 		args = append(args, filter.StartTime.UTC().Format(time.RFC3339))

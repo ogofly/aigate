@@ -51,6 +51,7 @@ func NewWithClient(authenticator *auth.Auth, admin config.AdminConfig, client pr
 func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /healthz", h.handleHealth)
 	h.mux.HandleFunc("GET /v1/models", h.handleModels)
+	h.mux.HandleFunc("GET /v1/models/{model...}", h.handleModel)
 	h.mux.HandleFunc("POST /v1/chat/completions", h.handleChatCompletions)
 	h.mux.HandleFunc("POST /anthropic/v1/messages", h.handleMessages)
 	h.mux.HandleFunc("POST /v1/embeddings", h.handleEmbeddings)

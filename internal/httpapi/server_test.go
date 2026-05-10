@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"aigate/internal/auth"
 	"aigate/internal/config"
@@ -177,6 +178,10 @@ func newHandler(t *testing.T, keys []config.KeyConfig, rt *router.Router, record
 		t.Fatalf("SeedProvidersIfEmpty() error = %v", err)
 	}
 	t.Cleanup(func() { _ = sqliteStore.Close() })
+	return newHandlerWithStore(keys, rt, recorder, client, sqliteStore)
+}
+
+func newHandlerWithStore(keys []config.KeyConfig, rt *router.Router, recorder *usage.Recorder, client provider.Client, sqliteStore *store.SQLiteStore) http.Handler {
 	return httpapi.NewWithClient(auth.New(keys), config.AdminConfig{Username: "admin", Password: "pass"}, client, rt, recorder, sqliteStore, []string{"openai"})
 }
 
@@ -277,6 +282,132 @@ func TestModelsReturnsConfiguredModels(t *testing.T) {
 
 	if len(payload.Data) != 2 {
 		t.Fatalf("len(data) = %d, want %d", len(payload.Data), 2)
+	}
+}
+
+func TestModelDetailRequiresAuth(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{
+			PublicName:   "gpt-4o-mini",
+			Provider:     "openai",
+			UpstreamName: "gpt-4o-mini",
+		},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), &stubProvider{})
+	req := httptest.NewRequest(http.MethodGet, "/v1/models/gpt-4o-mini", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestModelDetailReturnsConfiguredModel(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{
+			PublicName:   "gpt-4o-mini",
+			Provider:     "openai",
+			UpstreamName: "gpt-4o-mini",
+		},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), &stubProvider{})
+	req := httptest.NewRequest(http.MethodGet, "/v1/models/gpt-4o-mini", nil)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	var payload struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		Created int64  `json:"created"`
+		OwnedBy string `json:"owned_by"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if payload.ID != "gpt-4o-mini" {
+		t.Fatalf("id = %q, want %q", payload.ID, "gpt-4o-mini")
+	}
+	if payload.Object != "model" {
+		t.Fatalf("object = %q, want %q", payload.Object, "model")
+	}
+	if payload.OwnedBy != "aigate" {
+		t.Fatalf("owned_by = %q, want %q", payload.OwnedBy, "aigate")
+	}
+}
+
+func TestModelDetailReturnsNotFound(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{
+			PublicName:   "gpt-4o-mini",
+			Provider:     "openai",
+			UpstreamName: "gpt-4o-mini",
+		},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), &stubProvider{})
+	req := httptest.NewRequest(http.MethodGet, "/v1/models/not-exists", nil)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestModelDetailSupportsSlashInModelID(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{
+			PublicName:   "openai/gpt-4o-mini",
+			Provider:     "openai",
+			UpstreamName: "gpt-4o-mini",
+		},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), &stubProvider{})
+	req := httptest.NewRequest(http.MethodGet, "/v1/models/openai/gpt-4o-mini", nil)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	var payload struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if payload.ID != "openai/gpt-4o-mini" {
+		t.Fatalf("id = %q, want %q", payload.ID, "openai/gpt-4o-mini")
 	}
 }
 
@@ -762,6 +893,339 @@ func TestUsageSummaryTracksChatTokens(t *testing.T) {
 	}
 	if payload.Data.KeyName != "alice" || payload.Data.Purpose != "debug" {
 		t.Fatalf("unexpected key metadata: %+v", payload.Data)
+	}
+}
+
+func TestUsageQueryByModelRestAPI(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+		{PublicName: "deepseek-chat", Provider: "openai", UpstreamName: "deepseek-chat"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertUsageRollups(context.Background(), []usage.Rollup{
+		{
+			BucketStart:    time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+			KeyID:          usage.KeyID("sk-app-001"),
+			KeyName:        "alice",
+			Owner:          "alice",
+			Purpose:        "debug",
+			Endpoint:       "chat.completions",
+			Provider:       "openai",
+			PublicModel:    "gpt-4o-mini",
+			UpstreamModel:  "gpt-4o-mini",
+			RequestCount:   1,
+			SuccessCount:   1,
+			RequestTokens:  10,
+			ResponseTokens: 5,
+			TotalTokens:    15,
+		},
+		{
+			BucketStart:    time.Date(2026, 5, 10, 1, 0, 0, 0, time.UTC),
+			KeyID:          usage.KeyID("sk-other-001"),
+			KeyName:        "bob",
+			Owner:          "bob",
+			Purpose:        "debug",
+			Endpoint:       "chat.completions",
+			Provider:       "openai",
+			PublicModel:    "gpt-4o-mini",
+			UpstreamModel:  "gpt-4o-mini",
+			RequestCount:   9,
+			SuccessCount:   9,
+			RequestTokens:  90,
+			ResponseTokens: 45,
+			TotalTokens:    135,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertUsageRollups() error = %v", err)
+	}
+
+	handler := newHandlerWithStore(
+		[]config.KeyConfig{{Key: "sk-app-001", Name: "alice", Purpose: "debug"}},
+		rt,
+		usage.New(100),
+		&stubProvider{},
+		sqliteStore,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/usage?view=by_model&model=gpt-4o-mini", nil)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	var payload struct {
+		Data []struct {
+			Model        string `json:"model"`
+			RequestCount int64  `json:"request_count"`
+			KeyCount     int64  `json:"key_count"`
+			TotalTokens  int64  `json:"total_tokens"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(payload.Data) != 1 {
+		t.Fatalf("len(data) = %d, want %d", len(payload.Data), 1)
+	}
+	if payload.Data[0].Model != "gpt-4o-mini" || payload.Data[0].RequestCount != 1 || payload.Data[0].KeyCount != 1 || payload.Data[0].TotalTokens != 15 {
+		t.Fatalf("unexpected usage query payload: %+v", payload.Data[0])
+	}
+}
+
+func TestUsageQueryByModelRestAPIEndDateIsInclusiveWithoutSpillingIntoNextDay(t *testing.T) {
+	originalLocal := time.Local
+	time.Local = time.UTC
+	defer func() { time.Local = originalLocal }()
+
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertUsageRollups(context.Background(), []usage.Rollup{
+		{
+			BucketStart:    time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+			KeyID:          usage.KeyID("sk-app-001"),
+			KeyName:        "alice",
+			Owner:          "alice",
+			Purpose:        "debug",
+			Endpoint:       "chat.completions",
+			Provider:       "openai",
+			PublicModel:    "gpt-4o-mini",
+			UpstreamModel:  "gpt-4o-mini",
+			RequestCount:   1,
+			SuccessCount:   1,
+			RequestTokens:  10,
+			ResponseTokens: 5,
+			TotalTokens:    15,
+		},
+		{
+			BucketStart:    time.Date(2026, 5, 11, 0, 0, 0, 0, time.UTC),
+			KeyID:          usage.KeyID("sk-app-001"),
+			KeyName:        "alice",
+			Owner:          "alice",
+			Purpose:        "debug",
+			Endpoint:       "chat.completions",
+			Provider:       "openai",
+			PublicModel:    "gpt-4o-mini",
+			UpstreamModel:  "gpt-4o-mini",
+			RequestCount:   2,
+			SuccessCount:   2,
+			RequestTokens:  20,
+			ResponseTokens: 10,
+			TotalTokens:    30,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertUsageRollups() error = %v", err)
+	}
+
+	handler := newHandlerWithStore(
+		[]config.KeyConfig{{Key: "sk-app-001", Name: "alice", Purpose: "debug"}},
+		rt,
+		usage.New(100),
+		&stubProvider{},
+		sqliteStore,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/usage?view=by_model&start=2026-05-10&end=2026-05-10&model=gpt-4o-mini", nil)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	var payload struct {
+		Data []struct {
+			Model        string `json:"model"`
+			RequestCount int64  `json:"request_count"`
+			TotalTokens  int64  `json:"total_tokens"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(payload.Data) != 1 {
+		t.Fatalf("len(data) = %d, want %d", len(payload.Data), 1)
+	}
+	if payload.Data[0].Model != "gpt-4o-mini" || payload.Data[0].RequestCount != 1 || payload.Data[0].TotalTokens != 15 {
+		t.Fatalf("unexpected usage query payload: %+v", payload.Data[0])
+	}
+}
+
+func TestUsageQueryTrendRestAPI(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertUsageRollups(context.Background(), []usage.Rollup{
+		{
+			BucketStart:    time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+			KeyID:          usage.KeyID("sk-app-001"),
+			KeyName:        "alice",
+			Owner:          "alice",
+			Purpose:        "debug",
+			Endpoint:       "chat.completions",
+			Provider:       "openai",
+			PublicModel:    "gpt-4o-mini",
+			UpstreamModel:  "gpt-4o-mini",
+			RequestCount:   1,
+			SuccessCount:   1,
+			RequestTokens:  10,
+			ResponseTokens: 5,
+			TotalTokens:    15,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertUsageRollups() error = %v", err)
+	}
+
+	handler := newHandlerWithStore(
+		[]config.KeyConfig{{Key: "sk-app-001", Name: "alice", Purpose: "debug"}},
+		rt,
+		usage.New(100),
+		&stubProvider{},
+		sqliteStore,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/usage?view=trend&group_by=day", nil)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	var payload struct {
+		Data []struct {
+			Date        string `json:"date"`
+			TotalTokens int64  `json:"total_tokens"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(payload.Data) != 1 {
+		t.Fatalf("len(data) = %d, want %d", len(payload.Data), 1)
+	}
+	if payload.Data[0].TotalTokens != 15 || payload.Data[0].Date == "" {
+		t.Fatalf("unexpected trend payload: %+v", payload.Data[0])
+	}
+}
+
+func TestUsageQueryTrendRestAPIEndDateIsInclusiveWithoutSpillingIntoNextDay(t *testing.T) {
+	originalLocal := time.Local
+	time.Local = time.UTC
+	defer func() { time.Local = originalLocal }()
+
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertUsageRollups(context.Background(), []usage.Rollup{
+		{
+			BucketStart:    time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+			KeyID:          usage.KeyID("sk-app-001"),
+			KeyName:        "alice",
+			Owner:          "alice",
+			Purpose:        "debug",
+			Endpoint:       "chat.completions",
+			Provider:       "openai",
+			PublicModel:    "gpt-4o-mini",
+			UpstreamModel:  "gpt-4o-mini",
+			RequestCount:   1,
+			SuccessCount:   1,
+			RequestTokens:  10,
+			ResponseTokens: 5,
+			TotalTokens:    15,
+		},
+		{
+			BucketStart:    time.Date(2026, 5, 11, 0, 0, 0, 0, time.UTC),
+			KeyID:          usage.KeyID("sk-app-001"),
+			KeyName:        "alice",
+			Owner:          "alice",
+			Purpose:        "debug",
+			Endpoint:       "chat.completions",
+			Provider:       "openai",
+			PublicModel:    "gpt-4o-mini",
+			UpstreamModel:  "gpt-4o-mini",
+			RequestCount:   2,
+			SuccessCount:   2,
+			RequestTokens:  20,
+			ResponseTokens: 10,
+			TotalTokens:    30,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertUsageRollups() error = %v", err)
+	}
+
+	handler := newHandlerWithStore(
+		[]config.KeyConfig{{Key: "sk-app-001", Name: "alice", Purpose: "debug"}},
+		rt,
+		usage.New(100),
+		&stubProvider{},
+		sqliteStore,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/usage?view=trend&start=2026-05-10&end=2026-05-10&group_by=day", nil)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	var payload struct {
+		Data []struct {
+			Date         string `json:"date"`
+			RequestCount int64  `json:"request_count"`
+			TotalTokens  int64  `json:"total_tokens"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(payload.Data) != 1 {
+		t.Fatalf("len(data) = %d, want %d", len(payload.Data), 1)
+	}
+	if payload.Data[0].Date != "2026-05-10" || payload.Data[0].RequestCount != 1 || payload.Data[0].TotalTokens != 15 {
+		t.Fatalf("unexpected trend payload: %+v", payload.Data[0])
 	}
 }
 

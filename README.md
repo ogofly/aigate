@@ -8,6 +8,7 @@ Minimal Go gateway for OpenAI-like LLM APIs.
 - Supports non-stream and `stream=true`
 - OpenAI-compatible `POST /v1/embeddings`
 - OpenAI-compatible `GET /v1/models`
+- OpenAI-compatible `GET /v1/models/{model}`
 - Configurable model-to-provider mapping
 - Client API key authentication
 - Basic stdout logs for request routing and upstream errors
@@ -101,6 +102,13 @@ curl http://localhost:8080/v1/usage \
   -H 'Authorization: Bearer sk-app-001'
 ```
 
+Query usage with REST filters:
+
+```bash
+curl "http://localhost:8080/v1/usage?view=by_model&model=gpt-4o-mini" \
+  -H 'Authorization: Bearer sk-app-001'
+```
+
 9. Read usage for all keys in the web admin.
 
 Open:
@@ -153,7 +161,9 @@ Each public model maps to exactly one provider:
 
 - `GET /healthz`
 - `GET /v1/models`
+- `GET /v1/models/{model}`
 - `GET /v1/usage`
+- `GET /v1/usage?view=by_model|trend&start=YYYY-MM-DD&end=YYYY-MM-DD&model=...`
 - `GET /admin/usage`
 - `GET /admin/login`
 - `GET /admin/keys`
