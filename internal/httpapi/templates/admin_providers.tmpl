@@ -22,12 +22,12 @@
 <section class="panel">
 <div class="panel-toolbar">
   <div>
-    <h2 class="panel-title">Upstream Providers</h2>
-    <p class="panel-copy">Keep each record lean: endpoint, credential source and timeout. Everything else stays in code.</p>
+    <h2 class="panel-title">Provider Connections</h2>
+    <p class="panel-copy">Configure upstream endpoints, credentials, and timeouts for each provider connection.</p>
   </div>
-  <div class="panel-actions"><button type="button" onclick="openDialog('providerCreateDialog')">Add Provider</button></div>
+  <div class="panel-actions"><button type="button" onclick="openDialog('providerCreateDialog')">New Provider</button></div>
 </div>
-<div class="muted providers-note">Fill either <span class="mono">api_key</span> or <span class="mono">api_key_ref</span>.</div>
+<div class="muted providers-note">Set either <span class="mono">api_key</span> or <span class="mono">api_key_ref</span>.</div>
 </section>
 <div class="table-wrap"><table id="providers-table">
   <thead>
@@ -63,7 +63,7 @@
       </td>
     </tr>
     {{else}}
-    <tr><td colspan="8" class="muted">No providers</td></tr>
+    <tr><td colspan="8" class="muted">No providers configured</td></tr>
     {{end}}
   </tbody>
 </table></div>
@@ -71,8 +71,8 @@
   <div class="modal-inner">
     <div class="modal-head">
       <div>
-        <h2 class="panel-title">Add Provider</h2>
-        <p class="modal-copy">Register one upstream and point models to it later.</p>
+        <h2 class="panel-title">New Provider</h2>
+        <p class="modal-copy">Add an upstream provider configuration for routing and playground access.</p>
       </div>
       <button type="button" class="modal-close ghost" onclick="closeDialog('providerCreateDialog')" aria-label="Close">×</button>
     </div>
@@ -80,35 +80,35 @@
       <div class="modal-grid">
         <div class="field-group">
           <label for="provider-name">Name</label>
-          <input id="provider-name" name="name" placeholder="name">
+          <input id="provider-name" name="name" placeholder="Provider name">
         </div>
         <div class="field-group">
           <label for="provider-timeout">Timeout</label>
-          <input id="provider-timeout" name="timeout" placeholder="timeout seconds" value="60">
+          <input id="provider-timeout" name="timeout" placeholder="Timeout in seconds" value="60">
         </div>
       </div>
       <div class="field-group">
         <label for="provider-base-url">Base URL</label>
-        <input id="provider-base-url" name="base_url" placeholder="base url">
+        <input id="provider-base-url" name="base_url" placeholder="Provider base URL">
       </div>
       <div class="modal-grid">
         <div class="field-group">
           <label for="provider-anthropic-base-url">Anthropic Base URL</label>
-          <input id="provider-anthropic-base-url" name="anthropic_base_url" placeholder="anthropic base url (optional)">
+          <input id="provider-anthropic-base-url" name="anthropic_base_url" placeholder="Anthropic base URL (optional)">
         </div>
         <div class="field-group">
           <label for="provider-anthropic-version">Anthropic Version</label>
-          <input id="provider-anthropic-version" name="anthropic_version" placeholder="anthropic version (optional)">
+          <input id="provider-anthropic-version" name="anthropic_version" placeholder="Anthropic version (optional)">
         </div>
       </div>
       <div class="modal-grid">
         <div class="field-group">
           <label for="provider-api-key">API Key</label>
-          <input id="provider-api-key" name="api_key" placeholder="api key (optional)">
+          <input id="provider-api-key" name="api_key" placeholder="Inline API key (optional)">
         </div>
         <div class="field-group">
           <label for="provider-api-key-ref">Secret Ref</label>
-          <input id="provider-api-key-ref" name="api_key_ref" placeholder="env var name (optional)">
+          <input id="provider-api-key-ref" name="api_key_ref" placeholder="Environment variable name (optional)">
         </div>
       </div>
       <div class="modal-actions">
@@ -124,7 +124,7 @@
     <div class="modal-head">
       <div>
         <h2 class="panel-title">Edit Provider</h2>
-        <p class="modal-copy">Update timeout, endpoint or credential reference for {{$provider.Name}}.</p>
+        <p class="modal-copy">Update the endpoint, credentials, or timeout for {{$provider.Name}}.</p>
       </div>
       <button type="button" class="modal-close ghost" onclick="closeDialog('providerEditDialog{{$i}}')" aria-label="Close">×</button>
     </div>
@@ -138,31 +138,31 @@
         </div>
         <div class="field-group">
           <label for="provider-timeout-{{$i}}">Timeout</label>
-          <input id="provider-timeout-{{$i}}" name="timeout" value="{{$provider.TimeoutSeconds}}" placeholder="timeout">
+          <input id="provider-timeout-{{$i}}" name="timeout" value="{{$provider.TimeoutSeconds}}" placeholder="Timeout in seconds">
         </div>
       </div>
       <div class="field-group">
         <label for="provider-base-url-{{$i}}">Base URL</label>
-        <input id="provider-base-url-{{$i}}" name="base_url" value="{{$provider.BaseURL}}" placeholder="base url">
+        <input id="provider-base-url-{{$i}}" name="base_url" value="{{$provider.BaseURL}}" placeholder="Provider base URL">
       </div>
       <div class="modal-grid">
         <div class="field-group">
           <label for="provider-anthropic-base-url-{{$i}}">Anthropic Base URL</label>
-          <input id="provider-anthropic-base-url-{{$i}}" name="anthropic_base_url" value="{{$provider.AnthropicBaseURL}}" placeholder="anthropic base url (optional)">
+          <input id="provider-anthropic-base-url-{{$i}}" name="anthropic_base_url" value="{{$provider.AnthropicBaseURL}}" placeholder="Anthropic base URL (optional)">
         </div>
         <div class="field-group">
           <label for="provider-anthropic-version-{{$i}}">Anthropic Version</label>
-          <input id="provider-anthropic-version-{{$i}}" name="anthropic_version" value="{{$provider.AnthropicVersion}}" placeholder="anthropic version (optional)">
+          <input id="provider-anthropic-version-{{$i}}" name="anthropic_version" value="{{$provider.AnthropicVersion}}" placeholder="Anthropic version (optional)">
         </div>
       </div>
       <div class="modal-grid">
         <div class="field-group">
           <label for="provider-api-key-{{$i}}">API Key</label>
-          <input id="provider-api-key-{{$i}}" name="api_key" placeholder="api key (optional)">
+          <input id="provider-api-key-{{$i}}" name="api_key" placeholder="Inline API key (optional)">
         </div>
         <div class="field-group">
           <label for="provider-api-key-ref-{{$i}}">Secret Ref</label>
-          <input id="provider-api-key-ref-{{$i}}" name="api_key_ref" value="{{$provider.APIKeyRef}}" placeholder="env var name (optional)">
+          <input id="provider-api-key-ref-{{$i}}" name="api_key_ref" value="{{$provider.APIKeyRef}}" placeholder="Environment variable name (optional)">
         </div>
       </div>
       <div class="modal-actions">

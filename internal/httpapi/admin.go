@@ -23,6 +23,7 @@ import (
 )
 
 const adminSessionCookie = "aigate_admin_session"
+const adminSystemName = "LLM Gateway"
 
 type webRole string
 
@@ -39,6 +40,13 @@ type webSession struct {
 type adminSessionStore struct {
 	mu     sync.RWMutex
 	tokens map[string]webSession
+}
+
+func adminPageTitle(page string) string {
+	if page == "" {
+		return adminSystemName
+	}
+	return page + " · " + adminSystemName
 }
 
 func newAdminSessionStore() *adminSessionStore {
@@ -109,12 +117,12 @@ func (h *Handler) handleAdminLoginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 		return
 	}
-	_ = adminLoginTemplate.Execute(w, adminViewData{Title: "Login"})
+	_ = adminLoginTemplate.Execute(w, adminViewData{Title: adminPageTitle("Login")})
 }
 
 func (h *Handler) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		_ = adminLoginTemplate.Execute(w, adminViewData{Title: "Login", Error: "invalid form"})
+		_ = adminLoginTemplate.Execute(w, adminViewData{Title: adminPageTitle("Login"), Error: "invalid form"})
 		return
 	}
 	username := strings.TrimSpace(r.FormValue("username"))
@@ -126,7 +134,7 @@ func (h *Handler) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	default:
 		keyCfg, err := h.store.GetAuthKey(r.Context(), password)
 		if err != nil || keyCfg.Owner == "" || keyCfg.Owner != username {
-			_ = adminLoginTemplate.Execute(w, adminViewData{Title: "Login", Error: "invalid credentials"})
+			_ = adminLoginTemplate.Execute(w, adminViewData{Title: adminPageTitle("Login"), Error: "invalid credentials"})
 			return
 		}
 		session = webSession{Role: roleUser, Username: username}
@@ -175,7 +183,7 @@ func (h *Handler) handleAdminKeysPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := adminViewData{
-		Title:       "Keys",
+		Title:       adminPageTitle("Keys"),
 		IsAdmin:     session.Role == roleAdmin,
 		CurrentUser: session.Username,
 		Keys:        keys,
@@ -270,7 +278,7 @@ func (h *Handler) handleAdminProvidersPage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	data := adminViewData{
-		Title:        "Providers",
+		Title:        adminPageTitle("Providers"),
 		IsAdmin:      true,
 		CurrentUser:  session.Username,
 		ProvidersCfg: providersCfg,
@@ -423,7 +431,7 @@ func (h *Handler) handleAdminModelsPage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	data := adminViewData{
-		Title:       "Models",
+		Title:       adminPageTitle("Models"),
 		IsAdmin:     session.Role == roleAdmin,
 		CurrentUser: session.Username,
 		Providers:   h.providerNames,
@@ -559,7 +567,7 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := adminViewData{
-		Title:          "Usage",
+		Title:          adminPageTitle("Usage"),
 		IsAdmin:        session.Role == roleAdmin,
 		CurrentUser:    session.Username,
 		Usage:          summaries,
@@ -924,7 +932,7 @@ func (h *Handler) buildPlaygroundViewData(ctx context.Context, r *http.Request, 
 	}
 
 	return adminViewData{
-		Title:                "Playground",
+		Title:                adminPageTitle("Playground"),
 		IsAdmin:              session.Role == roleAdmin,
 		CurrentUser:          session.Username,
 		CurrentPath:          "/admin/playground",

@@ -7,20 +7,20 @@
 button:disabled{opacity:0.5;cursor:not-allowed}
 .grid{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
 .grid>*{min-width:0}
-.card{min-width:0;background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.025));border:1px solid var(--line);border-radius:22px;padding:18px;box-shadow:var(--shadow);backdrop-filter:blur(8px)}
+.card{min-width:0;background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.025));border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--shadow);backdrop-filter:blur(8px)}
 .title{font-size:20px;margin:0 0 6px}
 .subtle-copy{margin:0 0 16px}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
 .stack{display:grid;gap:12px}
-.section{padding:14px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.025)}
+.section{padding:14px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.025)}
 textarea{min-height:180px;resize:vertical}
 .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .hint{font-size:12px;color:var(--muted)}
 .hint[href]{text-decoration:none}
 .hint-row{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:10px}
-.result{margin-top:12px;width:100%;max-width:100%;min-width:0;border:1px solid rgba(139,92,246,.16);border-radius:16px;background:rgba(11,8,22,.82);padding:14px 16px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;max-height:420px;overflow:auto;overscroll-behavior:contain;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+.result{margin-top:12px;width:100%;max-width:100%;min-width:0;border:1px solid rgba(139,92,246,.16);border-radius:12px;background:rgba(11,8,22,.82);padding:14px 16px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;max-height:420px;overflow:auto;overscroll-behavior:contain;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
 .result-title{display:block;margin-bottom:8px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
-.error{margin-top:12px;padding:12px 14px;border-radius:16px;background:#fff2f2;color:#9f2d2d;border:1px solid #ffd1d1}
+.error{margin-top:12px;padding:12px 14px;border-radius:12px;background:#fff2f2;color:#9f2d2d;border:1px solid #ffd1d1}
 .kv{display:grid;grid-template-columns:110px minmax(0,1fr) auto;gap:10px;align-items:center;margin-bottom:10px}
 .mono{font-size:13px;word-break:break-all}
 .hidden{display:none}
@@ -28,7 +28,7 @@ textarea{min-height:180px;resize:vertical}
 .radio-group label{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px}
 .radio-group input{width:auto}
 .field-label{font-size:13px;color:var(--muted);margin-bottom:6px}
-.metric{padding:12px 14px;border-radius:16px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.025)}
+.metric{padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.025)}
 .metric-label{font-size:12px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
 .metric-value{margin-top:6px;font-size:13px;overflow-wrap:anywhere}
 aside .hint{margin-top:12px;display:block}
@@ -49,7 +49,7 @@ textarea{min-height:140px}
 <div class="grid">
 <section class="card">
 <h1 class="title">Playground</h1>
-<p class="muted subtle-copy">Use a managed API key to test one message quickly.</p>
+<p class="muted subtle-copy">Send a quick test request with a managed key to verify auth, routing, and endpoint behavior.</p>
 <form id="playgroundForm">
 <div class="row">
 <div><label>API Key</label><select name="api_key" id="apiKey">{{range .Keys}}<option value="{{.Key}}" {{if eq $.PlayAPIKey .Key}}selected{{end}}>{{if .Name}}{{.Name}}{{else}}(unnamed){{end}} / {{.Key}}</option>{{end}}</select></div>
@@ -82,8 +82,8 @@ textarea{min-height:140px}
 <label>Message</label>
 <textarea name="message" id="message" placeholder="Say something...">{{.PlayMessage}}</textarea>
 <div class="hint-row">
-<span class="hint">Best for quick validation of key, model and endpoint behavior.</span>
-<span id="loadingHint" class="hint" style="display:none">Sending...</span>
+<span class="hint">Use this view for fast request checks before wiring a client application.</span>
+<span id="loadingHint" class="hint" style="display:none">Sending request...</span>
 </div>
 </div>
 <div class="actions"><button type="submit" id="sendBtn">Send</button><a class="hint" href="/admin/playground">Clear</a></div>
@@ -96,18 +96,18 @@ textarea{min-height:140px}
 {{if .PlayResult}}<div class="result"><span class="result-title">Reply</span>{{.PlayResult}}</div>{{end}}
 </section>
 <aside class="card">
-<h2 class="title">Connect Settings</h2>
-<p class="muted subtle-copy" id="modeHint">OpenAI Chat Completions. Copy into your client app.</p>
+<h2 class="title">Connection Details</h2>
+<p class="muted subtle-copy" id="modeHint">OpenAI Chat Completions settings for your client.</p>
 <div id="connectKv" style="display:none" class="stack">
 <div class="kv"><div class="muted">API Base URL</div><div class="mono" id="cfgBase">{{.PlayAPIBase}}/v1</div><button type="button" class="ghost" onclick="copyText('cfgBase', this)">Copy</button></div>
 <div class="kv"><div class="muted">API Key</div><div class="mono" id="cfgKey">{{.PlayAPIKey}}</div><button type="button" class="ghost" onclick="copyText('cfgKey', this)">Copy</button></div>
 <div class="kv"><div class="muted">Model</div><div class="mono" id="cfgModel">{{.PlayModel}}</div><button type="button" class="ghost" onclick="copyText('cfgModel', this)">Copy</button></div>
 <div class="metric">
-<div class="metric-label">Request Shape</div>
-<div class="metric-value">Same auth, routing and upstream call path as the public API.</div>
+<div class="metric-label">Request Path</div>
+<div class="metric-value">Requests from this page use the same auth, routing, and upstream path as the public API.</div>
 </div>
 </div>
-<div class="hint" id="endpointHint">Use endpoint: <span class="mono">/chat/completions</span></div>
+<div class="hint" id="endpointHint">Endpoint: <span class="mono">/chat/completions</span></div>
 </aside>
 </div>
 </div>
@@ -173,17 +173,17 @@ function updateModeUI(){
 	openaiSub.style.display = style === 'openai' ? '' : 'none';
 
 	if (style === 'anthropic') {
-		modeHint.textContent = 'Anthropic Messages API. Copy into your client app.';
+		modeHint.textContent = 'Anthropic Messages settings for your client.';
 		cfgBase.textContent = apiBase + '/anthropic';
-		endpointHint.innerHTML = 'Use endpoint: <span class="mono">/messages</span>';
+		endpointHint.innerHTML = 'Endpoint: <span class="mono">/messages</span>';
 	} else if (apiType === 'responses') {
-		modeHint.textContent = 'OpenAI Responses API. Copy into your client app.';
+		modeHint.textContent = 'OpenAI Responses settings for your client.';
 		cfgBase.textContent = apiBase + '/v1';
-		endpointHint.innerHTML = 'Use endpoint: <span class="mono">/responses</span>';
+		endpointHint.innerHTML = 'Endpoint: <span class="mono">/responses</span>';
 	} else {
-		modeHint.textContent = 'OpenAI Chat Completions. Copy into your client app.';
+		modeHint.textContent = 'OpenAI Chat Completions settings for your client.';
 		cfgBase.textContent = apiBase + '/v1';
-		endpointHint.innerHTML = 'Use endpoint: <span class="mono">/chat/completions</span>';
+		endpointHint.innerHTML = 'Endpoint: <span class="mono">/chat/completions</span>';
 	}
 }
 

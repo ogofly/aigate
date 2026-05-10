@@ -17,8 +17,8 @@
 .key-span{grid-column:1 / -1}
 .key-gen{display:flex;align-items:stretch;min-width:0}
 #new-key-input,.gen-btn{height:42px}
-#new-key-input{flex:1 1 auto;min-width:0;margin-right:0;border-radius:10px 0 0 10px}
-.gen-btn{flex:0 0 auto;padding:0 14px;border-radius:0 10px 10px 0;white-space:nowrap}
+#new-key-input{flex:1 1 auto;min-width:0;margin-right:0;border-radius:8px 0 0 8px}
+.gen-btn{flex:0 0 auto;padding:0 14px;border-radius:0 8px 8px 0;white-space:nowrap}
 </style>
 </head>
 <body><div class="page">
@@ -28,13 +28,13 @@
 <section class="panel">
 <div class="panel-toolbar">
   <div>
-    <h2 class="panel-title">Key Management</h2>
-    <p class="panel-copy">Issue managed API keys and hand teammates an exact base URL without exposing upstream secrets.</p>
+    <h2 class="panel-title">Managed Keys</h2>
+    <p class="panel-copy">Create gateway keys for teammates, services, and test clients without exposing upstream provider secrets.</p>
   </div>
-  <div class="panel-actions"><button type="button" onclick="openDialog('keyCreateDialog')">Create Key</button></div>
+  <div class="panel-actions"><button type="button" onclick="openDialog('keyCreateDialog')">New Key</button></div>
 </div>
-<div class="muted page-copy">OpenAI compatible: base URL <span class="key-text" style="cursor:text">{{.APIBase}}/v1</span>, use <span class="key-text" style="cursor:text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
-<div class="muted" style="margin-top:4px">Anthropic: base URL <span class="key-text" style="cursor:text">{{.APIBase}}/anthropic</span>, use <span class="key-text" style="cursor:text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
+<div class="muted page-copy">OpenAI-compatible base URL: <span class="key-text" style="cursor:text">{{.APIBase}}/v1</span> with <span class="key-text" style="cursor:text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
+<div class="muted" style="margin-top:4px">Anthropic-compatible base URL: <span class="key-text" style="cursor:text">{{.APIBase}}/anthropic</span> with <span class="key-text" style="cursor:text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
 </section>
 
 <div class="table-wrap"><table>
@@ -67,7 +67,7 @@
       </td>
     </tr>
     {{else}}
-    <tr><td colspan="{{if .IsAdmin}}5{{else}}4{{end}}" class="muted">No keys</td></tr>
+    <tr><td colspan="{{if .IsAdmin}}5{{else}}4{{end}}" class="muted">No keys configured</td></tr>
     {{end}}
   </tbody>
 </table></div>
@@ -75,8 +75,8 @@
   <div class="modal-inner">
     <div class="modal-head">
       <div>
-        <h2 class="panel-title">Create Key</h2>
-        <p class="modal-copy">Generate a managed key and optionally attach owner and purpose metadata.</p>
+        <h2 class="panel-title">New Key</h2>
+        <p class="modal-copy">Create a managed key and add optional owner and usage context.</p>
       </div>
       <button type="button" class="modal-close ghost" onclick="closeDialog('keyCreateDialog')" aria-label="Close">×</button>
     </div>
@@ -85,23 +85,23 @@
         <div class="field-group key-span">
           <label for="new-key-input">API Key</label>
           <div class="key-gen">
-            <input id="new-key-input" name="key" placeholder="api key">
+            <input id="new-key-input" name="key" placeholder="Managed API key">
             <button type="button" class="ghost gen-btn" onclick="generateKey()">Generate</button>
           </div>
         </div>
         <div class="field-group">
           <label for="key-name">Name</label>
-          <input id="key-name" name="name" placeholder="name">
+          <input id="key-name" name="name" placeholder="Display name">
         </div>
         {{if .IsAdmin}}
         <div class="field-group">
           <label for="key-owner">Owner</label>
-          <input id="key-owner" name="owner" placeholder="owner">
+          <input id="key-owner" name="owner" placeholder="Owner name">
         </div>
         {{end}}
         <div class="field-group key-span">
           <label for="key-purpose">Purpose</label>
-          <input id="key-purpose" name="purpose" placeholder="purpose">
+          <input id="key-purpose" name="purpose" placeholder="Usage context">
         </div>
       </div>
       <div class="modal-actions">

@@ -9,49 +9,52 @@ h2,h3{margin:0}
 a{color:var(--text)}
 button,input,select,textarea{font:inherit}
 label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
-input,select,textarea{width:100%;max-width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:rgba(18,15,30,.92);color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.03);transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease}
+input,select,textarea{width:100%;max-width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:rgba(18,15,30,.92);color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.03);transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease}
 select option{background:#171224;color:var(--text)}
 input::placeholder,textarea::placeholder{color:#8177a1}
 input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(139,92,246,.92);box-shadow:0 0 0 4px rgba(139,92,246,.18),0 0 24px rgba(124,58,237,.14)}
-button{padding:10px 14px;border:0;background:linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);color:var(--text);border-radius:12px;cursor:pointer;font-weight:600;box-shadow:0 10px 24px rgba(124,58,237,.24);transition:transform .18s ease,filter .18s ease,box-shadow .18s ease}
+button{padding:10px 14px;border:0;background:linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);color:var(--text);border-radius:10px;cursor:pointer;font-weight:600;box-shadow:0 10px 24px rgba(124,58,237,.24);transition:transform .18s ease,filter .18s ease,box-shadow .18s ease}
 button:hover{filter:brightness(1.03);transform:translateY(-1px)}
 button:active{transform:translateY(0)}
 .ghost{background:var(--ghost);color:var(--text);box-shadow:none;border:1px solid rgba(139,92,246,.18)}
 .muted{color:var(--muted)}
-.flash{padding:12px 14px;background:rgba(139,92,246,.14);border:1px solid rgba(139,92,246,.26);border-radius:14px;margin-top:16px;color:var(--text);box-shadow:var(--shadow)}
-.panel{padding:18px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));box-shadow:var(--shadow);backdrop-filter:blur(10px)}
+.flash{padding:12px 14px;background:rgba(139,92,246,.14);border:1px solid rgba(139,92,246,.26);border-radius:12px;margin-top:16px;color:var(--text);box-shadow:var(--shadow)}
+.panel{padding:18px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));box-shadow:var(--shadow);backdrop-filter:blur(10px)}
 .panel + .panel{margin-top:18px}
 .panel-title{margin:0 0 6px;font-size:16px}
 .panel-copy{margin:0 0 16px;color:var(--muted)}
 .panel-toolbar{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
 .panel-toolbar .panel-copy{margin-bottom:0;max-width:760px}
 .panel-actions{display:flex;gap:10px;flex-wrap:wrap}
-.table-wrap{width:100%;overflow-x:auto;margin-top:20px;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));box-shadow:var(--shadow)}
+.table-wrap{width:100%;overflow-x:auto;margin-top:20px;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));box-shadow:var(--shadow)}
 table{width:100%;border-collapse:collapse;min-width:640px}
 th,td{padding:12px 14px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);background:rgba(139,92,246,.08)}
 tbody tr:last-child td{border-bottom:0}
 tbody tr:hover td{background:rgba(139,92,246,.05)}
-.table-wrap button{padding:5px 9px;border-radius:9px;font-size:12px;box-shadow:none}
+.table-wrap button{padding:4px 8px;border-radius:8px;font-size:12px;box-shadow:none}
 .table-actions{display:flex;gap:6px;flex-wrap:wrap}
 .inline-form{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
 .inline-form>*{flex:1 1 180px}
 .inline-form .form-actions{flex:0 0 auto}
 .field-group{display:flex;flex-direction:column;gap:6px;min-width:0}
 .mono{font-family:ui-monospace,SFMono-Regular,monospace}
-.modal-dialog{width:min(680px,calc(100% - 24px));padding:0;border:1px solid var(--line);border-radius:24px;background:rgba(18,14,31,.96);color:var(--text);box-shadow:0 30px 90px rgba(5,2,16,.52)}
+.modal-dialog{width:min(680px,calc(100% - 24px));padding:0;border:1px solid var(--line);border-radius:18px;background:rgba(18,14,31,.96);color:var(--text);box-shadow:0 30px 90px rgba(5,2,16,.52)}
 .modal-dialog::backdrop{background:rgba(6,4,12,.68);backdrop-filter:blur(6px)}
-.modal-inner{padding:20px}
+.modal-inner{padding:18px}
 .modal-head{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;margin-bottom:16px}
 .modal-copy{margin:4px 0 0;color:var(--muted)}
-.modal-close{width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:999px;background:rgba(255,255,255,.06);box-shadow:none;border:1px solid rgba(139,92,246,.18)}
+.modal-close{width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:999px;background:rgba(255,255,255,.06);box-shadow:none;border:1px solid rgba(139,92,246,.18)}
 .modal-form{display:grid;gap:14px}
 .modal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}
-.nav{display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;margin-bottom:24px;padding:14px 16px;border:1px solid var(--line);border-radius:18px;background:rgba(18,14,31,.76);backdrop-filter:blur(14px);box-shadow:var(--shadow)}
+.nav{display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;margin-bottom:24px;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:rgba(18,14,31,.76);backdrop-filter:blur(14px);box-shadow:var(--shadow)}
+.nav-brand{display:flex;flex-direction:column;gap:2px;min-width:0;text-decoration:none;color:var(--text);margin-right:6px}
+.nav-brand-title{font-size:15px;font-weight:700;letter-spacing:.02em}
+.nav-brand-copy{font-size:12px;color:var(--muted)}
 .nav-links{display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap}
 .nav a{text-decoration:none;color:var(--text)}
-.nav-link{padding:8px 12px;color:var(--muted);border-radius:999px;transition:background-color .18s ease,color .18s ease}
+.nav-link{padding:8px 12px;color:var(--muted);border-radius:10px;transition:background-color .18s ease,color .18s ease}
 .nav-link:hover{background:rgba(255,255,255,.05);color:var(--text)}
 .nav-link.active{color:var(--text);font-weight:600;background:var(--accent-soft)}
 .nav-spacer{margin-left:auto}
@@ -60,6 +63,7 @@ tbody tr:hover td{background:rgba(139,92,246,.05)}
 @media (max-width:720px){
 body{padding:16px 12px}
 .nav{align-items:flex-start}
+.nav-brand{width:100%}
 .nav-spacer{display:none}
 .nav-user{width:100%}
 table{min-width:560px}
@@ -77,6 +81,10 @@ table{min-width:560px}
 
 {{define "admin_nav"}}
 <nav class="nav">
+<a class="nav-brand" href="/admin/usage/view">
+<span class="nav-brand-title">LLM Gateway</span>
+<span class="nav-brand-copy">Gateway Console</span>
+</a>
 <div class="nav-links">
 {{if .IsAdmin}}<a class="nav-link{{if eq .CurrentPath "/admin/providers"}} active{{end}}" href="/admin/providers">Providers</a>{{end}}
 <a class="nav-link{{if eq .CurrentPath "/admin/models"}} active{{end}}" href="/admin/models">Models</a>

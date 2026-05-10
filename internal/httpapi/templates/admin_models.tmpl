@@ -21,20 +21,20 @@
 <div>
 <h2 class="panel-title">Model Routing</h2>
 {{if .IsAdmin}}
-<p class="panel-copy page-intro">Map each public model name to one upstream provider and model identifier.</p>
+<p class="panel-copy page-intro">Map each public model alias to a provider connection and upstream model ID.</p>
 {{else}}
-<p class="panel-copy page-intro">OpenAI compatible models list for current user.</p>
+<p class="panel-copy page-intro">Models currently available through your managed gateway access.</p>
 {{end}}
 </div>
-{{if .IsAdmin}}<div class="panel-actions"><button type="button" onclick="openDialog('modelCreateDialog')">Add Model</button></div>{{end}}
+{{if .IsAdmin}}<div class="panel-actions"><button type="button" onclick="openDialog('modelCreateDialog')">New Model</button></div>{{end}}
 </div>
 </section>
 <div class="table-wrap"><table id="models-table">
   <thead>
     <tr>
-      <th><button type="button" class="sort-btn" onclick="sortTable('models-table',0)">Public</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('models-table',0)">Public Model</button></th>
       <th><button type="button" class="sort-btn" onclick="sortTable('models-table',1)">Provider</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('models-table',2)">Upstream</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('models-table',2)">Upstream Model</button></th>
       {{if .IsAdmin}}<th></th>{{end}}
     </tr>
   </thead>
@@ -54,7 +54,7 @@
       {{end}}
     </tr>
     {{else}}
-    <tr><td colspan="{{if .IsAdmin}}4{{else}}3{{end}}" class="muted">No models</td></tr>
+    <tr><td colspan="{{if .IsAdmin}}4{{else}}3{{end}}" class="muted">No models configured</td></tr>
     {{end}}
   </tbody>
 </table></div>
@@ -63,8 +63,8 @@
   <div class="modal-inner">
     <div class="modal-head">
       <div>
-        <h2 class="panel-title">Add Model</h2>
-        <p class="modal-copy">Create one public name and route it to exactly one provider target.</p>
+        <h2 class="panel-title">New Model</h2>
+        <p class="modal-copy">Create a public model alias and route it to one provider target.</p>
       </div>
       <button type="button" class="modal-close ghost" onclick="closeDialog('modelCreateDialog')" aria-label="Close">×</button>
     </div>
@@ -72,7 +72,7 @@
       <div class="modal-grid">
         <div class="field-group">
           <label for="model-public-name">Public Name</label>
-          <input id="model-public-name" name="public_name" placeholder="public name">
+          <input id="model-public-name" name="public_name" placeholder="Public model alias">
         </div>
         <div class="field-group">
           <label for="model-provider">Provider</label>
@@ -81,7 +81,7 @@
       </div>
       <div class="field-group">
         <label for="model-upstream-name">Upstream Name</label>
-        <input id="model-upstream-name" name="upstream_name" placeholder="upstream name">
+        <input id="model-upstream-name" name="upstream_name" placeholder="Upstream model ID">
       </div>
       <div class="modal-actions">
         <button type="button" class="ghost" onclick="closeDialog('modelCreateDialog')">Cancel</button>

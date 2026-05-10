@@ -5,7 +5,7 @@
 button.active{background:var(--accent-strong)}
 .page-intro{margin:0 0 16px}
 .tabs{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;padding-bottom:2px}
-.tab{padding:10px 16px;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer;text-decoration:none}
+.tab{padding:9px 14px;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer;text-decoration:none;border-radius:10px 10px 0 0}
 .tab.active{border-bottom-color:var(--accent);color:#fffffe}
 .filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:10px;align-items:end;margin-top:12px}
 .filters label{display:flex;flex-direction:column;gap:6px;font-size:13px;min-width:0}
@@ -29,16 +29,16 @@ a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
 {{template "admin_nav" .}}
 <h1>Usage</h1>
 <section class="panel">
-<h2 class="panel-title">Usage Explorer</h2>
-<p class="panel-copy page-intro">Filter by date and model. On small screens, tables scroll horizontally.</p>
+<h2 class="panel-title">Usage Analytics</h2>
+<p class="panel-copy page-intro">Filter traffic by date range and model. Tables remain scrollable on smaller screens.</p>
 <form method="get" action="/admin/usage/view" class="filters">
   <input type="hidden" name="view" value="{{.View}}">
-  <label>Start <input type="date" name="start" value="{{.FilterStart}}"></label>
-  <label>End <input type="date" name="end" value="{{.FilterEnd}}"></label>
+  <label>Start Date <input type="date" name="start" value="{{.FilterStart}}"></label>
+  <label>End Date <input type="date" name="end" value="{{.FilterEnd}}"></label>
   <label>Model <select name="model"><option value="">All</option>{{range .UsageModels}}<option value="{{.}}" {{if eq . $.FilterModel}}selected{{end}}>{{.}}</option>{{end}}</select></label>
   <div class="filter-actions">
     <button type="submit">Filter</button>
-    {{if or .FilterStart .FilterEnd .FilterModel}}<a class="clear-filters" href="/admin/usage/view?view={{.View}}">Clear</a>{{end}}
+    {{if or .FilterStart .FilterEnd .FilterModel}}<a class="clear-filters" href="/admin/usage/view?view={{.View}}">Clear Filters</a>{{end}}
   </div>
 </form>
 {{define "tabFilters"}}{{if .FilterStart}}&start={{.FilterStart}}{{end}}{{if .FilterEnd}}&end={{.FilterEnd}}{{end}}{{if .FilterModel}}&model={{.FilterModel}}{{end}}{{end}}
@@ -70,7 +70,7 @@ function formatTokens(n){
 
 function renderTrend(data){
   if(!data.length){
-    document.getElementById('trendChart').innerHTML = '<div class="no-data">No usage data for the selected period</div>';
+    document.getElementById('trendChart').innerHTML = '<div class="no-data">No usage data for the selected filters</div>';
     return;
   }
   var dates = data.map(function(d){return d.date});
@@ -119,7 +119,7 @@ loadTrend(trendGb);
 {{range .ModelSummaries}}<tr><td>{{.Model}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td><td>{{.KeyCount}}</td></tr>{{end}}
 </tbody></table></div>
 {{else}}
-<div class="no-data">No usage data for the selected period</div>
+<div class="no-data">No usage data for the selected filters</div>
 {{end}}
 {{else}}
 {{if .Usage}}
@@ -129,7 +129,7 @@ loadTrend(trendGb);
 {{range .Usage}}<tr><td>{{.KeyID}}</td><td>{{.KeyName}}</td>{{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}<td>{{.Purpose}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td></tr>{{end}}
 </tbody></table></div>
 {{else}}
-<div class="no-data">No usage data for the selected period</div>
+<div class="no-data">No usage data for the selected filters</div>
 {{end}}
 {{end}}
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
