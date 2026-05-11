@@ -110,6 +110,7 @@ type adminViewData struct {
 	ModelSummaries       []usage.ModelSummary
 	HasAnthropicProvider bool
 	GroupBy              string
+	PieMetric            string
 }
 
 func (h *Handler) handleAdminLoginPage(w http.ResponseWriter, r *http.Request) {
@@ -511,6 +512,10 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 	if view == "" {
 		view = "trend"
 	}
+	pieMetric := r.URL.Query().Get("pieMetric")
+	if pieMetric == "" {
+		pieMetric = "tokens"
+	}
 
 	filter := store.UsageFilter{
 		Model: model,
@@ -579,6 +584,7 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 		View:           view,
 		ModelSummaries: modelSummaries,
 		GroupBy:        groupBy,
+		PieMetric:      pieMetric,
 	}
 	_ = adminUsageTemplate.Execute(w, data)
 }

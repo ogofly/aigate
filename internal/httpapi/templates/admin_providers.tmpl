@@ -7,14 +7,17 @@
 {{template "admin_head_assets" .}}
 <style>
 {{template "admin_common_styles" .}}
-.sort-btn{background:none;border:0;color:inherit;padding:0;cursor:pointer;font:inherit}
+.sort-btn{background:none;border:0;color:inherit;padding:0;cursor:pointer;font:inherit;transition:color .18s ease}
+.sort-btn:hover{color:var(--text-strong)}
 .providers-form{margin-top:20px}
 .providers-form>*{flex:1 1 220px}
 .row-actions{display:flex;gap:8px;flex-wrap:wrap}
 .row-actions form{margin:0}
+.row-actions button{transition:background-color .18s ease,border-color .18s ease,color .18s ease}
 .provider-edit-form>*{flex:1 1 220px}
 .providers-table{table-layout:fixed;min-width:0}
 .providers-table th,.providers-table td{overflow-wrap:anywhere}
+.providers-table tbody tr{transition:background-color .18s ease}
 .providers-table th:nth-child(1){width:15%}
 .providers-table th:nth-child(2){width:29%}
 .providers-table th:nth-child(3){width:23%}

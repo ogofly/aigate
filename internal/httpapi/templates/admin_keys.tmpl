@@ -8,14 +8,14 @@
 <style>
 {{template "admin_common_styles" .}}
 .key-cell{display:flex;align-items:center;gap:8px}
-.key-text{font-family:ui-monospace,SFMono-Regular,monospace;cursor:pointer;color:#dedee4}
+.key-text{font-family:ui-monospace,SFMono-Regular,monospace;cursor:pointer;color:var(--text)}
 .page-copy{margin-top:8px}
 .keys-form{margin-top:20px}
 .key-cell{flex-wrap:wrap}
 .key-text{overflow-wrap:anywhere}
 .key-text:hover{color:var(--text)}
-.copy-text{cursor:pointer;text-decoration:underline;text-decoration-color:rgba(139,92,246,.34);text-underline-offset:3px}
-.copy-text:hover{color:var(--text-strong);text-decoration-color:rgba(139,92,246,.72)}
+.copy-text{cursor:pointer;text-decoration:underline;text-decoration-color:rgba(210,214,220,.18);text-underline-offset:3px}
+.copy-text:hover{color:var(--text-strong);text-decoration-color:rgba(139,92,246,.38)}
 .copy-feedback{margin-left:6px;color:var(--muted);font-size:12px}
 .key-create-form{display:flex;flex-direction:column;gap:12px}
 .key-create-grid{gap:10px;align-items:start}
@@ -38,8 +38,8 @@
   </div>
   <div class="panel-actions"><button type="button" onclick="openDialog('keyCreateDialog')">New Key</button></div>
 </div>
-<div class="muted page-copy">OpenAI-compatible base URL: <span class="key-text copy-text" data-copy="{{.APIBase}}/v1" onclick="copyInline(this)">{{.APIBase}}/v1</span><span class="copy-feedback" aria-live="polite"></span> with <span class="key-text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
-<div class="muted" style="margin-top:4px">Anthropic-compatible base URL: <span class="key-text copy-text" data-copy="{{.APIBase}}/anthropic" onclick="copyInline(this)">{{.APIBase}}/anthropic</span><span class="copy-feedback" aria-live="polite"></span> with <span class="key-text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
+<div class="muted page-copy">OpenAI-compatible base URL: <span class="key-text copy-text" data-copy="{{.APIBase}}/v1" title="点击可复制" tabindex="0" role="button" onclick="copyInline(this)" onkeydown="copyInlineKeydown(event, this)">{{.APIBase}}/v1</span><span class="copy-feedback" aria-live="polite"></span> with <span class="key-text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
+<div class="muted" style="margin-top:4px">Anthropic-compatible base URL: <span class="key-text copy-text" data-copy="{{.APIBase}}/anthropic" title="点击可复制" tabindex="0" role="button" onclick="copyInline(this)" onkeydown="copyInlineKeydown(event, this)">{{.APIBase}}/anthropic</span><span class="copy-feedback" aria-live="polite"></span> with <span class="key-text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
 </section>
 
 <div class="table-wrap"><table>
@@ -155,6 +155,13 @@ async function copyInline(el){
   }catch(_e){
     if(feedback){feedback.textContent='Copy failed';}
     setTimeout(()=>{if(feedback){feedback.textContent='';}},1200);
+  }
+}
+
+function copyInlineKeydown(event, el){
+  if(event.key === "Enter" || event.key === " "){
+    event.preventDefault();
+    copyInline(el);
   }
 }
 
