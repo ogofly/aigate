@@ -1,5 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title>{{template "admin_head_assets" .}}
+{{template "admin_theme_init" .}}
 <style>
 {{template "admin_common_styles" .}}
 .page-intro{margin:0 0 16px}
@@ -81,16 +82,19 @@ function renderTrend(data){
   var dates = data.map(function(d){return d.date});
   var requests = data.map(function(d){return d.request_count});
   var total = data.map(function(d){return d.total_tokens});
+  var cs = getComputedStyle(document.documentElement);
+  var chartMuted = cs.getPropertyValue('--muted').trim() || '#8b9098';
+  var chartLine = cs.getPropertyValue('--line').trim() || 'rgba(210,214,220,.09)';
   var chart = echarts.init(document.getElementById('trendChart'));
   chart.setOption({
     backgroundColor:'transparent',
     tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
-    legend:{data:['Requests','Total Tokens'],textStyle:{color:'#b4b8c0'}},
+    legend:{data:['Requests','Total Tokens'],textStyle:{color:chartMuted}},
     grid:{left:'3%',right:'4%',bottom:'3%',containLabel:true},
-    xAxis:{type:'category',data:dates,axisLabel:{color:'#878c96'}},
+    xAxis:{type:'category',data:dates,axisLabel:{color:chartMuted}},
     yAxis:[
-      {type:'value',name:'Requests',position:'left',axisLabel:{color:'#878c96'},splitLine:{lineStyle:{color:'rgba(210,214,220,.08)'}}},
-      {type:'value',name:'Tokens',position:'right',axisLabel:{formatter:function(v){return formatTokens(v)},color:'#878c96'},splitLine:{show:false}}
+      {type:'value',name:'Requests',position:'left',axisLabel:{color:chartMuted},splitLine:{lineStyle:{color:chartLine}}},
+      {type:'value',name:'Tokens',position:'right',axisLabel:{formatter:function(v){return formatTokens(v)},color:chartMuted},splitLine:{show:false}}
     ],
     series:[
       {name:'Requests',type:'line',yAxisIndex:0,smooth:true,areaStyle:{opacity:0.045},data:requests,itemStyle:{color:'#aeb2ba'}},
@@ -178,12 +182,14 @@ function renderPieChart(chartId, dataElId, metric){
     var val = metric==='requests'? raw.requests : raw.tokens;
     return item.name + ': ' + formatPieValue(metric, val) + ' (' + item.percent + '%)';
   };
+  var cs = getComputedStyle(document.documentElement);
+  var chartTextStrong = cs.getPropertyValue('--text-strong').trim() || '#e1e5eb';
   var chart=echarts.init(document.getElementById(chartId));
   chart._pieRawData = rawData;
   chart.setOption({
     backgroundColor:'transparent',
     tooltip:{trigger:'item',formatter:formatter},
-    series:[{type:'pie',radius:['40%','70%'],avoidLabelOverlap:false,label:{color:'#d1d5db'},labelLine:{show:true},data:data}]
+    series:[{type:'pie',radius:['40%','70%'],avoidLabelOverlap:false,label:{color:chartTextStrong},labelLine:{show:true},data:data}]
   });
   window.addEventListener('resize',function(){chart.resize()});
   return chart;
@@ -235,4 +241,4 @@ function updatePieChart(chart, metric){
 })();
 {{end}}
 </script>
-</div></body></html>
+</div>{{template "admin_theme_toggle" .}}</body></html>

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
 {{template "admin_head_assets" .}}
+{{template "admin_theme_init" .}}
 <style>
 {{template "admin_common_styles" .}}
 .key-cell{display:flex;align-items:center;gap:8px}
@@ -221,5 +222,5 @@ document.getElementById('keyCreateDialog')?.addEventListener('click', function(e
   if(!inside){this.close();}
 });
 </script>
-</div></body>
+</div>{{template "admin_theme_toggle" .}}</body>
 </html>

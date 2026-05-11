@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
 {{template "admin_head_assets" .}}
+{{template "admin_theme_init" .}}
 <style>
 {{template "admin_common_styles" .}}
 .sort-btn{background:none;border:0;color:inherit;padding:0;cursor:pointer;font:inherit;transition:color .18s ease}
@@ -227,5 +228,5 @@ document.querySelectorAll('dialog.modal-dialog').forEach(function(dialog){
   });
 });
 </script>
-</div></body>
+</div>{{template "admin_theme_toggle" .}}</body>
 </html>

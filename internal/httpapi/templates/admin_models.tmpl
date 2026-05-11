@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
 {{template "admin_head_assets" .}}
+{{template "admin_theme_init" .}}
 <style>
 {{template "admin_common_styles" .}}
 .page-intro{margin-top:12px}
@@ -132,5 +133,5 @@ document.getElementById('modelCreateDialog')?.addEventListener('click', function
   if(!inside){this.close();}
 });
 </script>
-</div></body>
+</div>{{template "admin_theme_toggle" .}}</body>
 </html>
