@@ -3,6 +3,12 @@
 {{template "admin_theme_init" .}}
 <style>
 {{template "admin_common_styles" .}}
+.chart-group{margin-top:16px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.chart-group .pie-controls{margin-bottom:0}
+.chart-group .pie-chart{margin:14px 0 10px}
+.chart-group .table-wrap{margin-top:0}
+.sort-btn{background:none;border:0;color:inherit;padding:0;cursor:pointer;font:inherit;transition:color .18s ease}
+.sort-btn:hover{color:var(--text-strong)}
 .page-intro{margin:0 0 16px}
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-bottom:2px;font-size:13px}
 .tab{padding:6px 12px;border:1px solid var(--line);color:var(--muted);cursor:pointer;text-decoration:none;border-radius:4px;background:rgba(210,214,220,.022);transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease}
@@ -123,30 +129,57 @@ loadTrend(trendGb);
 {{else if eq .View "by_model"}}
 {{if .ModelSummaries}}
 <script id="modelPieData" type="application/json">{{range $i, $s := .ModelSummaries}}{{if $i}},{{end}}{"name":"{{.Model}}","tokens":{{.TotalTokens}},"requests":{{.RequestCount}}}{{end}}</script>
+<div class="chart-group">
 <div class="pie-controls">
   <span>By:</span>
   <button type="button" class="pm-btn{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">Tokens</button>
   <button type="button" class="pm-btn{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">Requests</button>
 </div>
 <div id="modelPieChart" class="pie-chart"></div>
-<div class="table-wrap"><table><thead><tr><th>Model</th><th>Requests</th><th>Success</th><th>Errors</th><th>Total Tokens</th><th>Active Keys</th></tr></thead><tbody>
+<div class="table-wrap"><table id="model-table"><thead><tr>
+<th><button type="button" class="sort-btn" onclick="sortTable('model-table',0,'text')">Model</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('model-table',1,'num')">Requests</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('model-table',2,'num')">Success</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('model-table',3,'num')">Errors</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('model-table',4,'num')">Total Tokens</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('model-table',5,'num')">Active Keys</button></th>
+</tr></thead><tbody>
 {{range .ModelSummaries}}<tr><td>{{.Model}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td><td>{{.KeyCount}}</td></tr>{{end}}
 </tbody></table></div>
+</div>
 {{else}}
 <div class="no-data">No usage data for the selected filters</div>
 {{end}}
 {{else}}
 {{if .Usage}}
 <script id="keyPieData" type="application/json">{{range $i, $u := .Usage}}{{if $i}},{{end}}{"name":"{{if .KeyName}}{{.KeyName}}{{else}}{{maskID .KeyID}}{{end}}","tokens":{{.TotalTokens}},"requests":{{.RequestCount}}}{{end}}</script>
+<div class="chart-group">
 <div class="pie-controls">
   <span>By:</span>
   <button type="button" class="pm-btn{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">Tokens</button>
   <button type="button" class="pm-btn{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">Requests</button>
 </div>
 <div id="keyPieChart" class="pie-chart"></div>
-<div class="table-wrap"><table><thead><tr><th>Name</th>{{if .IsAdmin}}<th>Owner</th>{{end}}<th>Purpose</th><th>Requests</th><th>Success</th><th>Errors</th><th>Total Tokens</th></tr></thead><tbody>
+<div class="table-wrap"><table id="key-table"><thead><tr>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',0,'text')">Name</button></th>
+{{if .IsAdmin}}<th><button type="button" class="sort-btn" onclick="sortTable('key-table',1,'text')">Owner</button></th>{{end}}
+{{if .IsAdmin}}
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',2,'text')">Purpose</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',3,'num')">Requests</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',4,'num')">Success</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',5,'num')">Errors</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',6,'num')">Total Tokens</button></th>
+{{else}}
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',1,'text')">Purpose</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',2,'num')">Requests</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',3,'num')">Success</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',4,'num')">Errors</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',5,'num')">Total Tokens</button></th>
+{{end}}
+</tr></thead><tbody>
 {{range .Usage}}<tr><td>{{.KeyName}}</td>{{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}<td>{{.Purpose}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td></tr>{{end}}
 </tbody></table></div>
+</div>
 {{else}}
 <div class="no-data">No usage data for the selected filters</div>
 {{end}}
@@ -240,5 +273,27 @@ function updatePieChart(chart, metric){
   });
 })();
 {{end}}
+
+function sortTable(tableId, col, kind){
+  const table = document.getElementById(tableId);
+  if(!table || !table.tBodies || table.tBodies.length === 0){return;}
+  const tbody = table.tBodies[0];
+  const rows = Array.from(tbody.rows);
+  if(rows.length === 0){return;}
+  const nextAsc = table.dataset.sortCol !== String(col) ? true : table.dataset.sortAsc !== "true";
+  rows.sort((a, b) => {
+    const av = (a.cells[col]?.textContent || "").trim();
+    const bv = (b.cells[col]?.textContent || "").trim();
+    if(kind === "num"){
+      const an = Number.parseInt(av.replace(/[^0-9.-]/g,""), 10) || 0;
+      const bn = Number.parseInt(bv.replace(/[^0-9.-]/g,""), 10) || 0;
+      return nextAsc ? an - bn : bn - an;
+    }
+    return nextAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+  });
+  for(const row of rows){tbody.appendChild(row);}
+  table.dataset.sortCol = String(col);
+  table.dataset.sortAsc = nextAsc ? "true" : "false";
+}
 </script>
 </div>{{template "admin_theme_toggle" .}}</body></html>
