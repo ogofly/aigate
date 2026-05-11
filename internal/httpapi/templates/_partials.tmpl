@@ -131,8 +131,8 @@ table{min-width:560px}
 {{define "admin_theme_init"}}
 <script>(function(){
 var t=localStorage.getItem('theme');
-if(!t&&window.matchMedia('(prefers-color-scheme:light)').matches)t='light';
-if(t)document.documentElement.setAttribute('data-theme',t);
+if(!t){t='light';localStorage.setItem('theme',t);}
+document.documentElement.setAttribute('data-theme',t);
 })();</script>
 {{end}}
 
