@@ -20,14 +20,19 @@ Minimal Go gateway for OpenAI-like LLM APIs.
 **Playground** — test requests with managed keys, switch between OpenAI/Anthropic styles:
 
 <a href="./docs/screenshots/playground-light.jpeg"><img src="./docs/screenshots/playground-light.jpeg" width="48%" /></a>
+
+**Usage**
+
 <a href="./docs/screenshots/usage-light.jpeg"><img src="./docs/screenshots/usage-light.jpeg" width="48%" /></a>
 
 ### Dark Theme
 
-**Usage Analytics:**
+**Login**
 
-<a href="./docs/screenshots/usage-dark.jpeg"><img src="./docs/screenshots/usage-dark.jpeg" width="48%" /></a>
 <a href="./docs/screenshots/login-dark.jpeg"><img src="./docs/screenshots/login-dark.jpeg" width="48%" /></a>
+
+**Usage Analytics:**
+<a href="./docs/screenshots/usage-dark.jpeg"><img src="./docs/screenshots/usage-dark.jpeg" width="48%" /></a>
 
 ## Quick Start
 
