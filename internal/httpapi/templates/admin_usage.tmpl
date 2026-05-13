@@ -15,7 +15,8 @@ a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
 .section-toggle{display:flex;align-items:center;gap:8px;padding:0;border:0;background:none;color:var(--text-strong);box-shadow:none;font:inherit;font-size:16px;font-weight:600}
 .section-toggle:hover{transform:none;background:none;border:0;color:var(--text-strong)}
 .section-toggle:focus-visible{outline:2px solid rgba(139,92,246,.35);outline-offset:4px;border-radius:4px}
-.section-toggle-indicator{display:inline-block;color:var(--muted);font-size:12px;transition:transform .18s ease}
+.section-toggle-indicator{display:inline-block;color:var(--text);font-size:16px;font-weight:700;line-height:1;transition:transform .18s ease,opacity .18s ease;opacity:.9}
+.section-toggle:hover .section-toggle-indicator{opacity:1}
 .section-toggle[aria-expanded="false"] .section-toggle-indicator{transform:rotate(-90deg)}
 .section-body{margin-top:10px}
 .section-body[hidden]{display:none}
@@ -26,7 +27,10 @@ a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
 .trend-controls button.active,.pie-controls button.active{background:rgba(210,214,220,.04);color:var(--text-strong);border-color:rgba(139,92,246,.26);box-shadow:inset 0 0 0 1px rgba(139,92,246,.1)}
 .chart-group{margin-top:16px;padding-bottom:4px;border-bottom:1px solid var(--line)}
 .chart-group:last-child{border-bottom:0;padding-bottom:0}
-.chart-group .table-wrap{margin-top:0}
+.chart-group .table-wrap{max-height:500px;overflow-y:auto}
+.table-wrap::-webkit-scrollbar{width:8px}
+.table-wrap::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+.table-wrap::-webkit-scrollbar-track{background:transparent}
 .pie-chart{width:100%;height:300px;margin:16px 0}
 .pie-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;font-size:13px}
 .sort-btn{background:none;border:0;color:inherit;padding:0;cursor:pointer;font:inherit;transition:color .18s ease}
@@ -70,8 +74,8 @@ a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
   <button type="button" class="gb-btn active" data-group="hour">Hour</button>
   <button type="button" class="gb-btn" data-group="day">Day</button>
 </div>
-<script id="trendHourData" type="application/json">{{range $i, $p := .TrendHourPoints}}{{if $i}},{{end}}{"date":"{{.Date}}","request_count":{{.RequestCount}},"total_tokens":{{.TotalTokens}}}{{end}}</script>
-<script id="trendDayData" type="application/json">{{range $i, $p := .TrendDayPoints}}{{if $i}},{{end}}{"date":"{{.Date}}","request_count":{{.RequestCount}},"total_tokens":{{.TotalTokens}}}{{end}}</script>
+<script id="trendHourData" type="application/json">{{range $i, $p := .TrendHourPoints}}{{if $i}},{{end}}{"date":"{{.Date}}","request_count":{{.RequestCount}},"error_count":{{.ErrorCount}},"total_tokens":{{.TotalTokens}}}{{end}}</script>
+<script id="trendDayData" type="application/json">{{range $i, $p := .TrendDayPoints}}{{if $i}},{{end}}{"date":"{{.Date}}","request_count":{{.RequestCount}},"error_count":{{.ErrorCount}},"total_tokens":{{.TotalTokens}}}{{end}}</script>
 <div id="trendChart">{{if not (or .TrendHourPoints .TrendDayPoints)}}<div class="no-data">No usage data for the selected filters</div>{{end}}</div>
 </div>
 </section>
@@ -180,6 +184,7 @@ function renderTrend(chart, data){
   }
   var dates = data.map(function(d){return d.date});
   var requests = data.map(function(d){return d.request_count});
+  var errors = data.map(function(d){return d.error_count});
   var total = data.map(function(d){return d.total_tokens});
   var cs = getComputedStyle(document.documentElement);
   var chartMuted = cs.getPropertyValue('--muted').trim() || '#8b9098';
@@ -187,7 +192,7 @@ function renderTrend(chart, data){
   chart.setOption({
     backgroundColor:'transparent',
     tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
-    legend:{data:['Requests','Total Tokens'],textStyle:{color:chartMuted}},
+    legend:{data:['Requests','Errors','Total Tokens'],textStyle:{color:chartMuted}},
     grid:{left:'3%',right:'4%',bottom:'3%',containLabel:true},
     xAxis:{type:'category',data:dates,axisLabel:{color:chartMuted}},
     yAxis:[
@@ -196,6 +201,7 @@ function renderTrend(chart, data){
     ],
     series:[
       {name:'Requests',type:'line',yAxisIndex:0,smooth:true,areaStyle:{opacity:0.045},data:requests,itemStyle:{color:'#aeb2ba'}},
+      {name:'Errors',type:'line',yAxisIndex:0,smooth:true,areaStyle:{opacity:0.06},data:errors,itemStyle:{color:'#ef4444'}},
       {name:'Total Tokens',type:'line',yAxisIndex:1,smooth:true,areaStyle:{opacity:0.055},data:total,itemStyle:{color:'#8b5cf6'}}
     ]
   });
@@ -322,11 +328,18 @@ function sortTable(tableId, col, kind){
   const tbody = table.tBodies[0];
   const rows = Array.from(tbody.rows);
   if(rows.length === 0){return;}
-  const nextAsc = table.dataset.sortCol !== String(col) ? true : table.dataset.sortAsc !== "true";
+  const isSameCol = table.dataset.sortCol === String(col);
+  const nextAsc = kind === "num" ? (isSameCol && table.dataset.sortAsc === "true") : (isSameCol ? table.dataset.sortAsc !== "true" : false);
   rows.sort((a, b) => {
-    const av = (a.cells[col]?.textContent || "").trim();
-    const bv = (b.cells[col]?.textContent || "").trim();
+    let av = (a.cells[col]?.textContent || "").trim();
+    let bv = (b.cells[col]?.textContent || "").trim();
     if(kind === "num"){
+      const aAttr = a.cells[col]?.querySelector("[data-tokens]");
+      const bAttr = b.cells[col]?.querySelector("[data-tokens]");
+      if(aAttr || bAttr){
+        av = aAttr ? aAttr.dataset.tokens : av;
+        bv = bAttr ? bAttr.dataset.tokens : bv;
+      }
       const an = Number.parseInt(av.replace(/[^0-9.-]/g,""), 10) || 0;
       const bn = Number.parseInt(bv.replace(/[^0-9.-]/g,""), 10) || 0;
       return nextAsc ? an - bn : bn - an;
@@ -337,5 +350,14 @@ function sortTable(tableId, col, kind){
   table.dataset.sortCol = String(col);
   table.dataset.sortAsc = nextAsc ? "true" : "false";
 }
+
+(function(){
+  {{if .ModelSummaries}}
+  sortTable('model-table', 4, 'num');
+  {{end}}
+  {{if .Usage}}
+  sortTable('key-table', {{if .IsAdmin}}6{{else}}5{{end}}, 'num');
+  {{end}}
+})();
 </script>
 </div>{{template "admin_theme_toggle" .}}</body></html>
