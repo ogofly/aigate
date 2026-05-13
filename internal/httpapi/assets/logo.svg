@@ -1,19 +1,79 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="LLM Gateway">
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 64 64"
+  role="img"
+  aria-label="LLM Gateway"
+>
   <defs>
-    <linearGradient id="shell" x1="12" y1="8" x2="52" y2="56" gradientUnits="userSpaceOnUse">
+    <linearGradient id="shell" x1="12" y1="8" x2="52" y2="56">
       <stop offset="0" stop-color="#3a3d44"/>
       <stop offset="1" stop-color="#17191d"/>
     </linearGradient>
-    <linearGradient id="accent" x1="18" y1="18" x2="46" y2="46" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#a78bfa"/>
+
+    <linearGradient id="accent" x1="20" y1="20" x2="44" y2="44">
+      <stop offset="0" stop-color="#c4b5fd"/>
       <stop offset="1" stop-color="#7c3aed"/>
     </linearGradient>
   </defs>
-  <rect x="6" y="6" width="52" height="52" rx="10" fill="url(#shell)" stroke="#4b4f58" stroke-width="1.5"/>
-  <path d="M19 32h26" fill="none" stroke="#d1d5db" stroke-width="3" stroke-linecap="round"/>
-  <path d="M32 19v26" fill="none" stroke="#d1d5db" stroke-width="3" stroke-linecap="round"/>
-  <path d="M21 21l22 22M43 21 21 43" fill="none" stroke="#737883" stroke-width="2" stroke-linecap="round"/>
-  <circle cx="32" cy="32" r="7" fill="#191b20" stroke="url(#accent)" stroke-width="3"/>
-  <circle cx="32" cy="32" r="2.5" fill="#a78bfa"/>
-  <path d="M46 14h4v4" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- outer shell -->
+  <rect
+    x="6"
+    y="6"
+    width="52"
+    height="52"
+    rx="12"
+    fill="url(#shell)"
+    stroke="#4b4f58"
+    stroke-width="1.5"
+  />
+
+  <!-- primary gateway cross -->
+  <g
+    stroke="#e5e7eb"
+    stroke-width="4"
+    stroke-linecap="round"
+  >
+    <path d="M19 32h26"/>
+    <path d="M32 19v26"/>
+  </g>
+
+  <!-- secondary routing -->
+  <g
+    stroke="#7a7f8a"
+    stroke-width="2.4"
+    stroke-linecap="round"
+    opacity="0.72"
+  >
+    <path d="M22 22l20 20"/>
+    <path d="M42 22 22 42"/>
+  </g>
+
+  <!-- enlarged AI core -->
+  <circle
+    cx="32"
+    cy="32"
+    r="9"
+    fill="#191b20"
+    stroke="url(#accent)"
+    stroke-width="3.5"
+  />
+
+  <!-- enlarged center node -->
+  <circle
+    cx="32"
+    cy="32"
+    r="3.4"
+    fill="#c4b5fd"
+  />
+
+  <!-- corner indicator -->
+  <path
+    d="M45 15h4v4"
+    fill="none"
+    stroke="#8b5cf6"
+    stroke-width="2.2"
+    stroke-linecap="round"
+    opacity="0.9"
+  />
 </svg>
