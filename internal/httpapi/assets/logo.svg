@@ -5,7 +5,7 @@
       <stop offset="0" stop-color="#4b505a"/>
       <stop offset="1" stop-color="#24272e"/>
     </linearGradient>
-    <linearGradient id="core" x1="19.5" y1="19" x2="44.5" y2="45" gradientUnits="userSpaceOnUse">
+    <linearGradient id="core" x1="15" y1="15" x2="49" y2="49" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#d8b4fe"/>
       <stop offset="1" stop-color="#7c3aed"/>
     </linearGradient>
@@ -13,7 +13,7 @@
   <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#shell)" stroke="#6f7480" stroke-width="1"/>
   <path d="M12 32h16.5M35.5 32h16.5M32 12v16.5M32 35.5v16.5" fill="none" stroke="#f5f3ff" stroke-width="5.3" stroke-linecap="round"/>
   <path d="M18.5 18.5l9.5 9.5M45.5 18.5l-9.5 9.5M45.5 45.5l-9.5-9.5M18.5 45.5l9.5-9.5" fill="none" stroke="#aeb4bf" stroke-width="3.5" stroke-linecap="round" opacity=".68"/>
-  <circle cx="32" cy="32" r="13.2" fill="#24272e" stroke="url(#core)" stroke-width="4.6"/>
-  <circle cx="32" cy="32" r="5.1" fill="#f4eaff"/>
-  <path d="M50 9h5v5" fill="none" stroke="#b475f5" stroke-width="3.2" stroke-linecap="round"/>
+  <circle cx="32" cy="32" r="17" fill="url(#core)"/>
+  <circle cx="32" cy="32" r="8" fill="#f4eaff"/>
+  <path d="M45 10h9v9" fill="none" stroke="#b475f5" stroke-width="4.8" stroke-linecap="round"/>
 </svg>
