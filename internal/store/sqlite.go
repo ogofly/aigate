@@ -686,6 +686,89 @@ func (s *SQLiteStore) UsageSummaries(ctx context.Context) ([]usage.Summary, erro
 	return out, rows.Err()
 }
 
+func (s *SQLiteStore) QueryUsageRollups(ctx context.Context, filter UsageFilter) ([]usage.Rollup, error) {
+	query := `
+		SELECT
+			bucket_start,
+			key_id,
+			key_name,
+			owner,
+			purpose,
+			endpoint,
+			provider,
+			public_model,
+			upstream_model,
+			request_count,
+			success_count,
+			error_count,
+			request_tokens,
+			response_tokens,
+			total_tokens
+		FROM usage_rollups
+		WHERE 1=1`
+	args := []any{}
+	if filter.KeyID != "" {
+		query += " AND key_id = ?"
+		args = append(args, filter.KeyID)
+	}
+	if !filter.StartTime.IsZero() {
+		query += " AND bucket_start >= ?"
+		args = append(args, filter.StartTime.UTC().Format(time.RFC3339))
+	}
+	if !filter.EndTime.IsZero() {
+		query += " AND bucket_start < ?"
+		args = append(args, filter.EndTime.UTC().Add(24*time.Hour).Format(time.RFC3339))
+	}
+	if filter.Model != "" {
+		query += " AND public_model = ?"
+		args = append(args, filter.Model)
+	}
+	if filter.Owner != "" {
+		query += " AND owner = ?"
+		args = append(args, filter.Owner)
+	}
+	query += " ORDER BY bucket_start, key_id, endpoint, provider, public_model, upstream_model"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []usage.Rollup
+	for rows.Next() {
+		var (
+			rollup      usage.Rollup
+			bucketStart string
+		)
+		if err := rows.Scan(
+			&bucketStart,
+			&rollup.KeyID,
+			&rollup.KeyName,
+			&rollup.Owner,
+			&rollup.Purpose,
+			&rollup.Endpoint,
+			&rollup.Provider,
+			&rollup.PublicModel,
+			&rollup.UpstreamModel,
+			&rollup.RequestCount,
+			&rollup.SuccessCount,
+			&rollup.ErrorCount,
+			&rollup.RequestTokens,
+			&rollup.ResponseTokens,
+			&rollup.TotalTokens,
+		); err != nil {
+			return nil, err
+		}
+		rollup.BucketStart, err = time.Parse(time.RFC3339, bucketStart)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rollup)
+	}
+	return out, rows.Err()
+}
+
 type TrendPoint struct {
 	Date           string `json:"date"`
 	RequestCount   int64  `json:"request_count"`

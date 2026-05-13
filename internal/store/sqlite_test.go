@@ -257,3 +257,109 @@ func TestQueryUsageTrendGroupsByLocalTime(t *testing.T) {
 		t.Errorf("pointsH[2].Date = %q, want %q", pointsH[2].Date, "2026-04-29 01:00")
 	}
 }
+
+func TestQueryUsageRollupsFilters(t *testing.T) {
+	path := t.TempDir() + "/rollups.db"
+	s, err := store.NewSQLite(path)
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	defer s.Close()
+
+	rollups := []usage.Rollup{
+		{
+			BucketStart:    time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+			KeyID:          usage.KeyID("sk-alice-001"),
+			KeyName:        "alice-key",
+			Owner:          "alice",
+			Purpose:        "debug",
+			Endpoint:       "chat.completions",
+			Provider:       "openai",
+			PublicModel:    "gpt-4o-mini",
+			UpstreamModel:  "gpt-4o-mini",
+			RequestCount:   1,
+			SuccessCount:   1,
+			RequestTokens:  10,
+			ResponseTokens: 5,
+			TotalTokens:    15,
+		},
+		{
+			BucketStart:    time.Date(2026, 5, 10, 1, 0, 0, 0, time.UTC),
+			KeyID:          usage.KeyID("sk-alice-001"),
+			KeyName:        "alice-key",
+			Owner:          "alice",
+			Purpose:        "debug",
+			Endpoint:       "chat.completions",
+			Provider:       "openai",
+			PublicModel:    "deepseek-chat",
+			UpstreamModel:  "deepseek-chat",
+			RequestCount:   2,
+			SuccessCount:   2,
+			RequestTokens:  20,
+			ResponseTokens: 10,
+			TotalTokens:    30,
+		},
+		{
+			BucketStart:    time.Date(2026, 5, 11, 0, 0, 0, 0, time.UTC),
+			KeyID:          usage.KeyID("sk-bob-001"),
+			KeyName:        "bob-key",
+			Owner:          "bob",
+			Purpose:        "prod",
+			Endpoint:       "chat.completions",
+			Provider:       "openai",
+			PublicModel:    "gpt-4o-mini",
+			UpstreamModel:  "gpt-4o-mini",
+			RequestCount:   3,
+			SuccessCount:   2,
+			ErrorCount:     1,
+			RequestTokens:  30,
+			ResponseTokens: 15,
+			TotalTokens:    45,
+		},
+	}
+	if err := s.UpsertUsageRollups(context.Background(), rollups); err != nil {
+		t.Fatalf("UpsertUsageRollups() error = %v", err)
+	}
+
+	filter := store.UsageFilter{
+		StartTime: time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+		KeyID:     usage.KeyID("sk-alice-001"),
+		Model:     "gpt-4o-mini",
+		Owner:     "alice",
+	}
+	got, err := s.QueryUsageRollups(context.Background(), filter)
+	if err != nil {
+		t.Fatalf("QueryUsageRollups() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(rollups) = %d, want %d", len(got), 1)
+	}
+	if got[0].KeyName != "alice-key" || got[0].Owner != "alice" || got[0].PublicModel != "gpt-4o-mini" || got[0].TotalTokens != 15 {
+		t.Fatalf("unexpected rollup: %+v", got[0])
+	}
+
+	got, err = s.QueryUsageRollups(context.Background(), store.UsageFilter{
+		StartTime: time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 5, 11, 0, 0, 0, 0, time.UTC),
+		Owner:     "alice",
+	})
+	if err != nil {
+		t.Fatalf("QueryUsageRollups(owner) error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(owner rollups) = %d, want %d", len(got), 2)
+	}
+
+	got, err = s.QueryUsageRollups(context.Background(), store.UsageFilter{
+		StartTime: time.Date(2026, 5, 11, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 5, 11, 0, 0, 0, 0, time.UTC),
+		Owner:     "bob",
+	})
+	if err != nil {
+		t.Fatalf("QueryUsageRollups(date) error = %v", err)
+	}
+	if len(got) != 1 || got[0].KeyName != "bob-key" {
+		t.Fatalf("unexpected date filtered rollups: %+v", got)
+	}
+}

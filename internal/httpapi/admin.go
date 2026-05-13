@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -103,14 +104,25 @@ type adminViewData struct {
 	PlayError            string
 	APIBase              string
 	UsageModels          []string
+	UsageKeys            []adminUsageKeyOption
+	UsageOwners          []string
 	FilterStart          string
 	FilterEnd            string
 	FilterModel          string
+	FilterKey            string
+	FilterOwner          string
 	View                 string
 	ModelSummaries       []usage.ModelSummary
 	HasAnthropicProvider bool
 	GroupBy              string
 	PieMetric            string
+	TrendHourPoints      []store.TrendPoint
+	TrendDayPoints       []store.TrendPoint
+}
+
+type adminUsageKeyOption struct {
+	Value string
+	Label string
 }
 
 func (h *Handler) handleAdminLoginPage(w http.ResponseWriter, r *http.Request) {
@@ -504,24 +516,46 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	startStr := r.URL.Query().Get("start")
-	endStr := r.URL.Query().Get("end")
-	model := r.URL.Query().Get("model")
-	view := r.URL.Query().Get("view")
-	groupBy := r.URL.Query().Get("groupBy")
-	if view == "" {
-		view = "trend"
-	}
+	startStr := strings.TrimSpace(r.URL.Query().Get("start"))
+	endStr := strings.TrimSpace(r.URL.Query().Get("end"))
+	model := strings.TrimSpace(r.URL.Query().Get("model"))
+	keyID := strings.TrimSpace(r.URL.Query().Get("key"))
+	owner := strings.TrimSpace(r.URL.Query().Get("owner"))
 	pieMetric := r.URL.Query().Get("pieMetric")
-	if pieMetric == "" {
+	if pieMetric != "requests" {
 		pieMetric = "tokens"
+	}
+
+	keys, err := h.visibleKeys(r.Context(), session)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "admin_usage_error", err.Error())
+		return
+	}
+	usageKeys := buildUsageKeyOptions(keys)
+	usageOwners := buildUsageOwnerOptions(keys)
+	visibleKeyIDs := make(map[string]struct{}, len(usageKeys))
+	for _, option := range usageKeys {
+		visibleKeyIDs[option.Value] = struct{}{}
+	}
+	if keyID != "" {
+		if _, ok := visibleKeyIDs[keyID]; !ok {
+			keyID = ""
+		}
 	}
 
 	filter := store.UsageFilter{
 		Model: model,
+		KeyID: keyID,
 	}
 	if session.Role != roleAdmin {
 		filter.Owner = session.Username
+		owner = ""
+	} else if owner != "" {
+		if containsString(usageOwners, owner) {
+			filter.Owner = owner
+		} else {
+			owner = ""
+		}
 	}
 
 	if startStr != "" {
@@ -545,25 +579,15 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 		endStr = filter.EndTime.Format("2006-01-02")
 	}
 
-	var summaries []usage.Summary
-	var modelSummaries []usage.ModelSummary
-	if view == "by_model" {
-		var err error
-		modelSummaries, err = h.store.QueryUsageByModel(r.Context(), filter)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "admin_usage_error", err.Error())
-			return
-		}
-	} else if view == "trend" {
-		// chart data loaded via AJAX
-	} else {
-		var err error
-		summaries, err = h.store.QueryUsage(r.Context(), filter)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "admin_usage_error", err.Error())
-			return
-		}
+	rollups, err := h.store.QueryUsageRollups(r.Context(), filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "admin_usage_error", err.Error())
+		return
 	}
+	summaries := summarizeRollupsByKey(rollups)
+	modelSummaries := summarizeRollupsByModel(rollups)
+	trendHourPoints := summarizeRollupsTrend(rollups, "hour")
+	trendDayPoints := summarizeRollupsTrend(rollups, "day")
 
 	usageModels, err := h.store.ListUsageModels(r.Context())
 	if err != nil {
@@ -578,13 +602,17 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 		Usage:          summaries,
 		CurrentPath:    "/admin/usage/view",
 		UsageModels:    usageModels,
+		UsageKeys:      usageKeys,
+		UsageOwners:    usageOwners,
 		FilterStart:    startStr,
 		FilterEnd:      endStr,
 		FilterModel:    model,
-		View:           view,
+		FilterKey:      keyID,
+		FilterOwner:    owner,
 		ModelSummaries: modelSummaries,
-		GroupBy:        groupBy,
 		PieMetric:      pieMetric,
+		TrendHourPoints: trendHourPoints,
+		TrendDayPoints:  trendDayPoints,
 	}
 	_ = adminUsageTemplate.Execute(w, data)
 }
@@ -595,16 +623,21 @@ func (h *Handler) handleAdminUsageTrend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	startStr := r.URL.Query().Get("start")
-	endStr := r.URL.Query().Get("end")
-	model := r.URL.Query().Get("model")
-	groupBy := r.URL.Query().Get("groupBy")
+	startStr := strings.TrimSpace(r.URL.Query().Get("start"))
+	endStr := strings.TrimSpace(r.URL.Query().Get("end"))
+	model := strings.TrimSpace(r.URL.Query().Get("model"))
+	keyID := strings.TrimSpace(r.URL.Query().Get("key"))
+	owner := strings.TrimSpace(r.URL.Query().Get("owner"))
+	groupBy := strings.TrimSpace(r.URL.Query().Get("groupBy"))
 
 	filter := store.UsageFilter{
 		Model: model,
+		KeyID: keyID,
 	}
 	if session.Role != roleAdmin {
 		filter.Owner = session.Username
+	} else if owner != "" {
+		filter.Owner = owner
 	}
 
 	if startStr != "" {
@@ -1101,6 +1134,189 @@ func (h *Handler) requireAdminSession(w http.ResponseWriter, r *http.Request) bo
 func (h *Handler) adminAuthed(r *http.Request) bool {
 	session, ok := h.webSession(r)
 	return ok && session.Role == roleAdmin
+}
+
+func buildUsageKeyOptions(keys []config.KeyConfig) []adminUsageKeyOption {
+	nameCounts := make(map[string]int)
+	nameOwnerCounts := make(map[string]int)
+	for _, key := range keys {
+		if key.Name == "" {
+			continue
+		}
+		nameCounts[key.Name]++
+		nameOwnerCounts[key.Name+"\x00"+key.Owner]++
+	}
+
+	options := make([]adminUsageKeyOption, 0, len(keys))
+	for _, key := range keys {
+		keyID := usage.KeyID(key.Key)
+		label := key.Name
+		if label == "" {
+			label = maskIdentifier(keyID)
+		} else if nameCounts[key.Name] > 1 {
+			if key.Owner != "" {
+				label += " / " + key.Owner
+			}
+			if key.Owner == "" || nameOwnerCounts[key.Name+"\x00"+key.Owner] > 1 {
+				label += " / " + maskIdentifier(keyID)
+			}
+		}
+		options = append(options, adminUsageKeyOption{
+			Value: keyID,
+			Label: label,
+		})
+	}
+	sort.Slice(options, func(i, j int) bool {
+		if options[i].Label == options[j].Label {
+			return options[i].Value < options[j].Value
+		}
+		return options[i].Label < options[j].Label
+	})
+	return options
+}
+
+func buildUsageOwnerOptions(keys []config.KeyConfig) []string {
+	set := make(map[string]struct{})
+	for _, key := range keys {
+		if key.Owner == "" {
+			continue
+		}
+		set[key.Owner] = struct{}{}
+	}
+	out := make([]string, 0, len(set))
+	for owner := range set {
+		out = append(out, owner)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func summarizeRollupsTrend(rollups []usage.Rollup, groupBy string) []store.TrendPoint {
+	type agg struct {
+		requestCount   int64
+		successCount   int64
+		errorCount     int64
+		requestTokens  int64
+		responseTokens int64
+		totalTokens    int64
+	}
+
+	orderedKeys := make([]string, 0)
+	groups := make(map[string]*agg)
+	for _, rollup := range rollups {
+		local := rollup.BucketStart.In(time.Local)
+		key := local.Format("2006-01-02")
+		if groupBy == "hour" {
+			key = local.Format("2006-01-02 15:00")
+		}
+		if _, ok := groups[key]; !ok {
+			groups[key] = &agg{}
+			orderedKeys = append(orderedKeys, key)
+		}
+		group := groups[key]
+		group.requestCount += rollup.RequestCount
+		group.successCount += rollup.SuccessCount
+		group.errorCount += rollup.ErrorCount
+		group.requestTokens += rollup.RequestTokens
+		group.responseTokens += rollup.ResponseTokens
+		group.totalTokens += rollup.TotalTokens
+	}
+
+	out := make([]store.TrendPoint, 0, len(orderedKeys))
+	for _, key := range orderedKeys {
+		group := groups[key]
+		out = append(out, store.TrendPoint{
+			Date:           key,
+			RequestCount:   group.requestCount,
+			SuccessCount:   group.successCount,
+			ErrorCount:     group.errorCount,
+			RequestTokens:  group.requestTokens,
+			ResponseTokens: group.responseTokens,
+			TotalTokens:    group.totalTokens,
+		})
+	}
+	return out
+}
+
+func summarizeRollupsByKey(rollups []usage.Rollup) []usage.Summary {
+	summaries := make(map[string]*usage.Summary)
+	for _, rollup := range rollups {
+		summary, ok := summaries[rollup.KeyID]
+		if !ok {
+			summary = &usage.Summary{
+				KeyID:   rollup.KeyID,
+				KeyName: rollup.KeyName,
+				Owner:   rollup.Owner,
+				Purpose: rollup.Purpose,
+			}
+			summaries[rollup.KeyID] = summary
+		}
+		if summary.KeyName == "" {
+			summary.KeyName = rollup.KeyName
+		}
+		if summary.Owner == "" {
+			summary.Owner = rollup.Owner
+		}
+		if summary.Purpose == "" {
+			summary.Purpose = rollup.Purpose
+		}
+		summary.RequestCount += rollup.RequestCount
+		summary.SuccessCount += rollup.SuccessCount
+		summary.ErrorCount += rollup.ErrorCount
+		summary.RequestTokens += rollup.RequestTokens
+		summary.ResponseTokens += rollup.ResponseTokens
+		summary.TotalTokens += rollup.TotalTokens
+	}
+
+	out := make([]usage.Summary, 0, len(summaries))
+	for _, summary := range summaries {
+		out = append(out, *summary)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].KeyID == out[j].KeyID {
+			return out[i].KeyName < out[j].KeyName
+		}
+		return out[i].KeyID < out[j].KeyID
+	})
+	return out
+}
+
+func summarizeRollupsByModel(rollups []usage.Rollup) []usage.ModelSummary {
+	summaries := make(map[string]*usage.ModelSummary)
+	keySets := make(map[string]map[string]struct{})
+	for _, rollup := range rollups {
+		if rollup.PublicModel == "" {
+			continue
+		}
+		summary, ok := summaries[rollup.PublicModel]
+		if !ok {
+			summary = &usage.ModelSummary{Model: rollup.PublicModel}
+			summaries[rollup.PublicModel] = summary
+		}
+		summary.RequestCount += rollup.RequestCount
+		summary.SuccessCount += rollup.SuccessCount
+		summary.ErrorCount += rollup.ErrorCount
+		summary.RequestTokens += rollup.RequestTokens
+		summary.ResponseTokens += rollup.ResponseTokens
+		summary.TotalTokens += rollup.TotalTokens
+		if _, ok := keySets[rollup.PublicModel]; !ok {
+			keySets[rollup.PublicModel] = make(map[string]struct{})
+		}
+		keySets[rollup.PublicModel][rollup.KeyID] = struct{}{}
+	}
+
+	out := make([]usage.ModelSummary, 0, len(summaries))
+	for model, summary := range summaries {
+		summary.KeyCount = int64(len(keySets[model]))
+		out = append(out, *summary)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].RequestCount == out[j].RequestCount {
+			return out[i].Model < out[j].Model
+		}
+		return out[i].RequestCount > out[j].RequestCount
+	})
+	return out
 }
 
 func (h *Handler) visibleKeys(ctx context.Context, session webSession) ([]config.KeyConfig, error) {

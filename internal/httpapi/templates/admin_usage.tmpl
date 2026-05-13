@@ -3,36 +3,40 @@
 {{template "admin_theme_init" .}}
 <style>
 {{template "admin_common_styles" .}}
-.chart-group{margin-top:16px;padding-bottom:4px;border-bottom:1px solid var(--line)}
-.chart-group .pie-controls{margin-bottom:0}
-.chart-group .pie-chart{margin:14px 0 10px}
-.chart-group .table-wrap{margin-top:0}
-.sort-btn{background:none;border:0;color:inherit;padding:0;cursor:pointer;font:inherit;transition:color .18s ease}
-.sort-btn:hover{color:var(--text-strong)}
 .page-intro{margin:0 0 16px}
-.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-bottom:2px;font-size:13px}
-.tab{padding:6px 12px;border:1px solid var(--line);color:var(--muted);cursor:pointer;text-decoration:none;border-radius:4px;background:rgba(210,214,220,.022);transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease}
-.tab:hover{background:rgba(210,214,220,.032);color:var(--text)}
-.tab.active{background:rgba(210,214,220,.04);color:var(--text-strong);border-color:rgba(139,92,246,.26);box-shadow:inset 0 0 0 1px rgba(139,92,246,.1)}
-.filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:10px;align-items:end;margin-top:12px}
+.filters{display:grid;grid-template-columns:repeat(5,minmax(0,1fr)) auto;gap:10px;align-items:end;margin-top:12px}
 .filters label{display:flex;flex-direction:column;gap:6px;font-size:13px;min-width:0}
 .filter-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
-#trendChart{width:100%;height:400px;margin-top:20px}
+.section-card{margin-top:16px}
+.section-card:first-of-type{margin-top:0}
+.section-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.section-title{margin:0}
+.section-toggle{display:flex;align-items:center;gap:8px;padding:0;border:0;background:none;color:var(--text-strong);box-shadow:none;font:inherit;font-size:16px;font-weight:600}
+.section-toggle:hover{transform:none;background:none;border:0;color:var(--text-strong)}
+.section-toggle:focus-visible{outline:2px solid rgba(139,92,246,.35);outline-offset:4px;border-radius:4px}
+.section-toggle-indicator{display:inline-block;color:var(--muted);font-size:12px;transition:transform .18s ease}
+.section-toggle[aria-expanded="false"] .section-toggle-indicator{transform:rotate(-90deg)}
+.section-body{margin-top:10px}
+.section-body[hidden]{display:none}
+#trendChart{width:100%;height:400px;margin-top:16px}
 .trend-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;font-size:13px}
-.trend-controls button{padding:6px 12px;font-size:13px;border:1px solid var(--line);background:rgba(210,214,220,.022);color:var(--muted);border-radius:4px;cursor:pointer;transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease}
-.trend-controls button:hover{background:rgba(210,214,220,.032);color:var(--text)}
-.trend-controls button.active{background:rgba(210,214,220,.04);color:var(--text-strong);border-color:rgba(139,92,246,.26);box-shadow:inset 0 0 0 1px rgba(139,92,246,.1)}
+.trend-controls button,.pie-controls button{padding:6px 12px;font-size:13px;border:1px solid var(--line);background:rgba(210,214,220,.022);color:var(--muted);border-radius:4px;cursor:pointer;transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease}
+.trend-controls button:hover,.pie-controls button:hover{background:rgba(210,214,220,.032);color:var(--text)}
+.trend-controls button.active,.pie-controls button.active{background:rgba(210,214,220,.04);color:var(--text-strong);border-color:rgba(139,92,246,.26);box-shadow:inset 0 0 0 1px rgba(139,92,246,.1)}
+.chart-group{margin-top:16px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.chart-group:last-child{border-bottom:0;padding-bottom:0}
+.chart-group .table-wrap{margin-top:0}
 .pie-chart{width:100%;height:300px;margin:16px 0}
 .pie-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;font-size:13px}
-.pie-controls button{padding:6px 12px;font-size:13px;border:1px solid var(--line);background:rgba(210,214,220,.022);color:var(--muted);border-radius:4px;cursor:pointer;transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease}
-.pie-controls button:hover{background:rgba(210,214,220,.032);color:var(--text)}
-.pie-controls button.active{background:rgba(210,214,220,.04);color:var(--text-strong);border-color:rgba(139,92,246,.26);box-shadow:inset 0 0 0 1px rgba(139,92,246,.1)}
-.no-data{text-align:center;padding:40px;color:var(--muted);font-size:16px}
+.sort-btn{background:none;border:0;color:inherit;padding:0;cursor:pointer;font:inherit;transition:color .18s ease}
+.sort-btn:hover{color:var(--text-strong)}
+.no-data{text-align:center;padding:28px;color:var(--muted);font-size:15px}
+@media (max-width:960px){
+.filters{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 @media (max-width:720px){
 .filters{grid-template-columns:1fr}
-.tabs{flex-wrap:nowrap;overflow-x:auto}
-.tab{white-space:nowrap;flex:0 0 auto}
 #trendChart{height:300px}
 .pie-chart{height:240px}
 }
@@ -42,98 +46,48 @@ a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
 <h1>Usage</h1>
 <section class="panel">
 <h2 class="panel-title">Usage Analytics</h2>
-<p class="panel-copy page-intro">Filter traffic by date range and model. Tables remain scrollable on smaller screens.</p>
+<p class="panel-copy page-intro">Trend, key, and model views share the same filters and render together on one page.</p>
 <form method="get" action="/admin/usage/view" class="filters">
-  <input type="hidden" name="view" value="{{.View}}">
   <label>Start Date <input type="date" name="start" value="{{.FilterStart}}"></label>
   <label>End Date <input type="date" name="end" value="{{.FilterEnd}}"></label>
   <label>Model <select name="model"><option value="">All</option>{{range .UsageModels}}<option value="{{.}}" {{if eq . $.FilterModel}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <label>Key <select name="key"><option value="">All</option>{{range .UsageKeys}}<option value="{{.Value}}" {{if eq .Value $.FilterKey}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+  {{if .IsAdmin}}<label>Owner <select name="owner"><option value="">All</option>{{range .UsageOwners}}<option value="{{.}}" {{if eq . $.FilterOwner}}selected{{end}}>{{.}}</option>{{end}}</select></label>{{end}}
   <div class="filter-actions">
     <button type="submit">Filter</button>
-    {{if or .FilterStart .FilterEnd .FilterModel}}<a class="clear-filters" href="/admin/usage/view?view={{.View}}">Clear Filters</a>{{end}}
+    {{if or .FilterStart .FilterEnd .FilterModel .FilterKey .FilterOwner}}<a class="clear-filters" href="/admin/usage/view">Clear Filters</a>{{end}}
   </div>
 </form>
-{{define "tabFilters"}}{{if .FilterStart}}&start={{.FilterStart}}{{end}}{{if .FilterEnd}}&end={{.FilterEnd}}{{end}}{{if .FilterModel}}&model={{.FilterModel}}{{end}}{{if .PieMetric}}&pieMetric={{.PieMetric}}{{end}}{{end}}
-<div class="tabs">
-  <a class="tab{{if eq .View "trend"}} active{{end}}" href="/admin/usage/view?view=trend{{template "tabFilters" .}}">Trend</a>
-  <a class="tab{{if eq .View "by_key"}} active{{end}}" href="/admin/usage/view?view=by_key{{template "tabFilters" .}}">By Key</a>
-  <a class="tab{{if eq .View "by_model"}} active{{end}}" href="/admin/usage/view?view=by_model{{template "tabFilters" .}}">By Model</a>
+</section>
+
+<section class="panel section-card">
+<div class="section-toggle-row">
+<h2 class="panel-title section-title"><button type="button" class="section-toggle" data-section-target="trendSectionBody" data-resize-target="trendChart" aria-expanded="true">Trend <span class="section-toggle-indicator">▾</span></button></h2>
+</div>
+<div id="trendSectionBody" class="section-body">
+<div id="trendControls" class="trend-controls">
+  <span>Granularity:</span>
+  <button type="button" class="gb-btn active" data-group="hour">Hour</button>
+  <button type="button" class="gb-btn" data-group="day">Day</button>
+</div>
+<script id="trendHourData" type="application/json">{{range $i, $p := .TrendHourPoints}}{{if $i}},{{end}}{"date":"{{.Date}}","request_count":{{.RequestCount}},"total_tokens":{{.TotalTokens}}}{{end}}</script>
+<script id="trendDayData" type="application/json">{{range $i, $p := .TrendDayPoints}}{{if $i}},{{end}}{"date":"{{.Date}}","request_count":{{.RequestCount}},"total_tokens":{{.TotalTokens}}}{{end}}</script>
+<div id="trendChart">{{if not (or .TrendHourPoints .TrendDayPoints)}}<div class="no-data">No usage data for the selected filters</div>{{end}}</div>
 </div>
 </section>
 
-{{if eq .View "trend"}}
-<div id="trendControls" class="trend-controls">
-  <span>Granularity:</span>
-  <button type="button" class="gb-btn{{if ne .GroupBy "day"}} active{{end}}" data-group="hour">Hour</button>
-  <button type="button" class="gb-btn{{if eq .GroupBy "day"}} active{{end}}" data-group="day">Day</button>
+<section class="panel section-card">
+<div class="section-toggle-row">
+<h2 class="panel-title section-title"><button type="button" class="section-toggle" data-section-target="modelSectionBody" data-resize-target="modelPieChart" aria-expanded="true">By Model <span class="section-toggle-indicator">▾</span></button></h2>
 </div>
-<div id="trendChart"></div>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
-<script>
-var trendGb = '{{if .GroupBy}}{{.GroupBy}}{{else}}hour{{end}}';
-var trendUrl = '/admin/usage/trend?groupBy=' + trendGb + '{{if .FilterStart}}&start={{.FilterStart}}{{end}}{{if .FilterEnd}}&end={{.FilterEnd}}{{end}}{{if .FilterModel}}&model={{.FilterModel}}{{end}}';
-
-function formatTokens(n){
-  if(n===0)return '0';
-  if(n<10000)return String(n);
-  if(n<1000000)return(Math.round(n/100)/10).toFixed(1)+'K';
-  return(Math.round(n/10000)/100).toFixed(2)+'M';
-}
-
-function renderTrend(data){
-  if(!data.length){
-    document.getElementById('trendChart').innerHTML = '<div class="no-data">No usage data for the selected filters</div>';
-    return;
-  }
-  var dates = data.map(function(d){return d.date});
-  var requests = data.map(function(d){return d.request_count});
-  var total = data.map(function(d){return d.total_tokens});
-  var cs = getComputedStyle(document.documentElement);
-  var chartMuted = cs.getPropertyValue('--muted').trim() || '#8b9098';
-  var chartLine = cs.getPropertyValue('--line').trim() || 'rgba(210,214,220,.09)';
-  var chart = echarts.init(document.getElementById('trendChart'));
-  chart.setOption({
-    backgroundColor:'transparent',
-    tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
-    legend:{data:['Requests','Total Tokens'],textStyle:{color:chartMuted}},
-    grid:{left:'3%',right:'4%',bottom:'3%',containLabel:true},
-    xAxis:{type:'category',data:dates,axisLabel:{color:chartMuted}},
-    yAxis:[
-      {type:'value',name:'Requests',position:'left',axisLabel:{color:chartMuted},splitLine:{lineStyle:{color:chartLine}}},
-      {type:'value',name:'Tokens',position:'right',axisLabel:{formatter:function(v){return formatTokens(v)},color:chartMuted},splitLine:{show:false}}
-    ],
-    series:[
-      {name:'Requests',type:'line',yAxisIndex:0,smooth:true,areaStyle:{opacity:0.045},data:requests,itemStyle:{color:'#aeb2ba'}},
-      {name:'Total Tokens',type:'line',yAxisIndex:1,smooth:true,areaStyle:{opacity:0.055},data:total,itemStyle:{color:'#8b5cf6'}}
-    ]
-  });
-  window.addEventListener('resize',function(){chart.resize()});
-}
-
-function loadTrend(groupBy){
-  var url = '/admin/usage/trend?groupBy=' + groupBy + '{{if .FilterStart}}&start={{.FilterStart}}{{end}}{{if .FilterEnd}}&end={{.FilterEnd}}{{end}}{{if .FilterModel}}&model={{.FilterModel}}{{end}}';
-  fetch(url).then(function(r){return r.json()}).then(renderTrend);
-}
-
-document.querySelectorAll('.gb-btn').forEach(function(btn){
-  btn.addEventListener('click',function(){
-    var gb = btn.dataset.group;
-    document.querySelectorAll('.gb-btn').forEach(function(b){b.classList.remove('active')});
-    btn.classList.add('active');
-    loadTrend(gb);
-  });
-});
-
-loadTrend(trendGb);
-</script>
-{{else if eq .View "by_model"}}
+<div id="modelSectionBody" class="section-body">
 {{if .ModelSummaries}}
 <script id="modelPieData" type="application/json">{{range $i, $s := .ModelSummaries}}{{if $i}},{{end}}{"name":"{{.Model}}","tokens":{{.TotalTokens}},"requests":{{.RequestCount}}}{{end}}</script>
 <div class="chart-group">
 <div class="pie-controls">
   <span>By:</span>
-  <button type="button" class="pm-btn{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">Tokens</button>
-  <button type="button" class="pm-btn{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">Requests</button>
+  <button type="button" class="pm-btn-model{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">Tokens</button>
+  <button type="button" class="pm-btn-model{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">Requests</button>
 </div>
 <div id="modelPieChart" class="pie-chart"></div>
 <div class="table-wrap"><table id="model-table"><thead><tr>
@@ -150,14 +104,21 @@ loadTrend(trendGb);
 {{else}}
 <div class="no-data">No usage data for the selected filters</div>
 {{end}}
-{{else}}
+</div>
+</section>
+
+<section class="panel section-card">
+<div class="section-toggle-row">
+<h2 class="panel-title section-title"><button type="button" class="section-toggle" data-section-target="keySectionBody" data-resize-target="keyPieChart" aria-expanded="true">By Key <span class="section-toggle-indicator">▾</span></button></h2>
+</div>
+<div id="keySectionBody" class="section-body">
 {{if .Usage}}
 <script id="keyPieData" type="application/json">{{range $i, $u := .Usage}}{{if $i}},{{end}}{"name":"{{if .KeyName}}{{.KeyName}}{{else}}{{maskID .KeyID}}{{end}}","tokens":{{.TotalTokens}},"requests":{{.RequestCount}}}{{end}}</script>
 <div class="chart-group">
 <div class="pie-controls">
   <span>By:</span>
-  <button type="button" class="pm-btn{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">Tokens</button>
-  <button type="button" class="pm-btn{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">Requests</button>
+  <button type="button" class="pm-btn-key{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">Tokens</button>
+  <button type="button" class="pm-btn-key{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">Requests</button>
 </div>
 <div id="keyPieChart" class="pie-chart"></div>
 <div class="table-wrap"><table id="key-table"><thead><tr>
@@ -177,24 +138,69 @@ loadTrend(trendGb);
 <th><button type="button" class="sort-btn" onclick="sortTable('key-table',5,'num')">Total Tokens</button></th>
 {{end}}
 </tr></thead><tbody>
-{{range .Usage}}<tr><td>{{.KeyName}}</td>{{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}<td>{{.Purpose}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td></tr>{{end}}
+{{range .Usage}}<tr><td>{{if .KeyName}}{{.KeyName}}{{else}}{{maskID .KeyID}}{{end}}</td>{{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}<td>{{.Purpose}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td></tr>{{end}}
 </tbody></table></div>
 </div>
 {{else}}
 <div class="no-data">No usage data for the selected filters</div>
 {{end}}
-{{end}}
+</div>
+</section>
+
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 <script>
+function readJSONList(id){
+  var el=document.getElementById(id);
+  if(!el||!el.textContent.trim())return [];
+  return JSON.parse('['+el.textContent+']');
+}
+
+function formatTokens(n){
+  if(n===0)return '0';
+  if(n<10000)return String(n);
+  if(n<1000000)return(Math.round(n/100)/10).toFixed(1)+'K';
+  return(Math.round(n/10000)/100).toFixed(2)+'M';
+}
+
 function formatTokensTable(n){
   if(n<10000)return String(n);
   if(n<1000000)return(Math.round(n/100)/10).toFixed(1)+'K';
   return(Math.round(n/10000)/100).toFixed(2)+'M';
 }
+
 document.querySelectorAll('.token-cell').forEach(function(el){
   var n=parseInt(el.dataset.tokens,10);
   if(!isNaN(n)&&n>=10000){el.textContent=formatTokensTable(n);}
 });
+
+function renderTrend(chart, data){
+  if(!data.length){
+    document.getElementById('trendChart').innerHTML = '<div class="no-data">No usage data for the selected filters</div>';
+    return null;
+  }
+  var dates = data.map(function(d){return d.date});
+  var requests = data.map(function(d){return d.request_count});
+  var total = data.map(function(d){return d.total_tokens});
+  var cs = getComputedStyle(document.documentElement);
+  var chartMuted = cs.getPropertyValue('--muted').trim() || '#8b9098';
+  var chartLine = cs.getPropertyValue('--line').trim() || 'rgba(210,214,220,.09)';
+  chart.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
+    legend:{data:['Requests','Total Tokens'],textStyle:{color:chartMuted}},
+    grid:{left:'3%',right:'4%',bottom:'3%',containLabel:true},
+    xAxis:{type:'category',data:dates,axisLabel:{color:chartMuted}},
+    yAxis:[
+      {type:'value',name:'Requests',position:'left',axisLabel:{color:chartMuted},splitLine:{lineStyle:{color:chartLine}}},
+      {type:'value',name:'Tokens',position:'right',axisLabel:{formatter:function(v){return formatTokens(v)},color:chartMuted},splitLine:{show:false}}
+    ],
+    series:[
+      {name:'Requests',type:'line',yAxisIndex:0,smooth:true,areaStyle:{opacity:0.045},data:requests,itemStyle:{color:'#aeb2ba'}},
+      {name:'Total Tokens',type:'line',yAxisIndex:1,smooth:true,areaStyle:{opacity:0.055},data:total,itemStyle:{color:'#8b5cf6'}}
+    ]
+  });
+  return chart;
+}
 
 function formatPieValue(metric, n){
   if(metric==='requests') return String(n) + ' requests';
@@ -204,9 +210,8 @@ function formatPieValue(metric, n){
 }
 
 function renderPieChart(chartId, dataElId, metric){
-  var el=document.getElementById(dataElId);
-  if(!el||!el.textContent.trim())return null;
-  var rawData=JSON.parse('['+el.textContent+']');
+  var rawData=readJSONList(dataElId);
+  if(!rawData.length)return null;
   var data=rawData.map(function(d){
     return {name:d.name, value: metric==='requests'? d.requests : d.tokens};
   });
@@ -244,35 +249,72 @@ function updatePieChart(chart, metric){
   });
 }
 
-{{if eq .View "by_model"}}
 (function(){
-  var initialMetric = '{{.PieMetric}}' || 'tokens';
-  var chart = renderPieChart('modelPieChart', 'modelPieData', initialMetric);
-  if(!chart) return;
-  document.querySelectorAll('.pm-btn').forEach(function(btn){
+  document.querySelectorAll('.section-toggle').forEach(function(btn){
     btn.addEventListener('click', function(){
-      var metric = btn.dataset.metric;
-      document.querySelectorAll('.pm-btn').forEach(function(b){b.classList.remove('active')});
-      btn.classList.add('active');
-      updatePieChart(chart, metric);
+      var target = document.getElementById(btn.dataset.sectionTarget);
+      if(!target){return;}
+      var expanded = btn.getAttribute('aria-expanded') === 'true';
+      target.hidden = expanded;
+      btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      if(expanded){return;}
+      var resizeTarget = btn.dataset.resizeTarget;
+      if(!resizeTarget){return;}
+      var el = document.getElementById(resizeTarget);
+      if(!el){return;}
+      var chart = echarts.getInstanceByDom(el);
+      if(chart){chart.resize();}
     });
   });
 })();
-{{else if eq .View "by_key"}}
+
+(function(){
+  var trendHourData = readJSONList('trendHourData');
+  var trendDayData = readJSONList('trendDayData');
+  if(!trendHourData.length && !trendDayData.length){
+    document.getElementById('trendChart').innerHTML = '<div class="no-data">No usage data for the selected filters</div>';
+    return;
+  }
+  var chart = echarts.init(document.getElementById('trendChart'));
+  window.addEventListener('resize',function(){chart.resize()});
+  renderTrend(chart, trendHourData.length ? trendHourData : trendDayData);
+  document.querySelectorAll('.gb-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var group = btn.dataset.group;
+      document.querySelectorAll('.gb-btn').forEach(function(b){b.classList.remove('active')});
+      btn.classList.add('active');
+      renderTrend(chart, group === 'day' ? trendDayData : trendHourData);
+    });
+  });
+})();
+
 (function(){
   var initialMetric = '{{.PieMetric}}' || 'tokens';
   var chart = renderPieChart('keyPieChart', 'keyPieData', initialMetric);
   if(!chart) return;
-  document.querySelectorAll('.pm-btn').forEach(function(btn){
+  document.querySelectorAll('.pm-btn-key').forEach(function(btn){
     btn.addEventListener('click', function(){
       var metric = btn.dataset.metric;
-      document.querySelectorAll('.pm-btn').forEach(function(b){b.classList.remove('active')});
+      document.querySelectorAll('.pm-btn-key').forEach(function(b){b.classList.remove('active')});
       btn.classList.add('active');
       updatePieChart(chart, metric);
     });
   });
 })();
-{{end}}
+
+(function(){
+  var initialMetric = '{{.PieMetric}}' || 'tokens';
+  var chart = renderPieChart('modelPieChart', 'modelPieData', initialMetric);
+  if(!chart) return;
+  document.querySelectorAll('.pm-btn-model').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var metric = btn.dataset.metric;
+      document.querySelectorAll('.pm-btn-model').forEach(function(b){b.classList.remove('active')});
+      btn.classList.add('active');
+      updatePieChart(chart, metric);
+    });
+  });
+})();
 
 function sortTable(tableId, col, kind){
   const table = document.getElementById(tableId);
