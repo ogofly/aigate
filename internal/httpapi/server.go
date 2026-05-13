@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"sync"
 
 	"aigate/internal/auth"
 	"aigate/internal/config"
@@ -21,6 +22,7 @@ type Handler struct {
 	router        *router.Router
 	usage         *usage.Recorder
 	store         *store.SQLiteStore
+	providerMu    sync.RWMutex
 	providerNames []string
 	sessions      *adminSessionStore
 	mux           *http.ServeMux
@@ -31,7 +33,7 @@ func New(authenticator *auth.Auth, admin config.AdminConfig, rt *router.Router, 
 }
 
 func NewWithClient(authenticator *auth.Auth, admin config.AdminConfig, client provider.Client, rt *router.Router, recorder *usage.Recorder, sqliteStore *store.SQLiteStore, providerNames []string) http.Handler {
-	sort.Strings(providerNames)
+	providerNames = sortedStrings(providerNames)
 	h := &Handler{
 		auth:          authenticator,
 		admin:         admin,
@@ -46,6 +48,24 @@ func NewWithClient(authenticator *auth.Auth, admin config.AdminConfig, client pr
 
 	h.routes()
 	return h
+}
+
+func sortedStrings(values []string) []string {
+	out := append([]string(nil), values...)
+	sort.Strings(out)
+	return out
+}
+
+func (h *Handler) listProviderNames() []string {
+	h.providerMu.RLock()
+	defer h.providerMu.RUnlock()
+	return append([]string(nil), h.providerNames...)
+}
+
+func (h *Handler) setProviderNames(names []string) {
+	h.providerMu.Lock()
+	h.providerNames = sortedStrings(names)
+	h.providerMu.Unlock()
 }
 
 func (h *Handler) routes() {

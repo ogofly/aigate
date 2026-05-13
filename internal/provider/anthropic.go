@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"time"
 
@@ -108,7 +107,7 @@ func newAnthropicProvider(cfg config.ProviderConfig, stream bool) (*anthropicPro
 
 func newAnthropicProviderWithBaseURL(cfg config.ProviderConfig, base string, stream bool) (*anthropicProvider, error) {
 	baseURL := trimTrailingSlash(base)
-	if _, err := url.Parse(baseURL); err != nil {
+	if err := validateAbsoluteHTTPURL(baseURL); err != nil {
 		return nil, fmt.Errorf("invalid base_url: %w", err)
 	}
 

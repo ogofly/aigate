@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"aigate/internal/auth"
@@ -41,7 +43,9 @@ func main() {
 	}
 	defer sqliteStore.Close()
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	if err := sqliteStore.SeedProvidersIfEmpty(ctx, cfg.Providers); err != nil {
 		slog.Error("seed providers", "error", err)
 		os.Exit(1)
@@ -98,9 +102,33 @@ func main() {
 	}
 
 	slog.Info("server starting", "addr", cfg.Server.Listen, "admin", "http://localhost"+adminPort(cfg.Server.Listen)+"/admin")
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		slog.Error("server error", "error", err)
-		os.Exit(1)
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErr:
+		if err != nil && err != http.ErrServerClosed {
+			slog.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		slog.Info("server shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			slog.Error("server shutdown", "error", err)
+			_ = server.Close()
+		}
+		if err := <-serverErr; err != nil && err != http.ErrServerClosed {
+			slog.Error("server error", "error", err)
+			os.Exit(1)
+		}
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		usage.FlushPending(flushCtx, recorder, sqliteStore)
+		flushCancel()
+		slog.Info("server stopped")
 	}
 }
 

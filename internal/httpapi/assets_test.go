@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAdminSVGAssets(t *testing.T) {
@@ -42,5 +43,52 @@ func TestAdminSVGAssets(t *testing.T) {
 	}
 	if strings.Contains(logoBody, "<filter") || strings.Contains(faviconBody, "<filter") {
 		t.Fatal("SVG assets should not use filters")
+	}
+}
+
+func TestAdminSessionStoreExpiresSessions(t *testing.T) {
+	store := newAdminSessionStore()
+	token, err := store.New(webSession{Role: roleAdmin, Username: "admin"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	session, ok := store.Get(token)
+	if !ok {
+		t.Fatal("new session was not found")
+	}
+	if session.ExpiresAt.IsZero() {
+		t.Fatal("new session missing expiry")
+	}
+
+	store.mu.Lock()
+	store.tokens[token] = webSession{Role: roleAdmin, Username: "admin", ExpiresAt: time.Now().Add(-time.Second)}
+	store.mu.Unlock()
+
+	if _, ok := store.Get(token); ok {
+		t.Fatal("expired session should not be returned")
+	}
+	store.mu.RLock()
+	_, exists := store.tokens[token]
+	store.mu.RUnlock()
+	if exists {
+		t.Fatal("expired session should be removed")
+	}
+}
+
+func TestRequestIsSecureHonorsTLSAndForwardedProto(t *testing.T) {
+	httpReq := httptest.NewRequest(http.MethodGet, "http://example.test/admin", nil)
+	if requestIsSecure(httpReq) {
+		t.Fatal("plain HTTP request should not be secure")
+	}
+
+	forwardedReq := httptest.NewRequest(http.MethodGet, "http://example.test/admin", nil)
+	forwardedReq.Header.Set("X-Forwarded-Proto", "https")
+	if !requestIsSecure(forwardedReq) {
+		t.Fatal("forwarded https request should be secure")
+	}
+
+	tlsReq := httptest.NewRequest(http.MethodGet, "https://example.test/admin", nil)
+	if !requestIsSecure(tlsReq) {
+		t.Fatal("TLS request should be secure")
 	}
 }

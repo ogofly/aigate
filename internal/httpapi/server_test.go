@@ -1823,6 +1823,47 @@ func TestAdminProvidersPageHasDeleteConfirm(t *testing.T) {
 	}
 }
 
+func TestAdminProviderSaveRejectsInvalidBaseURL(t *testing.T) {
+	rt, err := router.New(nil)
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	handler := httpapi.NewWithClient(auth.New(nil), config.AdminConfig{Username: "admin", Password: "pass"}, &stubProvider{}, rt, usage.New(100), sqliteStore, nil)
+
+	loginBody := bytes.NewBufferString("username=admin&password=pass")
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	form := url.Values{
+		"name":     {"bad-provider"},
+		"base_url": {"api.example.test/v1"},
+		"api_key":  {"secret"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/admin/providers", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body = %q", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	if _, err := sqliteStore.GetProvider(context.Background(), "bad-provider"); err == nil {
+		t.Fatal("invalid provider was persisted")
+	}
+}
+
 func TestAdminModelsPageHasDeleteConfirm(t *testing.T) {
 	rt, err := router.New([]config.ModelConfig{
 		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},

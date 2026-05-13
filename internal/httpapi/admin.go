@@ -25,6 +25,7 @@ import (
 
 const adminSessionCookie = "aigate_admin_session"
 const adminSystemName = "LLM Gateway"
+const adminSessionTTL = 24 * time.Hour
 
 type webRole string
 
@@ -34,8 +35,9 @@ const (
 )
 
 type webSession struct {
-	Role     webRole
-	Username string
+	Role      webRole
+	Username  string
+	ExpiresAt time.Time
 }
 
 type adminSessionStore struct {
@@ -60,6 +62,7 @@ func (s *adminSessionStore) New(session webSession) (string, error) {
 		return "", err
 	}
 	token := hex.EncodeToString(buf)
+	session.ExpiresAt = time.Now().Add(adminSessionTTL)
 	s.mu.Lock()
 	s.tokens[token] = session
 	s.mu.Unlock()
@@ -68,9 +71,16 @@ func (s *adminSessionStore) New(session webSession) (string, error) {
 
 func (s *adminSessionStore) Get(token string) (webSession, bool) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	session, ok := s.tokens[token]
-	return session, ok
+	s.mu.RUnlock()
+	if !ok {
+		return webSession{}, false
+	}
+	if time.Now().After(session.ExpiresAt) {
+		s.Delete(token)
+		return webSession{}, false
+	}
+	return session, true
 }
 
 func (s *adminSessionStore) Delete(token string) {
@@ -162,8 +172,11 @@ func (h *Handler) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		Name:     adminSessionCookie,
 		Value:    token,
 		Path:     "/",
+		MaxAge:   int(adminSessionTTL.Seconds()),
+		Expires:  time.Now().Add(adminSessionTTL),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
+		Secure:   requestIsSecure(r),
 	})
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
@@ -173,10 +186,13 @@ func (h *Handler) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 		h.sessions.Delete(cookie.Value)
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:   adminSessionCookie,
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     adminSessionCookie,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   requestIsSecure(r),
 	})
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 }
@@ -337,8 +353,8 @@ func (h *Handler) handleAdminProvidersSave(w http.ResponseWriter, r *http.Reques
 		APIKeyRef:        strings.TrimSpace(r.FormValue("api_key_ref")),
 		TimeoutSeconds:   timeoutSeconds,
 	}
-	if providerCfg.BaseURL == "" || (providerCfg.APIKey == "" && providerCfg.APIKeyRef == "") {
-		writeError(w, http.StatusBadRequest, "invalid_request", "base_url, and api_key or api_key_ref are required")
+	if err := providerCfg.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	if err := h.store.UpsertProvider(r.Context(), providerCfg); err != nil {
@@ -387,6 +403,10 @@ func (h *Handler) handleAdminProviderUpdate(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	if err := providerCfg.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	if err := h.store.UpsertProvider(r.Context(), providerCfg); err != nil {
 		writeError(w, http.StatusBadRequest, "admin_provider_update_error", err.Error())
 		return
@@ -447,7 +467,7 @@ func (h *Handler) handleAdminModelsPage(w http.ResponseWriter, r *http.Request) 
 		Title:       adminPageTitle("Models"),
 		IsAdmin:     session.Role == roleAdmin,
 		CurrentUser: session.Username,
-		Providers:   h.providerNames,
+		Providers:   h.listProviderNames(),
 		Models:      models,
 		CurrentPath: "/admin/models",
 		Flash:       r.URL.Query().Get("flash"),
@@ -472,7 +492,7 @@ func (h *Handler) handleAdminModelsSave(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "invalid_request", "public_name, provider, upstream_name are required")
 		return
 	}
-	if !containsString(h.providerNames, model.Provider) {
+	if !containsString(h.listProviderNames(), model.Provider) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "provider not found")
 		return
 	}
@@ -596,21 +616,21 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := adminViewData{
-		Title:          adminPageTitle("Usage"),
-		IsAdmin:        session.Role == roleAdmin,
-		CurrentUser:    session.Username,
-		Usage:          summaries,
-		CurrentPath:    "/admin/usage/view",
-		UsageModels:    usageModels,
-		UsageKeys:      usageKeys,
-		UsageOwners:    usageOwners,
-		FilterStart:    startStr,
-		FilterEnd:      endStr,
-		FilterModel:    model,
-		FilterKey:      keyID,
-		FilterOwner:    owner,
-		ModelSummaries: modelSummaries,
-		PieMetric:      pieMetric,
+		Title:           adminPageTitle("Usage"),
+		IsAdmin:         session.Role == roleAdmin,
+		CurrentUser:     session.Username,
+		Usage:           summaries,
+		CurrentPath:     "/admin/usage/view",
+		UsageModels:     usageModels,
+		UsageKeys:       usageKeys,
+		UsageOwners:     usageOwners,
+		FilterStart:     startStr,
+		FilterEnd:       endStr,
+		FilterModel:     model,
+		FilterKey:       keyID,
+		FilterOwner:     owner,
+		ModelSummaries:  modelSummaries,
+		PieMetric:       pieMetric,
 		TrendHourPoints: trendHourPoints,
 		TrendDayPoints:  trendDayPoints,
 	}
@@ -1010,6 +1030,17 @@ func publicAPIBaseURL(r *http.Request) string {
 	return scheme + "://" + r.Host
 }
 
+func requestIsSecure(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if forwardedProto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwardedProto != "" {
+		parts := strings.Split(forwardedProto, ",")
+		return strings.EqualFold(strings.TrimSpace(parts[0]), "https")
+	}
+	return false
+}
+
 func extractAPIResponseText(path string, body []byte) string {
 	var raw map[string]any
 	if err := json.Unmarshal(body, &raw); err != nil {
@@ -1360,7 +1391,7 @@ func (h *Handler) reloadProvidersAndModels(ctx context.Context) error {
 	for _, providerCfg := range providerConfigs {
 		names = append(names, providerCfg.Name)
 	}
-	h.providerNames = names
+	h.setProviderNames(names)
 	return nil
 }
 

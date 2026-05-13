@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -36,7 +35,7 @@ func newOpenAILikeProviderWithStream(cfg config.ProviderConfig, stream bool) (*O
 
 func newOpenAILikeProviderWithBaseURLAndStream(cfg config.ProviderConfig, base string, stream bool) (*OpenAILikeProvider, error) {
 	baseURL := strings.TrimRight(base, "/")
-	if _, err := url.Parse(baseURL); err != nil {
+	if err := validateAbsoluteHTTPURL(baseURL); err != nil {
 		return nil, fmt.Errorf("invalid base_url: %w", err)
 	}
 

@@ -24,16 +24,21 @@ func StartFlushLoop(ctx context.Context, recorder *Recorder, store RollupStore, 
 		for {
 			select {
 			case <-ctx.Done():
-				flushOnce(ctx, recorder, store)
+				flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				FlushPending(flushCtx, recorder, store)
+				cancel()
 				return
 			case <-ticker.C:
-				flushOnce(ctx, recorder, store)
+				FlushPending(ctx, recorder, store)
 			}
 		}
 	}()
 }
 
-func flushOnce(ctx context.Context, recorder *Recorder, store RollupStore) {
+func FlushPending(ctx context.Context, recorder *Recorder, store RollupStore) {
+	if recorder == nil || store == nil {
+		return
+	}
 	rollups := recorder.DrainPending()
 	if len(rollups) == 0 {
 		return

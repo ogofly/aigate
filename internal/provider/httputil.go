@@ -1,9 +1,12 @@
 package provider
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
+
 	"aigate/internal/config"
 )
 
@@ -35,4 +38,18 @@ func trimTrailingSlash(s string) string {
 
 func trimSpace(s string) string {
 	return strings.TrimSpace(s)
+}
+
+func validateAbsoluteHTTPURL(value string) error {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("must use http or https")
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("must include a host")
+	}
+	return nil
 }

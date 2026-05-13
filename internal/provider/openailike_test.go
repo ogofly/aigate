@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"aigate/internal/config"
@@ -43,6 +44,20 @@ func TestNewOpenAILikePrefersDirectAPIKey(t *testing.T) {
 	}
 	if p == nil {
 		t.Fatal("NewOpenAILike() returned nil provider")
+	}
+}
+
+func TestNewOpenAILikeRejectsRelativeBaseURL(t *testing.T) {
+	_, err := NewOpenAILike(config.ProviderConfig{
+		Name:    "openai",
+		BaseURL: "api.openai.com/v1",
+		APIKey:  "test-secret",
+	})
+	if err == nil {
+		t.Fatal("NewOpenAILike() error = nil")
+	}
+	if !strings.Contains(err.Error(), "must use http or https") {
+		t.Fatalf("NewOpenAILike() error = %q", err.Error())
 	}
 }
 

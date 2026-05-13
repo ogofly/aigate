@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,14 +109,8 @@ func (c *Config) Validate() error {
 
 	seenProviders := make(map[string]struct{}, len(c.Providers))
 	for _, p := range c.Providers {
-		if p.Name == "" {
-			return errors.New("provider.name is required")
-		}
-		if p.BaseURL == "" {
-			return fmt.Errorf("provider %q base_url is required", p.Name)
-		}
-		if p.APIKey == "" && p.APIKeyRef == "" {
-			return fmt.Errorf("provider %q requires api_key or api_key_ref", p.Name)
+		if err := p.Validate(); err != nil {
+			return err
 		}
 		if _, ok := seenProviders[p.Name]; ok {
 			return fmt.Errorf("duplicate provider %q", p.Name)
@@ -143,6 +138,44 @@ func (c *Config) Validate() error {
 		seenModels[m.PublicName] = struct{}{}
 	}
 
+	return nil
+}
+
+func (p ProviderConfig) Validate() error {
+	if p.Name == "" {
+		return errors.New("provider.name is required")
+	}
+	if p.BaseURL == "" {
+		return fmt.Errorf("provider %q base_url is required", p.Name)
+	}
+	if err := validateHTTPURL("base_url", p.Name, p.BaseURL); err != nil {
+		return err
+	}
+	if p.AnthropicBaseURL != "" {
+		if err := validateHTTPURL("anthropic_base_url", p.Name, p.AnthropicBaseURL); err != nil {
+			return err
+		}
+	}
+	if p.APIKey == "" && p.APIKeyRef == "" {
+		return fmt.Errorf("provider %q requires api_key or api_key_ref", p.Name)
+	}
+	if p.TimeoutSeconds < 0 {
+		return fmt.Errorf("provider %q timeout must be greater than or equal to 0", p.Name)
+	}
+	return nil
+}
+
+func validateHTTPURL(field, providerName, value string) error {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return fmt.Errorf("provider %q invalid %s: %w", providerName, field, err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("provider %q %s must use http or https", providerName, field)
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("provider %q %s must include a host", providerName, field)
+	}
 	return nil
 }
 
