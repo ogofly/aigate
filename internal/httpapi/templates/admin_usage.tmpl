@@ -329,16 +329,18 @@ function sortTable(tableId, col, kind){
   const rows = Array.from(tbody.rows);
   if(rows.length === 0){return;}
   const isSameCol = table.dataset.sortCol === String(col);
-  const nextAsc = kind === "num" ? (isSameCol && table.dataset.sortAsc === "true") : (isSameCol ? table.dataset.sortAsc !== "true" : false);
+  const nextAsc = isSameCol ? table.dataset.sortAsc !== "true" : kind !== "num";
   rows.sort((a, b) => {
     let av = (a.cells[col]?.textContent || "").trim();
     let bv = (b.cells[col]?.textContent || "").trim();
     if(kind === "num"){
-      const aAttr = a.cells[col]?.querySelector("[data-tokens]");
-      const bAttr = b.cells[col]?.querySelector("[data-tokens]");
-      if(aAttr || bAttr){
-        av = aAttr ? aAttr.dataset.tokens : av;
-        bv = bAttr ? bAttr.dataset.tokens : bv;
+      const aCell = a.cells[col];
+      const bCell = b.cells[col];
+      const aTokens = aCell?.dataset.tokens || aCell?.querySelector("[data-tokens]")?.dataset.tokens;
+      const bTokens = bCell?.dataset.tokens || bCell?.querySelector("[data-tokens]")?.dataset.tokens;
+      if(aTokens || bTokens){
+        av = aTokens || av;
+        bv = bTokens || bv;
       }
       const an = Number.parseInt(av.replace(/[^0-9.-]/g,""), 10) || 0;
       const bn = Number.parseInt(bv.replace(/[^0-9.-]/g,""), 10) || 0;

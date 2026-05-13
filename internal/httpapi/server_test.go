@@ -1378,6 +1378,12 @@ func TestAdminUsageViewRendersSinglePageWithEmbeddedData(t *testing.T) {
 	if !strings.Contains(body, "id=\"trendHourData\"") || !strings.Contains(body, "id=\"trendDayData\"") {
 		t.Fatalf("usage page missing embedded trend data: %q", body)
 	}
+	if !strings.Contains(body, "aCell?.dataset.tokens") || !strings.Contains(body, "bCell?.dataset.tokens") {
+		t.Fatalf("usage page missing token-cell numeric sort fallback: %q", body)
+	}
+	if !strings.Contains(body, "const nextAsc = isSameCol ? table.dataset.sortAsc !== \"true\" : kind !== \"num\";") {
+		t.Fatalf("usage page missing sort toggle logic: %q", body)
+	}
 	if !strings.Contains(body, "\"date\":\"2026-05-10 00:00\"") || !strings.Contains(body, "\"date\":\"2026-05-10\"") {
 		t.Fatalf("usage page missing expected trend points: %q", body)
 	}
