@@ -76,16 +76,16 @@
       <div class="modal-grid">
         <div class="field-group">
           <label for="model-public-name">Public Name</label>
-          <input id="model-public-name" name="public_name" placeholder="Public model alias">
+          <input id="model-public-name" name="public_name" placeholder="Public model alias" required>
         </div>
         <div class="field-group">
           <label for="model-provider">Provider</label>
-          <select id="model-provider" name="provider">{{range .Providers}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+          <select id="model-provider" name="provider" required>{{range .Providers}}<option value="{{.}}">{{.}}</option>{{end}}</select>
         </div>
       </div>
       <div class="field-group">
         <label for="model-upstream-name">Upstream Name</label>
-        <input id="model-upstream-name" name="upstream_name" placeholder="Upstream model ID">
+        <input id="model-upstream-name" name="upstream_name" placeholder="Upstream model ID" required>
       </div>
       <div class="modal-actions">
         <button type="button" class="ghost" onclick="closeDialog('modelCreateDialog')">Cancel</button>
@@ -95,17 +95,8 @@
   </div>
 </dialog>
 {{end}}
+{{template "admin_dialog_helpers" .}}
 <script>
-function openDialog(id){
-  const dialog = document.getElementById(id);
-  if(dialog && typeof dialog.showModal === 'function'){dialog.showModal();}
-}
-
-function closeDialog(id){
-  const dialog = document.getElementById(id);
-  if(dialog){dialog.close();}
-}
-
 function sortTable(tableId, col){
   const table = document.getElementById(tableId);
   if(!table || !table.tBodies || table.tBodies.length === 0){return;}
@@ -126,12 +117,6 @@ function sortTable(tableId, col){
 function confirmDeleteModel(){
   return window.confirm("Delete this model?");
 }
-
-document.getElementById('modelCreateDialog')?.addEventListener('click', function(e){
-  const rect = this.getBoundingClientRect();
-  const inside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
-  if(!inside){this.close();}
-});
 </script>
 </div>{{template "admin_theme_toggle" .}}</body>
 </html>

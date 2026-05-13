@@ -20,11 +20,23 @@
 .providers-table th,.providers-table td{overflow-wrap:anywhere}
 .providers-table tbody tr{transition:background-color .18s ease}
 .providers-table th:nth-child(1){width:15%}
+.providers-table td:nth-child(1){min-width:80px}
 .providers-table th:nth-child(2){width:29%}
+.providers-table td:nth-child(2){min-width:180px}
 .providers-table th:nth-child(3){width:23%}
+.providers-table td:nth-child(3){min-width:150px}
 .providers-table th:nth-child(4){width:15%}
+.providers-table td:nth-child(4){min-width:100px}
 .providers-table th:nth-child(5){width:8%}
-.providers-table th:nth-child(6){width:10%}
+.providers-table td:nth-child(5){min-width:60px}
+.providers-table th:nth-child(6){width:120px}
+.providers-table td:nth-child(6){white-space:nowrap}
+@media(max-width:720px){
+.providers-table{table-layout:auto}
+.providers-table th,.providers-table td{font-size:13px;padding:10px 12px}
+.providers-table th{white-space:nowrap}
+.providers-table th:nth-child(1),.providers-table th:nth-child(2),.providers-table th:nth-child(3),.providers-table th:nth-child(4),.providers-table th:nth-child(5),.providers-table th:nth-child(6){width:auto}
+}
 </style>
 </head>
 <body><div class="page">
