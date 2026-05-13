@@ -4,12 +4,10 @@
 <style>
 {{template "admin_common_styles" .}}
 .page-intro{margin:0 0 16px}
-.filters{display:grid;grid-template-columns:repeat(5,minmax(0,1fr)) auto;gap:10px;align-items:end;margin-top:12px}
+.filters{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:12px}
 .filters label{display:flex;flex-direction:column;gap:6px;font-size:13px;min-width:0}
-.filter-actions{display:flex;flex-direction:column;gap:6px;align-items:stretch}
-.filter-actions>div:last-child{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.filter-actions{display:flex;gap:8px;align-items:center;padding-bottom:0}
 .filter-actions button{min-height:40px;padding:10px 14px}
-.filter-spacer{height:24px}
 a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
 .section-card{margin-top:16px}
 .section-card:first-of-type{margin-top:0}
@@ -63,11 +61,8 @@ a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
   <label>Key <select name="key"><option value="">All</option>{{range .UsageKeys}}<option value="{{.Value}}" {{if eq .Value $.FilterKey}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
   {{if .IsAdmin}}<label>Owner <select name="owner"><option value="">All</option>{{range .UsageOwners}}<option value="{{.}}" {{if eq . $.FilterOwner}}selected{{end}}>{{.}}</option>{{end}}</select></label>{{end}}
   <div class="filter-actions">
-    <div class="filter-spacer"></div>
-    <div>
     <button type="submit">Filter</button>
     {{if or .FilterStart .FilterEnd .FilterModel .FilterKey .FilterOwner}}<a class="clear-filters" href="/admin/usage/view">Clear Filters</a>{{end}}
-    </div>
   </div>
 </form>
 </section>

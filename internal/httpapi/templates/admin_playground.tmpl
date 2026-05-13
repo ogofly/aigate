@@ -26,6 +26,13 @@ textarea{min-height:64px;resize:vertical}
 .hint[href]{text-decoration:none}
 .hint-row{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:10px}
 .result{margin-top:12px;width:100%;max-width:100%;min-width:0;border:1px solid rgba(210,214,220,.08);border-radius:10px;background:rgba(22,24,28,.8);padding:14px 16px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;max-height:420px;overflow:auto;overscroll-behavior:contain;box-shadow:inset 2px 0 0 rgba(139,92,246,.14),inset 0 1px 0 rgba(210,214,220,.022)}
+.loading{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.loading::before{content:'';width:14px;height:14px;border:2px solid var(--muted);border-top-color:#8b5cf6;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.view-toggle{display:flex;gap:4px;align-items:center;margin-bottom:8px}
+.view-toggle button{font-size:11px;padding:2px 8px;border:1px solid rgba(210,214,220,.15);border-radius:4px;background:transparent;color:var(--muted);cursor:pointer;transition:all .15s ease}
+.view-toggle button.active{background:rgba(139,92,246,.18);color:var(--text);border-color:rgba(139,92,246,.35)}
+.view-toggle button:hover:not(.active){background:rgba(210,214,220,.05)}
 .result-title{display:block;margin-bottom:8px;font-size:12px;letter-spacing:0;text-transform:uppercase;color:var(--muted)}
 .error{margin-top:12px;padding:12px 14px;border-radius:10px;background:rgba(120,42,42,.1);color:#d2a0a0;border:1px solid rgba(180,80,80,.22)}
 .kv{display:grid;grid-template-columns:98px minmax(0,1fr) auto;gap:10px;align-items:center;margin-bottom:10px}
@@ -90,7 +97,7 @@ textarea{min-height:64px}
 <textarea name="message" id="message" placeholder="Say something...">{{.PlayMessage}}</textarea>
 <div class="hint-row">
 <span class="hint">Use this view for fast request checks before wiring a client application.</span>
-<span id="loadingHint" class="hint" style="display:none">Sending request...</span>
+<span id="loadingHint" class="loading" style="display:none">Sending request...</span>
 </div>
 </div>
 <div class="actions"><button type="submit" id="sendBtn">Send</button><a class="hint" href="/admin/playground">Clear</a></div>
@@ -99,7 +106,13 @@ textarea{min-height:64px}
 </form>
 {{if .PlayError}}<div class="error">{{.PlayError}}</div>{{end}}
 <div id="errorDiv" class="error" style="display:none"></div>
-<div id="resultDiv" class="result" style="display:none"></div>
+<div id="resultWrap" style="display:none">
+<div class="view-toggle" id="viewToggle" style="display:none">
+<button id="parsedBtn" class="active" onclick="setView('parsed')">Parsed</button>
+<button id="rawBtn" onclick="setView('raw')">Raw SSE</button>
+</div>
+<div id="resultDiv" class="result"></div>
+</div>
 {{if .PlayResult}}<div class="result"><span class="result-title">Reply</span>{{.PlayResult}}</div>{{end}}
 </section>
 <aside class="card">
@@ -156,7 +169,11 @@ const form = document.getElementById('playgroundForm');
 const sendBtn = document.getElementById('sendBtn');
 const loadingHint = document.getElementById('loadingHint');
 const resultDiv = document.getElementById('resultDiv');
+const resultWrap = document.getElementById('resultWrap');
 const errorDiv = document.getElementById('errorDiv');
+const viewToggle = document.getElementById('viewToggle');
+const parsedBtn = document.getElementById('parsedBtn');
+const rawBtn = document.getElementById('rawBtn');
 const modeHint = document.getElementById('modeHint');
 const cfgBase = document.getElementById('cfgBase');
 const cfgKey = document.getElementById('cfgKey');
@@ -169,6 +186,45 @@ const apiKeySelect = document.getElementById('apiKey');
 const modelSelect = document.getElementById('model');
 const apiBaseEl = document.getElementById('apiBaseData');
 const apiBase = apiBaseEl ? apiBaseEl.textContent : '';
+
+let currentView = 'parsed';
+let parsedText = '';
+let rawLines = '';
+let streamComplete = false;
+let abortController = null;
+
+function setView(view) {
+	currentView = view;
+	parsedBtn.className = view === 'parsed' ? 'active' : '';
+	rawBtn.className = view === 'raw' ? 'active' : '';
+	const display = view === 'parsed' ? (parsedText || '') : rawLines;
+	resultDiv.textContent = display || (streamComplete ? '' : '');
+	resultDiv.scrollTop = resultDiv.scrollHeight;
+}
+
+function resetResult() {
+	parsedText = '';
+	rawLines = '';
+	streamComplete = false;
+	resultDiv.textContent = '';
+	viewToggle.style.display = 'none';
+}
+
+function appendParsed(text) {
+	parsedText += text;
+	if (currentView === 'parsed') {
+		resultDiv.textContent = parsedText;
+		resultDiv.scrollTop = resultDiv.scrollHeight;
+	}
+}
+
+function appendRaw(line) {
+	rawLines += line + '\n';
+	if (currentView === 'raw') {
+		resultDiv.textContent = rawLines;
+		resultDiv.scrollTop = resultDiv.scrollHeight;
+	}
+}
 
 function getApiStyle(){ return document.querySelector('input[name="api_style"]:checked')?.value || 'openai'; }
 function getApiType(){ return document.querySelector('input[name="api_type"]:checked')?.value || 'chat_completions'; }
@@ -220,44 +276,128 @@ modelSelect.addEventListener('change', updateConnectionValues);
 
 form.addEventListener('submit', async (e) => {
 	e.preventDefault();
+	if (abortController) { abortController.abort(); abortController = null; }
 	sendBtn.disabled = true;
-	loadingHint.style.display = 'inline';
-	resultDiv.style.display = 'none';
+	loadingHint.style.display = 'inline-flex';
 	errorDiv.style.display = 'none';
+	resultWrap.style.display = 'block';
+	resetResult();
 
-const params = new URLSearchParams();
+	const isStream = document.getElementById('stream').checked;
+	const params = new URLSearchParams();
 	params.append('api_key', apiKeySelect.value);
 	params.append('model', modelSelect.value);
 	params.append('message', document.getElementById('message').value);
 	params.append('api_style', getApiStyle());
 	params.append('api_type', getApiType());
-	if (document.getElementById('stream').checked) {
-		params.append('stream', 'on');
-	}
+	if (isStream) { params.append('stream', 'on'); }
 
 	try {
-		const resp = await fetch('/admin/playground/chat/ajax', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/x-www-form-urlencoded',
-			},
-			body: params,
-		});
-		const data = await resp.json();
-		if (!resp.ok) {
-			throw new Error(data.error || 'Request failed');
+		if (isStream) {
+			await handleStream(params);
+		} else {
+			await handleNonStream(params);
 		}
-		resultDiv.textContent = data.result;
-		resultDiv.insertAdjacentHTML('afterbegin', '<span class="result-title">Reply</span>');
-		resultDiv.style.display = 'block';
 	} catch (err) {
 		errorDiv.textContent = err.message;
 		errorDiv.style.display = 'block';
 	} finally {
 		sendBtn.disabled = false;
-	loadingHint.style.display = 'none';
+		loadingHint.style.display = 'none';
 	}
 });
+
+async function handleStream(params) {
+	abortController = new AbortController();
+	let resp;
+	try {
+		resp = await fetch('/admin/playground/chat/ajax', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: params,
+			signal: abortController.signal,
+		});
+	} catch (e) {
+		if (e.name !== 'AbortError') throw e;
+		return;
+	}
+	if (!resp.ok) {
+		const data = await resp.json().catch(() => ({}));
+		errorDiv.textContent = data.error || 'Request failed';
+		errorDiv.style.display = 'block';
+		return;
+	}
+
+	viewToggle.style.display = 'flex';
+	currentView = 'parsed';
+	parsedBtn.className = 'active';
+	rawBtn.className = '';
+
+	const reader = resp.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = '';
+	let currentEvent = '';
+
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		buffer += decoder.decode(value, { stream: true });
+		const lines = buffer.split('\n');
+		buffer = lines.pop() || '';
+
+		for (const line of lines) {
+			const trimmed = line.replace(/\r$/, '');
+			if (!trimmed) continue;
+
+			if (trimmed.startsWith('event: ')) {
+				currentEvent = trimmed.slice(7).trim();
+			} else if (trimmed.startsWith('data: ')) {
+				const payload = trimmed.slice(6);
+				try {
+					const d = JSON.parse(payload);
+					if (currentEvent === 'raw') {
+						appendRaw(d.line || '');
+					} else if (currentEvent === 'content') {
+						if (d.text) appendParsed(d.text);
+					} else if (currentEvent === 'error') {
+						errorDiv.textContent = d.message || 'Stream error';
+						errorDiv.style.display = 'block';
+						abortController.abort();
+						return;
+					} else if (currentEvent === 'done') {
+						appendRaw('');
+					}
+				} catch (_e) {}
+				currentEvent = '';
+			}
+		}
+	}
+
+	// Show completion indicator.
+	streamComplete = true;
+	const marker = '\n\n--- Stream complete ---';
+	parsedText += marker;
+	rawLines += '\n--- Stream complete ---\n';
+	if (currentView === 'parsed') {
+		resultDiv.textContent = parsedText;
+	} else {
+		resultDiv.textContent = rawLines;
+	}
+	resultDiv.scrollTop = resultDiv.scrollHeight;
+}
+
+async function handleNonStream(params) {
+	const resp = await fetch('/admin/playground/chat/ajax', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		body: params,
+	});
+	const data = await resp.json();
+	if (!resp.ok) { throw new Error(data.error || 'Request failed'); }
+	parsedText = data.result;
+	viewToggle.style.display = 'flex';
+	resultDiv.textContent = parsedText;
+}
 
 toggleMain();
 updateConnectionValues();

@@ -886,12 +886,27 @@ func (h *Handler) handleAdminPlaygroundChatAJAX(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Build the API endpoint path and request body, then call the actual API handler.
-	// This ensures playground and real API share identical auth, routing, upstream call,
-	// token recording, and error handling.
+	// Resolve model → provider so we can call the client directly.
+	target, err := h.router.Resolve(model)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "model not found: " + model})
+		return
+	}
+	providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+
+	// Stream mode: call provider client directly, proxy SSE to client in real-time.
+	if stream {
+		h.handleAdminPlaygroundChatAJAXStream(w, r, apiStyle, apiType, model, message, providerCfg, target.UpstreamModel)
+		return
+	}
+
+	// Non-stream: call our own internal API handler for identical routing/usage recording.
 	var apiPath string
 	var reqBody io.Reader
-	contentType := "application/json"
 
 	if apiStyle == "anthropic" {
 		apiPath = "/anthropic/v1/messages"
@@ -899,15 +914,13 @@ func (h *Handler) handleAdminPlaygroundChatAJAX(w http.ResponseWriter, r *http.R
 			"model":      model,
 			"messages":   []map[string]any{{"role": "user", "content": message}},
 			"max_tokens": 4096,
-			"stream":     stream,
 		})
 		reqBody = bytes.NewReader(body)
 	} else if apiType == "responses" {
 		apiPath = "/v1/responses"
 		body, _ := json.Marshal(map[string]any{
-			"model":  model,
-			"input":  message,
-			"stream": stream,
+			"model": model,
+			"input": message,
 		})
 		reqBody = bytes.NewReader(body)
 	} else {
@@ -917,15 +930,13 @@ func (h *Handler) handleAdminPlaygroundChatAJAX(w http.ResponseWriter, r *http.R
 			"messages": []map[string]any{
 				{"role": "user", "content": message},
 			},
-			"stream": stream,
 		})
 		reqBody = bytes.NewReader(body)
 	}
 
-	// Call our own handler to go through the full API path.
 	apiReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, apiPath, reqBody)
 	apiReq.Header.Set("Authorization", "Bearer "+key)
-	apiReq.Header.Set("Content-Type", contentType)
+	apiReq.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, apiReq)
@@ -935,17 +946,12 @@ func (h *Handler) handleAdminPlaygroundChatAJAX(w http.ResponseWriter, r *http.R
 	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		if stream {
-			writeJSON(w, http.StatusOK, map[string]any{"result": strings.TrimSpace(string(respBody))})
-		} else {
-			output := extractAPIResponseText(apiPath, respBody)
-			if output == "" {
-				output = strings.TrimSpace(string(respBody))
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"result": output})
+		output := extractAPIResponseText(apiPath, respBody)
+		if output == "" {
+			output = strings.TrimSpace(string(respBody))
 		}
+		writeJSON(w, http.StatusOK, map[string]any{"result": output})
 	} else {
-		// Try to extract OpenAI-style error message from the response
 		if apiStyle == "anthropic" {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": strings.TrimSpace(string(respBody))})
 		} else {
@@ -961,6 +967,155 @@ func (h *Handler) handleAdminPlaygroundChatAJAX(w http.ResponseWriter, r *http.R
 			}
 		}
 	}
+}
+
+func (h *Handler) handleAdminPlaygroundChatAJAXStream(w http.ResponseWriter, r *http.Request, apiStyle, apiType, model, message string, providerCfg config.ProviderConfig, upstreamModel string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "streaming unsupported"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	chatReq := &provider.ChatRequest{
+		Model:  model,
+		Stream: true,
+		Raw: map[string]any{
+			"model":    model,
+			"messages": []map[string]any{{"role": "user", "content": message}},
+			"stream":   true,
+		},
+	}
+	if apiStyle == "anthropic" {
+		chatReq.Raw["max_tokens"] = 4096
+	} else if apiType == "responses" {
+		chatReq.Raw = map[string]any{
+			"model":  model,
+			"input":  message,
+			"stream": true,
+		}
+	}
+
+	var streamResp *provider.StreamResponse
+	var err error
+	switch {
+	case apiStyle == "anthropic":
+		streamResp, err = h.client.MessagesStream(r.Context(), providerCfg, chatReq, upstreamModel)
+	case apiType == "responses":
+		streamResp, err = h.client.ResponsesStream(r.Context(), providerCfg, chatReq, upstreamModel)
+	default:
+		streamResp, err = h.client.ChatStream(r.Context(), providerCfg, chatReq, upstreamModel)
+	}
+	if err != nil {
+		h.writeSSEEvent(w, flusher, "error", map[string]any{"message": err.Error()})
+		return
+	}
+	defer streamResp.Body.Close()
+
+	if streamResp.StatusCode < 200 || streamResp.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(streamResp.Body)
+		h.writeSSEEvent(w, flusher, "error", map[string]any{"message": strings.TrimSpace(string(bodyBytes)), "status": streamResp.StatusCode})
+		return
+	}
+
+	// Parse SSE and forward both raw lines and parsed content events.
+	// Upstream lines are wrapped as "event: raw" so the frontend can cleanly
+	// separate raw upstream SSE from our custom content/error/done events.
+	partialLine := ""
+	buf := make([]byte, 4096)
+	for {
+		n, readErr := streamResp.Body.Read(buf)
+		if n > 0 {
+			chunk := partialLine + string(buf[:n])
+			lines := strings.SplitAfter(chunk, "\n")
+			partialLine = ""
+			if len(lines[len(lines)-1]) > 0 && !strings.HasSuffix(lines[len(lines)-1], "\n") {
+				partialLine = lines[len(lines)-1]
+				lines = lines[:len(lines)-1]
+			}
+			for _, line := range lines {
+				trimmed := strings.TrimRight(line, "\r\n")
+				if trimmed == "" {
+					continue
+				}
+				// Wrap each upstream line as a "raw" event for the frontend.
+				h.writeSSEEvent(w, flusher, "raw", map[string]any{"line": trimmed})
+
+				// Parse data: lines for content extraction.
+				if strings.HasPrefix(trimmed, "data:") {
+					payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+					if payload != "" && payload != "[DONE]" {
+						var raw map[string]any
+						if err := json.Unmarshal([]byte(payload), &raw); err == nil {
+							text := extractSSEContentText(apiStyle, apiType, raw)
+							if text != "" {
+								h.writeSSEEvent(w, flusher, "content", map[string]any{"text": text})
+							}
+						}
+					} else if payload == "[DONE]" {
+						h.writeSSEEvent(w, flusher, "done", map[string]any{})
+					}
+				}
+				flusher.Flush()
+			}
+		}
+		if readErr != nil {
+			if readErr != io.EOF {
+				logger.L.Warn("stream read error", "error", readErr)
+			}
+			break
+		}
+	}
+}
+
+func (h *Handler) writeSSEEvent(w io.Writer, flusher http.Flusher, event string, data any) {
+	if data == nil {
+		data = map[string]any{}
+	}
+	dataBytes, _ := json.Marshal(data)
+	io.WriteString(w, "event: "+event+"\n")
+	io.WriteString(w, "data: "+string(dataBytes)+"\n")
+	io.WriteString(w, "\n")
+	if flusher != nil {
+		flusher.Flush()
+	}
+}
+
+func extractSSEContentText(apiStyle, apiType string, raw map[string]any) string {
+	if apiStyle == "anthropic" {
+		if t, _ := raw["type"].(string); t == "content_block_delta" {
+			if delta, ok := raw["delta"].(map[string]any); ok {
+				if text, ok := delta["text"].(string); ok {
+					return text
+				}
+			}
+		}
+		return ""
+	}
+	if apiType == "responses" {
+		if t, _ := raw["type"].(string); t == "response.output_text.delta" {
+			if text, ok := raw["delta"].(string); ok {
+				return text
+			}
+		}
+		return ""
+	}
+	// OpenAI Chat Completions
+	if choices, ok := raw["choices"].([]any); ok && len(choices) > 0 {
+		if c, ok := choices[0].(map[string]any); ok {
+			if delta, ok := c["delta"].(map[string]any); ok {
+				if text, ok := delta["content"].(string); ok {
+					return text
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func (h *Handler) buildPlaygroundViewData(ctx context.Context, r *http.Request, session webSession, selectedKey, selectedModel string, stream, useAnthropic, useResponses bool, message, result, errMsg string) (adminViewData, error) {

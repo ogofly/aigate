@@ -3,7 +3,7 @@
 [data-theme="light"]{--bg:#f5f6f8;--card:#fff;--line:#e2e4e8;--line-strong:#d1d4da;--text:#3d4149;--text-strong:#1a1d22;--muted:#6b7280;--accent:#7c3aed;--accent-strong:#6d28d9;--accent-soft:rgba(124,58,237,.06);--ghost:#f3f4f6;--surface:#f8f9fb;--shadow:0 10px 22px rgba(0,0,0,.07)}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
-body{margin:0;position:relative;overflow-x:hidden;min-height:100vh;background:radial-gradient(circle at top, rgba(210,214,220,.028), transparent 22%),linear-gradient(180deg, #181b1f 0%, #15181c 44%, var(--bg) 100%);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,sans-serif;line-height:1.36;padding:24px 16px}
+body{margin:0;position:relative;overflow-x:clip;min-height:100vh;background:radial-gradient(circle at top, rgba(210,214,220,.028), transparent 22%),linear-gradient(180deg, #181b1f 0%, #15181c 44%, var(--bg) 100%);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,sans-serif;line-height:1.36;padding:24px 16px}
 body::before{content:"";position:fixed;inset:0;background-image:linear-gradient(rgba(210,214,220,.007) 1px, transparent 1px),linear-gradient(90deg, rgba(210,214,220,.006) 1px, transparent 1px);background-size:32px 32px;opacity:.1;pointer-events:none}
 .page{position:relative;z-index:1;max-width:1280px;margin:0 auto}
 h1{margin:0 0 12px;font-size:28px;letter-spacing:0;color:var(--text-strong)}
@@ -58,7 +58,7 @@ tbody tr:hover td:first-child{box-shadow:inset 2px 0 0 rgba(139,92,246,.62)}
 .modal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}
 .brand-logo{width:40px;height:40px;display:block;flex:0 0 auto}
-.nav{display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;margin-bottom:24px;padding:14px 16px;border:1px solid var(--line);border-radius:4px;background:rgba(24,26,30,.7);backdrop-filter:blur(8px);box-shadow:0 7px 16px rgba(0,0,0,.12)}
+.nav{display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;margin:0 0 24px;padding:14px 16px;border:1px solid var(--line);border-radius:4px;background:rgba(24,26,30,.85);backdrop-filter:blur(10px);box-shadow:0 7px 16px rgba(0,0,0,.12);position:sticky;top:0;z-index:100}
 .nav-brand{display:flex;align-items:center;gap:10px;min-width:0;text-decoration:none;color:var(--text);margin-right:6px}
 .nav-brand-text{display:flex;flex-direction:column;gap:2px;min-width:0}
 .nav-brand-title{font-size:13px;font-weight:700;letter-spacing:0;text-transform:uppercase;color:#c4c7ce}
@@ -90,7 +90,7 @@ tbody tr:hover td:first-child{box-shadow:inset 2px 0 0 rgba(139,92,246,.62)}
 [data-theme="light"] body::before{background-image:linear-gradient(rgba(0,0,0,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.03) 1px,transparent 1px);opacity:.5}
 [data-theme="light"] select option{background:#fff;color:var(--text)}
 [data-theme="light"] input::placeholder,[data-theme="light"] textarea::placeholder{color:#9ca3af}
-[data-theme="light"] .nav{background:rgba(255,255,255,.8)}
+[data-theme="light"] .nav{background:rgba(255,255,255,.88)}
 [data-theme="light"] .nav-brand-title{color:#374151}
 [data-theme="light"] th{color:#6b7280;background:var(--surface)}
 [data-theme="light"] .modal-dialog{background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(249,250,251,.98))}

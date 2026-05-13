@@ -1,19 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="logo-title">
   <title id="logo-title">LLM Gateway</title>
   <defs>
-    <linearGradient id="shell" x1="8" y1="5" x2="56" y2="59" gradientUnits="userSpaceOnUse">
+    <linearGradient id="shell" x1="2" y1="2" x2="62" y2="62" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#4b505a"/>
       <stop offset="1" stop-color="#24272e"/>
     </linearGradient>
-    <linearGradient id="core" x1="21" y1="20" x2="43" y2="44" gradientUnits="userSpaceOnUse">
+    <linearGradient id="core" x1="19.5" y1="19" x2="44.5" y2="45" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#d8b4fe"/>
       <stop offset="1" stop-color="#7c3aed"/>
     </linearGradient>
   </defs>
-  <rect x="4.5" y="4.5" width="55" height="55" rx="13" fill="url(#shell)" stroke="#6f7480"/>
-  <path d="M14 32h14M36 32h14M32 14v14M32 36v14" fill="none" stroke="#f5f3ff" stroke-width="4.6" stroke-linecap="round"/>
-  <path d="M19 19l9 9M45 19l-9 9M45 45l-9-9M19 45l9-9" fill="none" stroke="#aeb4bf" stroke-width="3" stroke-linecap="round" opacity=".68"/>
-  <circle cx="32" cy="32" r="11.5" fill="#24272e" stroke="url(#core)" stroke-width="4"/>
-  <circle cx="32" cy="32" r="4.4" fill="#f4eaff"/>
-  <path d="M46 13h5v5" fill="none" stroke="#b475f5" stroke-width="2.8" stroke-linecap="round"/>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#shell)" stroke="#6f7480" stroke-width="1"/>
+  <path d="M12 32h16.5M35.5 32h16.5M32 12v16.5M32 35.5v16.5" fill="none" stroke="#f5f3ff" stroke-width="5.3" stroke-linecap="round"/>
+  <path d="M18.5 18.5l9.5 9.5M45.5 18.5l-9.5 9.5M45.5 45.5l-9.5-9.5M18.5 45.5l9.5-9.5" fill="none" stroke="#aeb4bf" stroke-width="3.5" stroke-linecap="round" opacity=".68"/>
+  <circle cx="32" cy="32" r="13.2" fill="#24272e" stroke="url(#core)" stroke-width="4.6"/>
+  <circle cx="32" cy="32" r="5.1" fill="#f4eaff"/>
+  <path d="M50 9h5v5" fill="none" stroke="#b475f5" stroke-width="3.2" stroke-linecap="round"/>
 </svg>
