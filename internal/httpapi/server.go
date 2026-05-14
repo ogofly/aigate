@@ -100,6 +100,21 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /admin/playground/chat/ajax", h.handleAdminPlaygroundChatAJAX)
 	h.mux.HandleFunc("GET /admin/usage/view", h.handleAdminUsagePage)
 	h.mux.HandleFunc("GET /admin/usage/trend", h.handleAdminUsageTrend)
+
+	// API admin routes
+	h.mux.HandleFunc("GET /api/admin/providers", h.handleApiProvidersList)
+	h.mux.HandleFunc("GET /api/admin/providers/{name}", h.handleApiProviderGet)
+	h.mux.HandleFunc("POST /api/admin/providers", h.handleApiProvidersCreate)
+	h.mux.HandleFunc("PUT /api/admin/providers/{name}", h.handleApiProviderUpdate)
+	h.mux.HandleFunc("DELETE /api/admin/providers/{name}", h.handleApiProviderDelete)
+	h.mux.HandleFunc("GET /api/admin/models", h.handleApiModelsList)
+	h.mux.HandleFunc("POST /api/admin/models", h.handleApiModelsCreate)
+	h.mux.HandleFunc("PUT /api/admin/models/{public_name}", h.handleApiModelUpdate)
+	h.mux.HandleFunc("DELETE /api/admin/models/{public_name}", h.handleApiModelsDelete)
+	h.mux.HandleFunc("GET /api/admin/keys", h.handleApiKeysList)
+	h.mux.HandleFunc("POST /api/admin/keys", h.handleApiKeysCreate)
+	h.mux.HandleFunc("PUT /api/admin/keys/{key}", h.handleApiKeyUpdate)
+	h.mux.HandleFunc("DELETE /api/admin/keys/{key}", h.handleApiKeysDelete)
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -22,6 +22,15 @@ button:active{transform:translateY(0)}
 .ghost:hover{color:var(--text);background:rgba(210,214,220,.038)}
 .muted{color:var(--muted)}
 .flash{padding:12px 14px;background:rgba(210,214,220,.038);border:1px solid rgba(139,92,246,.12);border-radius:4px;margin-top:16px;color:var(--text)}
+.ajax-error-toast{display:none}
+#ajaxErrorToast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999;min-width:300px;max-width:520px}
+.modal-dialog .ajax-error-toast{margin:0 0 14px;min-width:0;max-width:none}
+.ajax-error-inner{padding:14px 18px;background:rgba(120,42,42,.95);border:1px solid rgba(180,80,80,.4);border-radius:8px;color:#f0d0d0;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.ajax-error-main{display:flex;align-items:center;gap:10px}
+.ajax-error-text{flex:1;font-size:14px;overflow-wrap:anywhere}
+.ajax-error-details-toggle{display:none;background:none;border:none;color:#f0d0d0;font-size:12px;padding:0 4px;text-decoration:underline;box-shadow:none}
+.ajax-error-details{display:none;margin:12px 0 0;max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;border-radius:6px;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.12);color:#f7e1e1;font:12px/1.45 ui-monospace,SFMono-Regular,monospace}
+.ajax-error-close{background:none;border:none;color:#f0d0d0;font-size:18px;padding:0 4px;cursor:pointer}
 .panel{position:relative;padding:18px;border:1px solid var(--line);border-radius:4px;background:linear-gradient(180deg, rgba(210,214,220,.042), rgba(210,214,220,.026));box-shadow:var(--shadow);transition:border-color .18s ease,background-color .18s ease}
 .panel::before{content:"";position:absolute;left:18px;top:0;width:36px;height:3px;background:linear-gradient(90deg, rgba(139,92,246,.52), rgba(139,92,246,0))}
 .panel:hover{border-color:var(--line-strong);background:linear-gradient(180deg, rgba(210,214,220,.045), rgba(210,214,220,.028))}
@@ -195,6 +204,151 @@ document.querySelectorAll('dialog.modal-dialog').forEach(function(dialog){
     if(!inside){this.close();}
   });
 });
+</script>
+{{template "admin_api_helpers" .}}
+{{end}}
+
+{{define "admin_api_helpers"}}
+<script>
+async function submitFormAjax(form, onSuccess){
+  try{
+    var m = (form.getAttribute('method') || 'POST').toUpperCase();
+    if(m === 'GET' || m === 'HEAD') m = 'POST';
+    const resp = await fetch(form.action, {
+      method: m,
+      headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'},
+      body: new FormData(form),
+    });
+    const parsed = await readAPIResponse(resp);
+    if(isLoginRedirect(resp)){
+      showAjaxError('Session expired. Please sign in again.', responseDetails(resp, parsed));
+      return;
+    }
+    if(!resp.ok){
+      showAjaxError(parsed.data?.error?.message || 'Request failed (HTTP '+resp.status+')', responseDetails(resp, parsed));
+      return;
+    }
+    if(!parsed.data){
+      showAjaxError('Unexpected server response. Please refresh and try again.', responseDetails(resp, parsed));
+      return;
+    }
+    if(parsed.data.ok && onSuccess) onSuccess(parsed.data);
+  }catch(e){
+    showAjaxError('Network error: '+e.message, e.stack || String(e));
+  }
+}
+
+function showAjaxError(msg, details){
+  var host = currentErrorHost();
+  var el = host === document.body ? document.getElementById('ajaxErrorToast') : host.querySelector('.ajax-error-toast');
+  if(!el){
+    el = document.createElement('div');
+    el.className = 'ajax-error-toast';
+    el.setAttribute('role', 'alert');
+    el.setAttribute('aria-live', 'assertive');
+    if(host === document.body){el.id = 'ajaxErrorToast';}
+    el.innerHTML = '<div class="ajax-error-inner"><div class="ajax-error-main"><span class="ajax-error-text"></span><button type="button" class="ajax-error-details-toggle" onclick="toggleAjaxErrorDetails(this)">Details</button><button type="button" class="ajax-error-close" onclick="closeAjaxError(this)" aria-label="Close error">\u00d7</button></div><pre class="ajax-error-details"></pre></div>';
+    if(host === document.body){
+      document.body.appendChild(el);
+    }else{
+      host.insertBefore(el, host.querySelector('.modal-form') || host.firstChild);
+    }
+  }
+  el.querySelector('.ajax-error-text').textContent = msg;
+  var detailsToggle = el.querySelector('.ajax-error-details-toggle');
+  var detailsEl = el.querySelector('.ajax-error-details');
+  if(details){
+    detailsToggle.style.display = 'inline-flex';
+    detailsToggle.textContent = 'Details';
+    detailsEl.textContent = details;
+    detailsEl.style.display = 'none';
+  }else{
+    detailsToggle.style.display = 'none';
+    detailsEl.textContent = '';
+    detailsEl.style.display = 'none';
+  }
+  el.style.display = 'block';
+}
+
+function closeAjaxError(btn){
+  var el = btn ? btn.closest('.ajax-error-toast') : document.getElementById('ajaxErrorToast');
+  if(el){el.style.display = 'none';}
+}
+
+function toggleAjaxErrorDetails(btn){
+  var box = btn.closest('.ajax-error-inner').querySelector('.ajax-error-details');
+  var open = box.style.display === 'block';
+  box.style.display = open ? 'none' : 'block';
+  btn.textContent = open ? 'Details' : 'Hide';
+}
+
+function currentErrorHost(){
+  var openDialog = document.querySelector('dialog.modal-dialog[open] .modal-inner');
+  return openDialog || document.body;
+}
+
+function isLoginRedirect(resp){
+  if(!resp.redirected){return false;}
+  try {
+    return new URL(resp.url).pathname === '/admin/login';
+  } catch (_e) {
+    return false;
+  }
+}
+
+async function readAPIResponse(resp){
+  const contentType = resp.headers.get('Content-Type') || '';
+  const text = await resp.text().catch(() => '');
+  var data = null;
+  if(contentType.toLowerCase().includes('application/json') && text){
+    try {
+      data = JSON.parse(text);
+    } catch (_e) {
+      data = null;
+    }
+  }
+  return {contentType: contentType, data: data, text: text};
+}
+
+function responseDetails(resp, parsed){
+  var body = parsed.data ? JSON.stringify(parsed.data, null, 2) : parsed.text;
+  if(!body){body = '(empty body)';}
+  return [
+    'HTTP ' + resp.status + ' ' + resp.statusText,
+    'URL: ' + resp.url,
+    'Content-Type: ' + (parsed.contentType || '-'),
+    '',
+    body,
+  ].join('\n');
+}
+
+async function apiCall(method, path, body){
+  const opts = {
+    method: method,
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  try {
+    const resp = await fetch(path, opts);
+    const parsed = await readAPIResponse(resp);
+    if(isLoginRedirect(resp)){
+      showAjaxError('Session expired. Please sign in again.', responseDetails(resp, parsed));
+      return null;
+    }
+    if (!resp.ok) {
+      showAjaxError(parsed.data?.error?.message || 'Request failed (HTTP ' + resp.status + ')', responseDetails(resp, parsed));
+      return null;
+    }
+    if(!parsed.data){
+      showAjaxError('Unexpected server response. Please refresh and try again.', responseDetails(resp, parsed));
+      return null;
+    }
+    return parsed.data;
+  } catch (e) {
+    showAjaxError('Network error: ' + e.message, e.stack || String(e));
+    return null;
+  }
+}
 </script>
 {{end}}
 

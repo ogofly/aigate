@@ -74,10 +74,7 @@
       <td>
         <div class="table-actions">
           <button type="button" class="ghost" onclick="openDialog('providerEditDialog{{$i}}')">Edit</button>
-          <form method="post" action="/admin/providers/delete" onsubmit="return confirmDeleteProvider()">
-            <input type="hidden" name="name" value="{{$provider.Name}}">
-            <button type="submit">Delete</button>
-          </form>
+          <button type="button" onclick="submitProviderDelete(this, '{{$provider.Name}}')">Delete</button>
         </div>
       </td>
     </tr>
@@ -95,7 +92,7 @@
       </div>
       <button type="button" class="modal-close ghost" onclick="closeDialog('providerCreateDialog')" aria-label="Close">×</button>
     </div>
-    <form method="post" action="/admin/providers" class="modal-form">
+    <form onsubmit="submitProviderCreate(this);return false" class="modal-form">
       <div class="modal-grid">
         <div class="field-group">
           <label for="provider-name">Name</label>
@@ -148,8 +145,7 @@
       </div>
       <button type="button" class="modal-close ghost" onclick="closeDialog('providerEditDialog{{$i}}')" aria-label="Close">×</button>
     </div>
-    <form method="post" action="/admin/providers" class="modal-form provider-edit-form" onsubmit="this.querySelector('button[type=submit]').disabled=true">
-      <input type="hidden" name="_method" value="PUT">
+    <form onsubmit="submitProviderUpdate(this, {{$i}});return false" class="modal-form provider-edit-form">
       <input type="hidden" name="name" value="{{$provider.Name}}">
       <div class="modal-grid">
         <div class="field-group">
@@ -195,6 +191,7 @@
 </dialog>
 {{end}}
 
+{{template "admin_api_helpers" .}}
 <script>
 function openDialog(id){
   const dialog = document.getElementById(id);
@@ -228,8 +225,50 @@ function sortTable(tableId, col, kind){
   table.dataset.sortAsc = nextAsc ? "true" : "false";
 }
 
-function confirmDeleteProvider(){
-  return window.confirm("Delete this provider?");
+function confirmDeleteProvider(name){
+  return confirm('Delete provider: ' + name + '?');
+}
+
+async function submitProviderCreate(form){
+  const data = {
+    name: form.querySelector('[name=name]').value,
+    base_url: form.querySelector('[name=base_url]').value,
+    timeout: parseInt(form.querySelector('[name=timeout]').value) || 60,
+    anthropic_base_url: form.querySelector('[name=anthropic_base_url]').value,
+    anthropic_version: form.querySelector('[name=anthropic_version]').value,
+    api_key: form.querySelector('[name=api_key]').value,
+    api_key_ref: form.querySelector('[name=api_key_ref]').value,
+  };
+  const result = await apiCall('POST', '/api/admin/providers', data);
+  if (result && result.ok) {
+    closeDialog('providerCreateDialog');
+    location.reload();
+  }
+}
+
+async function submitProviderUpdate(form, idx){
+  const name = form.querySelector('[name=name]').value;
+  const data = {
+    base_url: form.querySelector('[name=base_url]').value,
+    timeout: parseInt(form.querySelector('[name=timeout]').value) || 60,
+    anthropic_base_url: form.querySelector('[name=anthropic_base_url]').value,
+    anthropic_version: form.querySelector('[name=anthropic_version]').value,
+    api_key: form.querySelector('[name=api_key]').value,
+    api_key_ref: form.querySelector('[name=api_key_ref]').value,
+  };
+  const result = await apiCall('PUT', '/api/admin/providers/' + encodeURIComponent(name), data);
+  if (result && result.ok) {
+    closeDialog('providerEditDialog'+idx);
+    location.reload();
+  }
+}
+
+async function submitProviderDelete(btn, name){
+  if(!confirm('Delete provider: ' + name + '?')) return;
+  const result = await apiCall('DELETE', '/api/admin/providers/' + encodeURIComponent(name));
+  if (result && result.ok) {
+    btn.closest('tr').remove();
+  }
 }
 
 document.querySelectorAll('dialog.modal-dialog').forEach(function(dialog){

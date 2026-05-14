@@ -66,10 +66,8 @@
         </div>
       </td>
       <td>
-        <form method="post" action="/admin/keys/delete" onsubmit="return confirmDeleteKey()">
-          <input type="hidden" name="key" value="{{.Key}}">
-          <button type="submit">Delete</button>
-        </form>
+        <button type="button" onclick="openKeyEditDialog('{{.Name}}', '{{.Owner}}', '{{.Purpose}}', '{{.Key}}')">Edit</button>
+        <button type="button" onclick="submitKeyDelete(this, '{{.Name}}', '{{.Purpose}}', '{{.Key}}')">Delete</button>
       </td>
     </tr>
     {{else}}
@@ -86,7 +84,7 @@
       </div>
       <button type="button" class="modal-close ghost" onclick="closeDialog('keyCreateDialog')" aria-label="Close">×</button>
     </div>
-    <form method="post" action="/admin/keys" class="modal-form key-create-form">
+    <form onsubmit="submitKeyCreate(this);return false" class="modal-form key-create-form">
       <div class="modal-grid key-create-grid">
         <div class="field-group key-span">
           <label for="new-key-input">API Key</label>
@@ -118,6 +116,42 @@
   </div>
 </dialog>
 
+<dialog id="keyEditDialog" class="modal-dialog">
+  <div class="modal-inner">
+    <div class="modal-head">
+      <div>
+        <h2 class="panel-title">Edit Key</h2>
+        <p class="modal-copy">Update the name, owner, or purpose for this managed key.</p>
+      </div>
+      <button type="button" class="modal-close ghost" onclick="closeDialog('keyEditDialog')" aria-label="Close">×</button>
+    </div>
+    <form onsubmit="submitKeyUpdate(this);return false" class="modal-form key-create-form">
+      <input type="hidden" id="edit-key-value" name="key">
+      <div class="modal-grid key-create-grid">
+        <div class="field-group">
+          <label for="edit-key-name">Name</label>
+          <input id="edit-key-name" name="name" placeholder="Display name">
+        </div>
+        {{if .IsAdmin}}
+        <div class="field-group">
+          <label for="edit-key-owner">Owner</label>
+          <input id="edit-key-owner" name="owner" placeholder="Owner name">
+        </div>
+        {{end}}
+        <div class="field-group key-span">
+          <label for="edit-key-purpose">Purpose</label>
+          <input id="edit-key-purpose" name="purpose" placeholder="Usage context">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="ghost" onclick="closeDialog('keyEditDialog')">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+{{template "admin_api_helpers" .}}
 <script>
 function openDialog(id){
   const dialog = document.getElementById(id);
@@ -212,8 +246,56 @@ function generateKey(){
   input.select();
 }
 
-function confirmDeleteKey(){
-  return window.confirm("Delete this API key?");
+function confirmDeleteKey(name, purpose){
+  return confirm('Delete key: ' + name + (purpose ? ' (' + purpose + ')' : '') + '?');
+}
+
+async function submitKeyCreate(form){
+  const data = {
+    key: form.querySelector('[name=key]').value,
+    name: form.querySelector('[name=name]').value,
+    purpose: form.querySelector('[name=purpose]').value,
+  };
+  const ownerField = form.querySelector('[name=owner]');
+  if (ownerField) data.owner = ownerField.value;
+  const result = await apiCall('POST', '/api/admin/keys', data);
+  if (result && result.ok) {
+    closeDialog('keyCreateDialog');
+    location.reload();
+  }
+}
+
+async function submitKeyDelete(btn, name, purpose, key){
+  if(!confirm('Delete key: ' + name + (purpose ? ' (' + purpose + ')' : '') + '?')) return;
+  const result = await apiCall('DELETE', '/api/admin/keys/' + encodeURIComponent(key));
+  if (result && result.ok) {
+    btn.closest('tr').remove();
+  }
+}
+
+function openKeyEditDialog(name, owner, purpose, key){
+  const form = document.querySelector('#keyEditDialog form');
+  form.querySelector('[name=key]').value = key;
+  form.querySelector('[name=name]').value = name;
+  const ownerField = form.querySelector('[name=owner]');
+  if (ownerField) ownerField.value = owner;
+  form.querySelector('[name=purpose]').value = purpose;
+  openDialog('keyEditDialog');
+}
+
+async function submitKeyUpdate(form){
+  const key = form.querySelector('[name=key]').value;
+  const data = {
+    name: form.querySelector('[name=name]').value,
+    purpose: form.querySelector('[name=purpose]').value,
+  };
+  const ownerField = form.querySelector('[name=owner]');
+  if (ownerField) data.owner = ownerField.value;
+  const result = await apiCall('PUT', '/api/admin/keys/' + encodeURIComponent(key), data);
+  if (result && result.ok) {
+    closeDialog('keyEditDialog');
+    location.reload();
+  }
 }
 
 document.getElementById('keyCreateDialog')?.addEventListener('click', function(e){

@@ -1787,8 +1787,8 @@ func TestAdminKeysPageMasksKeyByDefault(t *testing.T) {
 	if !strings.Contains(body, "sk-") {
 		t.Fatalf("body missing sk- key prefix in generator: %q", body)
 	}
-	if !strings.Contains(body, "onsubmit=\"return confirmDeleteKey()\"") {
-		t.Fatalf("body missing key delete confirm: %q", body)
+	if !strings.Contains(body, "submitKeyDelete") {
+		t.Fatalf("body missing key delete handler: %q", body)
 	}
 }
 
@@ -1818,7 +1818,7 @@ func TestAdminProvidersPageHasDeleteConfirm(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	if !strings.Contains(rr.Body.String(), "onsubmit=\"return confirmDeleteProvider()\"") {
+	if !strings.Contains(rr.Body.String(), "submitProviderDelete") {
 		t.Fatalf("providers page missing delete confirm: %q", rr.Body.String())
 	}
 }
@@ -1890,8 +1890,8 @@ func TestAdminModelsPageHasDeleteConfirm(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	if !strings.Contains(rr.Body.String(), "function confirmDeleteModel()") {
-		t.Fatalf("models page missing delete confirm function: %q", rr.Body.String())
+	if !strings.Contains(rr.Body.String(), "submitModelDelete") {
+		t.Fatalf("models page missing delete handler: %q", rr.Body.String())
 	}
 }
 

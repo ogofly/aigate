@@ -50,10 +50,8 @@
       <td>{{.UpstreamName}}</td>
       {{if $.IsAdmin}}
       <td>
-        <form method="post" action="/admin/models/delete" class="cell-form" onsubmit="return confirmDeleteModel()">
-          <input type="hidden" name="public_name" value="{{.PublicName}}">
-          <button type="submit">Delete</button>
-        </form>
+        <button type="button" onclick="openModelEditDialog('{{.PublicName}}', '{{.Provider}}', '{{.UpstreamName}}')">Edit</button>
+        <button type="button" onclick="submitModelDelete(this, '{{.PublicName}}')">Delete</button>
       </td>
       {{end}}
     </tr>
@@ -72,7 +70,7 @@
       </div>
       <button type="button" class="modal-close ghost" onclick="closeDialog('modelCreateDialog')" aria-label="Close">×</button>
     </div>
-    <form method="post" action="/admin/models" class="modal-form">
+    <form onsubmit="submitModelCreate(this);return false" class="modal-form">
       <div class="modal-grid">
         <div class="field-group">
           <label for="model-public-name">Public Name</label>
@@ -89,6 +87,38 @@
       </div>
       <div class="modal-actions">
         <button type="button" class="ghost" onclick="closeDialog('modelCreateDialog')">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+<dialog id="modelEditDialog" class="modal-dialog">
+  <div class="modal-inner">
+    <div class="modal-head">
+      <div>
+        <h2 class="panel-title">Edit Model</h2>
+        <p class="modal-copy">Update the provider or upstream model for this alias.</p>
+      </div>
+      <button type="button" class="modal-close ghost" onclick="closeDialog('modelEditDialog')" aria-label="Close">×</button>
+    </div>
+    <form onsubmit="submitModelUpdate(this);return false" class="modal-form">
+      <input type="hidden" id="edit-model-original-name" name="original_public_name">
+      <div class="modal-grid">
+        <div class="field-group">
+          <label for="edit-model-public-name">Public Name</label>
+          <input id="edit-model-public-name" name="public_name" placeholder="Public model alias" required>
+        </div>
+        <div class="field-group">
+          <label for="edit-model-provider">Provider</label>
+          <select id="edit-model-provider" name="provider" required>{{range .Providers}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+        </div>
+      </div>
+      <div class="field-group">
+        <label for="edit-model-upstream-name">Upstream Name</label>
+        <input id="edit-model-upstream-name" name="upstream_name" placeholder="Upstream model ID" required>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="ghost" onclick="closeDialog('modelEditDialog')">Cancel</button>
         <button type="submit">Save</button>
       </div>
     </form>
@@ -114,8 +144,52 @@ function sortTable(tableId, col){
   table.dataset.sortAsc = nextAsc ? "true" : "false";
 }
 
-function confirmDeleteModel(){
-  return window.confirm("Delete this model?");
+function confirmDeleteModel(name){
+  return confirm('Delete model: ' + name + '?');
+}
+
+async function submitModelCreate(form){
+  const data = {
+    public_name: form.querySelector('[name=public_name]').value,
+    provider: form.querySelector('[name=provider]').value,
+    upstream_name: form.querySelector('[name=upstream_name]').value,
+  };
+  const result = await apiCall('POST', '/api/admin/models', data);
+  if (result && result.ok) {
+    closeDialog('modelCreateDialog');
+    location.reload();
+  }
+}
+
+async function submitModelDelete(btn, name){
+  if(!confirm('Delete model: ' + name + '?')) return;
+  const result = await apiCall('DELETE', '/api/admin/models/' + encodeURIComponent(name));
+  if (result && result.ok) {
+    btn.closest('tr').remove();
+  }
+}
+
+function openModelEditDialog(publicName, provider, upstreamName){
+  const form = document.querySelector('#modelEditDialog form');
+  form.querySelector('[name=original_public_name]').value = publicName;
+  form.querySelector('[name=public_name]').value = publicName;
+  form.querySelector('[name=provider]').value = provider;
+  form.querySelector('[name=upstream_name]').value = upstreamName;
+  openDialog('modelEditDialog');
+}
+
+async function submitModelUpdate(form){
+  const originalName = form.querySelector('[name=original_public_name]').value;
+  const data = {
+    public_name: form.querySelector('[name=public_name]').value,
+    provider: form.querySelector('[name=provider]').value,
+    upstream_name: form.querySelector('[name=upstream_name]').value,
+  };
+  const result = await apiCall('PUT', '/api/admin/models/' + encodeURIComponent(originalName), data);
+  if (result && result.ok) {
+    closeDialog('modelEditDialog');
+    location.reload();
+  }
 }
 </script>
 </div>{{template "admin_theme_toggle" .}}</body>
