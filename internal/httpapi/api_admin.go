@@ -98,17 +98,8 @@ func (h *Handler) handleApiProvidersCreate(w http.ResponseWriter, r *http.Reques
 		providerCfg.Enabled = *body.Enabled
 	}
 
-	if err := providerCfg.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
-		return
-	}
-
-	if err := h.store.UpsertProvider(r.Context(), providerCfg); err != nil {
-		writeError(w, http.StatusBadRequest, "api_provider_create_error", err.Error())
-		return
-	}
-	if err := h.reloadProvidersAndModels(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_provider_reload_error", err.Error())
+	if err := h.adminService.CreateProvider(r.Context(), providerCfg); err != nil {
+		writeAdminError(w, err, http.StatusBadRequest, "api_provider_create_error")
 		return
 	}
 	writeSuccess(w, "provider created")
@@ -126,12 +117,6 @@ func (h *Handler) handleApiProviderUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	existing, err := h.store.GetProvider(r.Context(), name)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "provider_not_found", fmt.Sprintf("provider %q not found", name))
-		return
-	}
-
 	var body struct {
 		BaseURL          string `json:"base_url"`
 		AnthropicBaseURL string `json:"anthropic_base_url"`
@@ -145,49 +130,16 @@ func (h *Handler) handleApiProviderUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	baseURL := strings.TrimSpace(body.BaseURL)
-	if baseURL == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "base_url is required")
-		return
-	}
-
-	apiKey := strings.TrimSpace(body.APIKey)
-	apiKeyRef := strings.TrimSpace(body.APIKeyRef)
-	if apiKey == "" && apiKeyRef == "" {
-		apiKey = existing.APIKey
-		apiKeyRef = existing.APIKeyRef
-	}
-
-	timeoutSeconds := existing.TimeoutSeconds
-	if body.TimeoutSeconds != nil {
-		timeoutSeconds = *body.TimeoutSeconds
-	}
-
-	providerCfg := config.ProviderConfig{
-		Name:             name,
-		BaseURL:          baseURL,
-		AnthropicBaseURL: strings.TrimSpace(body.AnthropicBaseURL),
-		AnthropicVersion: strings.TrimSpace(body.AnthropicVersion),
-		APIKey:           apiKey,
-		APIKeyRef:        apiKeyRef,
-		TimeoutSeconds:   timeoutSeconds,
-		Enabled:          existing.Enabled,
-	}
-	if body.Enabled != nil {
-		providerCfg.Enabled = *body.Enabled
-	}
-
-	if err := providerCfg.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
-		return
-	}
-
-	if err := h.store.UpsertProvider(r.Context(), providerCfg); err != nil {
-		writeError(w, http.StatusBadRequest, "api_provider_update_error", err.Error())
-		return
-	}
-	if err := h.reloadProvidersAndModels(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_provider_reload_error", err.Error())
+	if err := h.adminService.UpdateProvider(r.Context(), name, ProviderUpdate{
+		BaseURL:          body.BaseURL,
+		AnthropicBaseURL: body.AnthropicBaseURL,
+		AnthropicVersion: body.AnthropicVersion,
+		APIKey:           body.APIKey,
+		APIKeyRef:        body.APIKeyRef,
+		TimeoutSeconds:   body.TimeoutSeconds,
+		Enabled:          body.Enabled,
+	}); err != nil {
+		writeAdminError(w, err, http.StatusBadRequest, "api_provider_update_error")
 		return
 	}
 	writeSuccess(w, "provider updated")
@@ -205,25 +157,8 @@ func (h *Handler) handleApiProviderDelete(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Check if any model still references this provider.
-	models, err := h.store.ListModels(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "api_provider_delete_error", err.Error())
-		return
-	}
-	for _, model := range models {
-		if model.Provider == name {
-			writeError(w, http.StatusBadRequest, "api_provider_delete_error", "provider is still used by models")
-			return
-		}
-	}
-
-	if err := h.store.DeleteProvider(r.Context(), name); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_provider_delete_error", err.Error())
-		return
-	}
-	if err := h.reloadProvidersAndModels(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_provider_reload_error", err.Error())
+	if err := h.adminService.DeleteProvider(r.Context(), name); err != nil {
+		writeAdminError(w, err, http.StatusInternalServerError, "api_provider_delete_error")
 		return
 	}
 	writeSuccess(w, "provider deleted")
@@ -268,25 +203,10 @@ func (h *Handler) handleApiModelsCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	publicName := strings.TrimSpace(body.PublicName)
-	provider := strings.TrimSpace(body.Provider)
-	upstreamName := strings.TrimSpace(body.UpstreamName)
-
-	if publicName == "" || provider == "" || upstreamName == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "public_name, provider, upstream_name are required")
-		return
-	}
-
-	// Verify provider exists.
-	if !containsString(h.listProviderNames(), provider) {
-		writeError(w, http.StatusBadRequest, "invalid_request", "provider not found")
-		return
-	}
-
 	modelCfg := config.ModelConfig{
-		PublicName:   publicName,
-		Provider:     provider,
-		UpstreamName: upstreamName,
+		PublicName:   body.PublicName,
+		Provider:     body.Provider,
+		UpstreamName: body.UpstreamName,
 		Priority:     body.Priority,
 		Weight:       body.Weight,
 		Enabled:      true,
@@ -295,12 +215,8 @@ func (h *Handler) handleApiModelsCreate(w http.ResponseWriter, r *http.Request) 
 		modelCfg.Enabled = *body.Enabled
 	}
 
-	if err := h.store.UpsertModel(r.Context(), modelCfg); err != nil {
-		writeError(w, http.StatusBadRequest, "api_model_create_error", err.Error())
-		return
-	}
-	if err := h.reloadModels(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_model_reload_error", err.Error())
+	if err := h.adminService.CreateModel(r.Context(), modelCfg); err != nil {
+		writeAdminError(w, err, http.StatusBadRequest, "api_model_create_error")
 		return
 	}
 	writeSuccess(w, "model created")
@@ -318,35 +234,6 @@ func (h *Handler) handleApiModelUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	models, err := h.store.ListModels(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "api_model_update_error", err.Error())
-		return
-	}
-	var existing config.ModelConfig
-	foundExisting := false
-	publicNameMatches := 0
-	for _, model := range models {
-		if model.ID == identifier {
-			existing = model
-			foundExisting = true
-			break
-		}
-		if model.PublicName == identifier {
-			publicNameMatches++
-			existing = model
-			foundExisting = true
-		}
-	}
-	if publicNameMatches > 1 {
-		writeError(w, http.StatusBadRequest, "ambiguous_model_route", "model has multiple routes; use model route id")
-		return
-	}
-	if !foundExisting {
-		writeError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("model %q not found", identifier))
-		return
-	}
-
 	var body struct {
 		PublicName   string `json:"public_name"`
 		Provider     string `json:"provider"`
@@ -359,54 +246,15 @@ func (h *Handler) handleApiModelUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider := strings.TrimSpace(body.Provider)
-	if provider == "" {
-		provider = existing.Provider
-	}
-	upstreamName := strings.TrimSpace(body.UpstreamName)
-	if upstreamName == "" {
-		upstreamName = existing.UpstreamName
-	}
-
-	// Verify provider exists.
-	if !containsString(h.listProviderNames(), provider) {
-		writeError(w, http.StatusBadRequest, "invalid_request", "provider not found")
-		return
-	}
-
-	newPublicName := strings.TrimSpace(body.PublicName)
-	if newPublicName == "" {
-		newPublicName = existing.PublicName
-	}
-	priority := existing.Priority
-	if body.Priority != nil {
-		priority = *body.Priority
-	}
-	weight := existing.Weight
-	if body.Weight != nil {
-		weight = *body.Weight
-	}
-	enabled := existing.Enabled
-	if body.Enabled != nil {
-		enabled = *body.Enabled
-	}
-
-	modelCfg := config.ModelConfig{
-		ID:           existing.ID,
-		PublicName:   newPublicName,
-		Provider:     provider,
-		UpstreamName: upstreamName,
-		Priority:     priority,
-		Weight:       weight,
-		Enabled:      enabled,
-	}
-
-	if err := h.store.UpsertModel(r.Context(), modelCfg); err != nil {
-		writeError(w, http.StatusBadRequest, "api_model_update_error", err.Error())
-		return
-	}
-	if err := h.reloadModels(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_model_reload_error", err.Error())
+	if err := h.adminService.UpdateModelRoute(r.Context(), identifier, ModelUpdate{
+		PublicName:   body.PublicName,
+		Provider:     body.Provider,
+		UpstreamName: body.UpstreamName,
+		Priority:     body.Priority,
+		Weight:       body.Weight,
+		Enabled:      body.Enabled,
+	}); err != nil {
+		writeAdminError(w, err, http.StatusBadRequest, "api_model_update_error")
 		return
 	}
 	writeSuccess(w, "model updated")
@@ -425,12 +273,8 @@ func (h *Handler) handleApiModelsDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := h.store.DeleteModel(r.Context(), publicName); err != nil {
-		writeError(w, http.StatusBadRequest, "api_model_delete_error", err.Error())
-		return
-	}
-	if err := h.reloadModels(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_model_reload_error", err.Error())
+	if err := h.adminService.DeleteModel(r.Context(), publicName); err != nil {
+		writeAdminError(w, err, http.StatusBadRequest, "api_model_delete_error")
 		return
 	}
 	writeSuccess(w, "model deleted")
@@ -483,12 +327,6 @@ func (h *Handler) handleApiKeysCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if key already exists.
-	if _, err := h.store.GetAuthKey(r.Context(), key); err == nil {
-		writeError(w, http.StatusConflict, "api_key_duplicate", "key already exists")
-		return
-	}
-
 	keyCfg := config.KeyConfig{
 		Key:           key,
 		Name:          strings.TrimSpace(body.Name),
@@ -506,12 +344,8 @@ func (h *Handler) handleApiKeysCreate(w http.ResponseWriter, r *http.Request) {
 		keyCfg.Owner = session.Username
 	}
 
-	if err := h.store.UpsertAuthKey(r.Context(), keyCfg); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_key_create_error", err.Error())
-		return
-	}
-	if err := h.reloadAuthKeys(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_key_reload_error", err.Error())
+	if err := h.adminService.CreateAuthKey(r.Context(), keyCfg); err != nil {
+		writeAdminError(w, err, http.StatusInternalServerError, "api_key_create_error")
 		return
 	}
 	writeSuccess(w, "key created")
@@ -570,12 +404,8 @@ func (h *Handler) handleApiKeyUpdate(w http.ResponseWriter, r *http.Request) {
 		keyCfg.Owner = existing.Owner
 	}
 
-	if err := h.store.UpsertAuthKey(r.Context(), keyCfg); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_key_update_error", err.Error())
-		return
-	}
-	if err := h.reloadAuthKeys(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_key_reload_error", err.Error())
+	if err := h.adminService.UpdateAuthKey(r.Context(), keyCfg); err != nil {
+		writeAdminError(w, err, http.StatusInternalServerError, "api_key_update_error")
 		return
 	}
 	writeSuccess(w, "key updated")
@@ -607,12 +437,8 @@ func (h *Handler) handleApiKeysDelete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.store.DeleteAuthKey(r.Context(), key); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_key_delete_error", err.Error())
-		return
-	}
-	if err := h.reloadAuthKeys(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_key_reload_error", err.Error())
+	if err := h.adminService.DeleteAuthKey(r.Context(), key); err != nil {
+		writeAdminError(w, err, http.StatusInternalServerError, "api_key_delete_error")
 		return
 	}
 	writeSuccess(w, "key deleted")
@@ -665,20 +491,8 @@ func (h *Handler) handleApiRoutingSettingsUpdate(w http.ResponseWriter, r *http.
 	if body.FailoverMaxAttempts != nil {
 		settings.FailoverMaxAttempts = *body.FailoverMaxAttempts
 	}
-	if settings.Selection != "priority" && settings.Selection != "weight" && settings.Selection != "random" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "selection must be priority, weight, or random")
-		return
-	}
-	if settings.FailoverMaxAttempts <= 0 {
-		writeError(w, http.StatusBadRequest, "invalid_request", "failover_max_attempts must be greater than 0")
-		return
-	}
-	if err := h.store.UpsertRoutingSettings(r.Context(), settings); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_routing_update_error", err.Error())
-		return
-	}
-	if err := h.reloadModels(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_routing_reload_error", err.Error())
+	if err := h.adminService.UpdateRoutingSettings(r.Context(), settings); err != nil {
+		writeAdminError(w, err, http.StatusInternalServerError, "api_routing_update_error")
 		return
 	}
 	writeSuccess(w, "routing settings updated")

@@ -20,7 +20,6 @@ import (
 const adminSessionCookie = "aigate_admin_session"
 const adminSystemName = "LLM Gateway"
 const adminSessionTTL = 24 * time.Hour
-const adminReloadTimeout = 5 * time.Second
 
 type webRole string
 
@@ -417,12 +416,8 @@ func (h *Handler) handleAdminKeysSave(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "key is required")
 		return
 	}
-	if err := h.store.UpsertAuthKey(r.Context(), key); err != nil {
-		writeError(w, http.StatusInternalServerError, "admin_key_save_error", err.Error())
-		return
-	}
-	if err := h.reloadAuthKeys(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "admin_key_reload_error", err.Error())
+	if err := h.adminService.UpdateAuthKey(r.Context(), key); err != nil {
+		writeAdminError(w, err, http.StatusInternalServerError, "admin_key_save_error")
 		return
 	}
 	http.Redirect(w, r, "/admin/keys?flash=key+saved", http.StatusSeeOther)
@@ -453,12 +448,8 @@ func (h *Handler) handleAdminKeysDelete(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	if err := h.store.DeleteAuthKey(r.Context(), key); err != nil {
-		writeError(w, http.StatusInternalServerError, "admin_key_delete_error", err.Error())
-		return
-	}
-	if err := h.reloadAuthKeys(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "admin_key_reload_error", err.Error())
+	if err := h.adminService.DeleteAuthKey(r.Context(), key); err != nil {
+		writeAdminError(w, err, http.StatusInternalServerError, "admin_key_delete_error")
 		return
 	}
 	http.Redirect(w, r, "/admin/keys?flash=key+deleted", http.StatusSeeOther)
@@ -526,70 +517,34 @@ func (h *Handler) handleAdminProvidersSave(w http.ResponseWriter, r *http.Reques
 		TimeoutSeconds:   timeoutSeconds,
 		Enabled:          r.FormValue("enabled") != "false",
 	}
-	if err := providerCfg.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
-		return
-	}
-	if err := h.store.UpsertProvider(r.Context(), providerCfg); err != nil {
-		writeError(w, http.StatusBadRequest, "admin_provider_save_error", err.Error())
-		return
-	}
-	if err := h.reloadProvidersAndModels(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "admin_provider_reload_error", err.Error())
+	if err := h.adminService.CreateProvider(r.Context(), providerCfg); err != nil {
+		writeAdminError(w, err, http.StatusBadRequest, "admin_provider_save_error")
 		return
 	}
 	http.Redirect(w, r, "/admin/providers?flash=provider+saved", http.StatusSeeOther)
 }
 
 func (h *Handler) handleAdminProviderUpdate(w http.ResponseWriter, r *http.Request, name string) {
-	existing, err := h.store.GetProvider(r.Context(), name)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "admin_provider_update_error", "provider not found")
-		return
-	}
-
-	baseURL := strings.TrimSpace(r.FormValue("base_url"))
-	if baseURL == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "base_url is required")
-		return
-	}
-	apiKey := strings.TrimSpace(r.FormValue("api_key"))
-	apiKeyRef := strings.TrimSpace(r.FormValue("api_key_ref"))
-	if apiKey == "" && apiKeyRef == "" {
-		apiKey = existing.APIKey
-		apiKeyRef = existing.APIKeyRef
-	}
-
-	providerCfg := config.ProviderConfig{
-		Name:             name,
-		BaseURL:          baseURL,
+	update := ProviderUpdate{
+		BaseURL:          strings.TrimSpace(r.FormValue("base_url")),
 		AnthropicBaseURL: strings.TrimSpace(r.FormValue("anthropic_base_url")),
 		AnthropicVersion: strings.TrimSpace(r.FormValue("anthropic_version")),
-		APIKey:           apiKey,
-		APIKeyRef:        apiKeyRef,
-		TimeoutSeconds:   existing.TimeoutSeconds,
-		Enabled:          existing.Enabled,
+		APIKey:           strings.TrimSpace(r.FormValue("api_key")),
+		APIKeyRef:        strings.TrimSpace(r.FormValue("api_key_ref")),
 	}
 	if _, ok := r.Form["_enabled_present"]; ok {
-		providerCfg.Enabled = r.FormValue("enabled") == "true"
+		enabled := r.FormValue("enabled") == "true"
+		update.Enabled = &enabled
 	}
 	if v := strings.TrimSpace(r.FormValue("timeout")); v != "" {
 		var parsed int
 		if _, err := fmt.Sscanf(v, "%d", &parsed); err == nil && parsed > 0 {
-			providerCfg.TimeoutSeconds = parsed
+			update.TimeoutSeconds = &parsed
 		}
 	}
 
-	if err := providerCfg.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
-		return
-	}
-	if err := h.store.UpsertProvider(r.Context(), providerCfg); err != nil {
-		writeError(w, http.StatusBadRequest, "admin_provider_update_error", err.Error())
-		return
-	}
-	if err := h.reloadProvidersAndModels(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "admin_provider_reload_error", err.Error())
+	if err := h.adminService.UpdateProvider(r.Context(), name, update); err != nil {
+		writeAdminError(w, err, http.StatusBadRequest, "admin_provider_update_error")
 		return
 	}
 	http.Redirect(w, r, "/admin/providers?flash=provider+updated", http.StatusSeeOther)
@@ -608,23 +563,8 @@ func (h *Handler) handleAdminProvidersDelete(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "invalid_request", "name is required")
 		return
 	}
-	models, err := h.store.ListModels(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "admin_provider_delete_error", err.Error())
-		return
-	}
-	for _, model := range models {
-		if model.Provider == name {
-			writeError(w, http.StatusBadRequest, "admin_provider_delete_error", "provider is still used by models")
-			return
-		}
-	}
-	if err := h.store.DeleteProvider(r.Context(), name); err != nil {
-		writeError(w, http.StatusInternalServerError, "admin_provider_delete_error", err.Error())
-		return
-	}
-	if err := h.reloadProvidersAndModels(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "admin_provider_reload_error", err.Error())
+	if err := h.adminService.DeleteProvider(r.Context(), name); err != nil {
+		writeAdminError(w, err, http.StatusInternalServerError, "admin_provider_delete_error")
 		return
 	}
 	http.Redirect(w, r, "/admin/providers?flash=provider+deleted", http.StatusSeeOther)
@@ -684,20 +624,8 @@ func (h *Handler) handleAdminModelsSave(w http.ResponseWriter, r *http.Request) 
 			model.Weight = parsed
 		}
 	}
-	if model.PublicName == "" || model.Provider == "" || model.UpstreamName == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "public_name, provider, upstream_name are required")
-		return
-	}
-	if !containsString(h.listProviderNames(), model.Provider) {
-		writeError(w, http.StatusBadRequest, "invalid_request", "provider not found")
-		return
-	}
-	if err := h.store.UpsertModel(r.Context(), model); err != nil {
-		writeError(w, http.StatusBadRequest, "admin_model_save_error", err.Error())
-		return
-	}
-	if err := h.reloadModels(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "admin_model_reload_error", err.Error())
+	if err := h.adminService.CreateModel(r.Context(), model); err != nil {
+		writeAdminError(w, err, http.StatusBadRequest, "admin_model_save_error")
 		return
 	}
 	http.Redirect(w, r, "/admin/models?flash=model+saved", http.StatusSeeOther)
@@ -719,12 +647,8 @@ func (h *Handler) handleAdminModelsDelete(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid_request", "model route id is required")
 		return
 	}
-	if err := h.store.DeleteModel(r.Context(), modelID); err != nil {
-		writeError(w, http.StatusInternalServerError, "admin_model_delete_error", err.Error())
-		return
-	}
-	if err := h.reloadModels(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "admin_model_reload_error", err.Error())
+	if err := h.adminService.DeleteModel(r.Context(), modelID); err != nil {
+		writeAdminError(w, err, http.StatusInternalServerError, "admin_model_delete_error")
 		return
 	}
 	http.Redirect(w, r, "/admin/models?flash=model+deleted", http.StatusSeeOther)
@@ -1364,69 +1288,6 @@ func filterUsageByOwner(summaries []usage.Summary, owner string) []usage.Summary
 		}
 	}
 	return filtered
-}
-
-func (h *Handler) reloadModels(ctx context.Context) error {
-	ctx, cancel := reloadContext(ctx)
-	defer cancel()
-
-	models, err := h.store.ListModels(ctx)
-	if err != nil {
-		return err
-	}
-	providerConfigs, err := h.store.ListProviders(ctx)
-	if err != nil {
-		return err
-	}
-	settings, err := h.store.GetRoutingSettings(ctx)
-	if err != nil {
-		return err
-	}
-	return h.router.Update(models, providerConfigs, settings)
-}
-
-func (h *Handler) reloadProvidersAndModels(ctx context.Context) error {
-	ctx, cancel := reloadContext(ctx)
-	defer cancel()
-
-	models, err := h.store.ListModels(ctx)
-	if err != nil {
-		return err
-	}
-	providerConfigs, err := h.store.ListProviders(ctx)
-	if err != nil {
-		return err
-	}
-	settings, err := h.store.GetRoutingSettings(ctx)
-	if err != nil {
-		return err
-	}
-	if err := h.router.Update(models, providerConfigs, settings); err != nil {
-		return err
-	}
-	names := make([]string, 0, len(providerConfigs))
-	for _, providerCfg := range providerConfigs {
-		names = append(names, providerCfg.Name)
-	}
-	h.setProviderNames(names)
-	return nil
-}
-
-func (h *Handler) reloadAuthKeys(ctx context.Context) error {
-	ctx, cancel := reloadContext(ctx)
-	defer cancel()
-
-	keys, err := h.store.ListAuthKeys(ctx)
-	if err != nil {
-		return err
-	}
-	h.auth.Update(keys)
-	return nil
-}
-
-func reloadContext(parent context.Context) (context.Context, context.CancelFunc) {
-	_ = parent
-	return context.WithTimeout(context.Background(), adminReloadTimeout)
 }
 
 func containsString(values []string, target string) bool {

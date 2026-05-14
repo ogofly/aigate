@@ -24,6 +24,7 @@ type Handler struct {
 	admin         config.AdminConfig
 	client        gatewayProviderClient
 	executor      *GatewayExecutor
+	adminService  *AdminService
 	router        *router.Router
 	usage         *usage.Recorder
 	store         *store.SQLiteStore
@@ -51,6 +52,7 @@ func NewWithClient(authenticator *auth.Auth, admin config.AdminConfig, client pr
 		mux:           http.NewServeMux(),
 	}
 	h.executor = NewGatewayExecutor(rt, sqliteStore, client, recorder)
+	h.adminService = NewAdminService(sqliteStore, rt, authenticator, h.setProviderNames)
 
 	h.routes()
 	return h
@@ -150,7 +152,7 @@ func (h *Handler) handleAdminAvatar(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) ReloadModelsFromStore(ctx context.Context) error {
-	return h.reloadModels(ctx)
+	return h.adminService.RefreshModels(ctx)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
