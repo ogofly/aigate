@@ -6,7 +6,7 @@
 .page-intro{margin:0 0 16px}
 .filters{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:12px}
 .filters label{display:flex;flex-direction:column;gap:6px;font-size:13px;min-width:0}
-.filter-actions{display:flex;gap:8px;align-items:center;padding-bottom:0}
+.filter-actions{display:flex;gap:8px;align-items:center;padding-bottom:6px}
 .filter-actions button{min-height:40px;padding:10px 14px}
 a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
 .section-card{margin-top:16px}
@@ -194,7 +194,16 @@ function renderTrend(chart, data){
   var chartLine = cs.getPropertyValue('--line').trim() || 'rgba(210,214,220,.09)';
   chart.setOption({
     backgroundColor:'transparent',
-    tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'},formatter:function(params){
+      if(!params||!params.length)return '';
+      var s=params[0].axisValue+'<br/>';
+      for(var i=0;i<params.length;i++){
+        var v=params[i].seriesName==='Total Tokens'?formatTokensTable(params[i].data):params[i].data.toLocaleString();
+        s+='<span style="display:inline-block;margin-right:4px;border-radius:50%;width:10px;height:10px;background-color:'+params[i].color+';"></span>';
+        s+=params[i].seriesName+': '+v+'<br/>';
+      }
+      return s;
+    }},
     legend:{data:['Requests','Errors','Total Tokens'],textStyle:{color:chartMuted}},
     grid:{left:'3%',right:'4%',bottom:'3%',containLabel:true},
     xAxis:{type:'category',data:dates,axisLabel:{color:chartMuted}},
@@ -230,13 +239,13 @@ function renderPieChart(chartId, dataElId, metric){
     return item.name + ': ' + formatPieValue(metric, val) + ' (' + item.percent + '%)';
   };
   var cs = getComputedStyle(document.documentElement);
-  var chartTextStrong = cs.getPropertyValue('--text-strong').trim() || '#e1e5eb';
+  var chartMuted = cs.getPropertyValue('--muted').trim() || '#8b9098';
   var chart=echarts.init(document.getElementById(chartId));
   chart._pieRawData = rawData;
   chart.setOption({
     backgroundColor:'transparent',
     tooltip:{trigger:'item',formatter:formatter},
-    series:[{type:'pie',radius:['40%','70%'],avoidLabelOverlap:false,label:{color:chartTextStrong},labelLine:{show:true},data:data}]
+    series:[{type:'pie',radius:['40%','70%'],avoidLabelOverlap:false,label:{color:chartMuted},labelLine:{show:true},data:data}]
   });
   window.addEventListener('resize',function(){chart.resize()});
   return chart;

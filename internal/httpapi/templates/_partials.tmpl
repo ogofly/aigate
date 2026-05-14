@@ -23,7 +23,7 @@ button:active{transform:translateY(0)}
 .muted{color:var(--muted)}
 .flash{padding:12px 14px;background:rgba(210,214,220,.038);border:1px solid rgba(139,92,246,.12);border-radius:4px;margin-top:16px;color:var(--text)}
 .panel{position:relative;padding:18px;border:1px solid var(--line);border-radius:4px;background:linear-gradient(180deg, rgba(210,214,220,.042), rgba(210,214,220,.026));box-shadow:var(--shadow);transition:border-color .18s ease,background-color .18s ease}
-.panel::before{content:"";position:absolute;left:18px;top:0;width:36px;height:1px;background:linear-gradient(90deg, rgba(139,92,246,.52), rgba(139,92,246,0))}
+.panel::before{content:"";position:absolute;left:18px;top:0;width:36px;height:3px;background:linear-gradient(90deg, rgba(139,92,246,.52), rgba(139,92,246,0))}
 .panel:hover{border-color:var(--line-strong);background:linear-gradient(180deg, rgba(210,214,220,.045), rgba(210,214,220,.028))}
 .panel + .panel{margin-top:18px}
 .panel-title{margin:0 0 6px;font-size:16px;color:var(--text-strong)}
@@ -57,7 +57,7 @@ tbody tr:hover td:first-child{box-shadow:inset 2px 0 0 rgba(139,92,246,.62)}
 .modal-form{display:grid;gap:14px}
 .modal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}
-.brand-logo{width:40px;height:40px;display:block;flex:0 0 auto}
+.brand-logo{width:32px;height:32px;display:block;flex:0 0 auto}
 .nav{display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;margin:0 0 24px;padding:14px 16px;border:1px solid var(--line);border-radius:4px;background:rgba(24,26,30,.85);backdrop-filter:blur(10px);box-shadow:0 7px 16px rgba(0,0,0,.12);position:sticky;top:0;z-index:100}
 .nav-brand{display:flex;align-items:center;gap:10px;min-width:0;text-decoration:none;color:var(--text);margin-right:6px}
 .nav-brand-text{display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -242,7 +242,7 @@ async function copyWithFallback(value){
 {{define "admin_nav"}}
 <nav class="nav">
   <button type="button" class="nav-hamburger" aria-label="Open menu"><svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-  <a class="nav-brand" href="/admin/usage/view"><img class="brand-logo" src="/assets/logo.svg" alt="" width="40" height="40"><span class="nav-brand-text"><span class="nav-brand-title">LLM Gateway</span></span></a>
+  <a class="nav-brand" href="/admin/usage/view"><img class="brand-logo" src="/assets/logo.svg" alt="" width="32" height="32"><span class="nav-brand-text"><span class="nav-brand-title">LLM Gateway</span></span></a>
   <div class="nav-links">
     {{if .IsAdmin}}<a class="nav-link{{if eq .CurrentPath "/admin/providers"}} active{{end}}" href="/admin/providers">Providers</a>{{end}}
     <a class="nav-link{{if eq .CurrentPath "/admin/models"}} active{{end}}" href="/admin/models">Models</a>
