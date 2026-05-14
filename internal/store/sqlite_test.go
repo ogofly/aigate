@@ -8,6 +8,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"aigate/internal/config"
 	"aigate/internal/store"
 	"aigate/internal/usage"
 )
@@ -157,6 +158,77 @@ func TestNewSQLiteMigratesLegacyUsageRollupsTable(t *testing.T) {
 	}
 }
 
+func TestNewSQLiteMigratesLegacyModelsToRoutes(t *testing.T) {
+	path := t.TempDir() + "/legacy-models.db"
+
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE models (
+			public_name TEXT PRIMARY KEY,
+			provider TEXT NOT NULL,
+			upstream_name TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+		INSERT INTO models(public_name, provider, upstream_name, updated_at)
+		VALUES ('gpt-4o', 'openai', 'gpt-4o', '2026-01-01T00:00:00Z');
+	`); err != nil {
+		t.Fatalf("seed legacy models db error = %v", err)
+	}
+	_ = db.Close()
+
+	sqliteStore, err := store.NewSQLite(path)
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	defer sqliteStore.Close()
+
+	models, err := sqliteStore.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels() error = %v", err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("len(models) = %d, want 1", len(models))
+	}
+	if models[0].ID == "" || models[0].ID[:4] != "mrt_" {
+		t.Fatalf("route id = %q, want mrt_ prefix", models[0].ID)
+	}
+	if models[0].Priority != 0 || models[0].Weight != 1 || !models[0].Enabled {
+		t.Fatalf("migrated route defaults = priority %d weight %d enabled %v", models[0].Priority, models[0].Weight, models[0].Enabled)
+	}
+}
+
+func TestSQLiteModelsAllowDuplicatePublicNameButKeepUniqueRouteTriplet(t *testing.T) {
+	sqliteStore, err := store.NewSQLite(t.TempDir() + "/routes.db")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	defer sqliteStore.Close()
+
+	ctx := context.Background()
+	routes := []config.ModelConfig{
+		{PublicName: "gpt-4o", Provider: "openai-a", UpstreamName: "gpt-4o", Enabled: true},
+		{PublicName: "gpt-4o", Provider: "openai-b", UpstreamName: "gpt-4o", Enabled: true},
+	}
+	for _, route := range routes {
+		if err := sqliteStore.UpsertModel(ctx, route); err != nil {
+			t.Fatalf("UpsertModel() error = %v", err)
+		}
+	}
+	if err := sqliteStore.UpsertModel(ctx, config.ModelConfig{PublicName: "gpt-4o", Provider: "openai-a", UpstreamName: "gpt-4o", Priority: 5, Enabled: true}); err != nil {
+		t.Fatalf("duplicate route UpsertModel() error = %v", err)
+	}
+	models, err := sqliteStore.ListModels(ctx)
+	if err != nil {
+		t.Fatalf("ListModels() error = %v", err)
+	}
+	if len(models) != 2 {
+		t.Fatalf("len(models) = %d, want 2 unique route triplets", len(models))
+	}
+}
+
 func TestQueryUsageTrendGroupsByLocalTime(t *testing.T) {
 	// Force a specific timezone: UTC+8
 	time.Local = time.FixedZone("UTC+8", 8*3600)
@@ -290,7 +362,7 @@ func TestQueryUsageRollupsFilters(t *testing.T) {
 			Owner:          "alice",
 			Purpose:        "debug",
 			Endpoint:       "chat.completions",
-			Provider:       "openai",
+			Provider:       "deepseek",
 			PublicModel:    "deepseek-chat",
 			UpstreamModel:  "deepseek-chat",
 			RequestCount:   2,
@@ -326,6 +398,7 @@ func TestQueryUsageRollupsFilters(t *testing.T) {
 		EndTime:   time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
 		KeyID:     usage.KeyID("sk-alice-001"),
 		Model:     "gpt-4o-mini",
+		Provider:  "openai",
 		Owner:     "alice",
 	}
 	got, err := s.QueryUsageRollups(context.Background(), filter)
@@ -349,6 +422,54 @@ func TestQueryUsageRollupsFilters(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Fatalf("len(owner rollups) = %d, want %d", len(got), 2)
+	}
+
+	got, err = s.QueryUsageRollups(context.Background(), store.UsageFilter{
+		StartTime: time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 5, 11, 0, 0, 0, 0, time.UTC),
+		Provider:  "deepseek",
+	})
+	if err != nil {
+		t.Fatalf("QueryUsageRollups(provider) error = %v", err)
+	}
+	if len(got) != 1 || got[0].Provider != "deepseek" || got[0].PublicModel != "deepseek-chat" {
+		t.Fatalf("unexpected provider filtered rollups: %+v", got)
+	}
+
+	summaries, err := s.QueryUsage(context.Background(), store.UsageFilter{Provider: "openai"})
+	if err != nil {
+		t.Fatalf("QueryUsage(provider) error = %v", err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("len(provider summaries) = %d, want %d", len(summaries), 2)
+	}
+
+	points, err := s.QueryUsageTrend(context.Background(), store.UsageFilter{
+		StartTime: time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+		Provider:  "deepseek",
+	}, "day")
+	if err != nil {
+		t.Fatalf("QueryUsageTrend(provider) error = %v", err)
+	}
+	if len(points) != 1 || points[0].RequestCount != 2 {
+		t.Fatalf("unexpected provider trend points: %+v", points)
+	}
+
+	models, err := s.QueryUsageByModel(context.Background(), store.UsageFilter{Provider: "deepseek"})
+	if err != nil {
+		t.Fatalf("QueryUsageByModel(provider) error = %v", err)
+	}
+	if len(models) != 1 || models[0].Model != "deepseek-chat" || models[0].RequestCount != 2 {
+		t.Fatalf("unexpected provider model summaries: %+v", models)
+	}
+
+	providers, err := s.ListUsageProviders(context.Background())
+	if err != nil {
+		t.Fatalf("ListUsageProviders() error = %v", err)
+	}
+	if len(providers) != 2 || providers[0] != "deepseek" || providers[1] != "openai" {
+		t.Fatalf("providers = %+v, want [deepseek openai]", providers)
 	}
 
 	got, err = s.QueryUsageRollups(context.Background(), store.UsageFilter{

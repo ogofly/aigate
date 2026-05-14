@@ -19,23 +19,24 @@
 .providers-table{table-layout:fixed;min-width:0}
 .providers-table th,.providers-table td{overflow-wrap:anywhere}
 .providers-table tbody tr{transition:background-color .18s ease}
-.providers-table th:nth-child(1){width:15%}
+.providers-table th:nth-child(1){width:18%}
 .providers-table td:nth-child(1){min-width:80px}
-.providers-table th:nth-child(2){width:29%}
+.providers-table th:nth-child(2){width:40%}
 .providers-table td:nth-child(2){min-width:180px}
-.providers-table th:nth-child(3){width:23%}
-.providers-table td:nth-child(3){min-width:150px}
-.providers-table th:nth-child(4){width:15%}
-.providers-table td:nth-child(4){min-width:100px}
-.providers-table th:nth-child(5){width:8%}
-.providers-table td:nth-child(5){min-width:60px}
-.providers-table th:nth-child(6){width:120px}
-.providers-table td:nth-child(6){white-space:nowrap}
+.providers-table th:nth-child(3){width:14%}
+.providers-table td:nth-child(3){min-width:100px}
+.providers-table th:nth-child(4){width:10%}
+.providers-table td:nth-child(4){min-width:60px}
+.providers-table th:nth-child(5){width:120px}
+.providers-table td:nth-child(5){white-space:nowrap}
+.connection-stack{display:flex;flex-direction:column;gap:6px;color:var(--text)}
+.connection-badges{display:flex;gap:6px;flex-wrap:wrap}
+.connection-stack .muted{font-size:12px}
 @media(max-width:720px){
 .providers-table{table-layout:auto}
 .providers-table th,.providers-table td{font-size:13px;padding:10px 12px}
 .providers-table th{white-space:nowrap}
-.providers-table th:nth-child(1),.providers-table th:nth-child(2),.providers-table th:nth-child(3),.providers-table th:nth-child(4),.providers-table th:nth-child(5),.providers-table th:nth-child(6){width:auto}
+.providers-table th:nth-child(1),.providers-table th:nth-child(2),.providers-table th:nth-child(3),.providers-table th:nth-child(4),.providers-table th:nth-child(5){width:auto}
 }
 </style>
 </head>
@@ -56,10 +57,9 @@
   <thead>
     <tr>
       <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',0,'text')">Name</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',1,'text')">Base URL</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',2,'text')">Anthropic</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',3,'text')">Credentials</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',4,'num')">Timeout</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',1,'text')">Connection</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',2,'num')">Timeout</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',3,'text')">Enabled</button></th>
       <th></th>
     </tr>
   </thead>
@@ -67,19 +67,24 @@
     {{range $i, $provider := .ProvidersCfg}}
     <tr data-name="{{$provider.Name}}">
       <td>{{$provider.Name}}</td>
-      <td>{{$provider.BaseURL}}</td>
-      <td>{{if $provider.AnthropicBaseURL}}{{$provider.AnthropicBaseURL}}{{if $provider.AnthropicVersion}}<br><span class="muted">{{$provider.AnthropicVersion}}</span>{{end}}{{else}}-{{end}}</td>
-      <td>{{if $provider.APIKeyRef}}<span class="mono">{{$provider.APIKeyRef}}</span>{{else if $provider.APIKey}}configured{{else}}-{{end}}</td>
+      <td><div class="connection-stack">
+        <div class="connection-badges">
+          <span class="badge info">OpenAI</span>
+          {{if $provider.AnthropicBaseURL}}<span class="badge info">Anthropic</span>{{end}}
+          {{if and $provider.APIKey $provider.APIKeyRef}}<span class="badge warn">Key + env</span>{{else if $provider.APIKey}}<span class="badge ok">Key</span>{{else if $provider.APIKeyRef}}<span class="badge ok">Key env</span>{{else}}<span class="badge off">Missing key</span>{{end}}
+        </div>
+      </div></td>
       <td>{{$provider.TimeoutSeconds}}s</td>
+      <td>{{if $provider.Enabled}}<span class="badge ok">Enabled</span>{{else}}<span class="badge off">Disabled</span>{{end}}</td>
       <td>
         <div class="table-actions">
           <button type="button" class="ghost" onclick="openDialog('providerEditDialog{{$i}}')">Edit</button>
-          <button type="button" onclick="submitProviderDelete(this, '{{$provider.Name}}')">Delete</button>
+          <button type="button" class="danger" onclick="submitProviderDelete(this, '{{$provider.Name}}')">Delete</button>
         </div>
       </td>
     </tr>
     {{else}}
-    <tr><td colspan="6" class="muted">No providers configured</td></tr>
+    <tr><td colspan="5" class="muted">No providers configured</td></tr>
     {{end}}
   </tbody>
 </table></div>
@@ -107,6 +112,7 @@
         <label for="provider-base-url">Base URL</label>
         <input id="provider-base-url" name="base_url" placeholder="Provider base URL">
       </div>
+      <label class="checkline"><input type="checkbox" name="enabled" checked> Enabled</label>
       <div class="modal-grid">
         <div class="field-group">
           <label for="provider-anthropic-base-url">Anthropic Base URL</label>
@@ -127,7 +133,7 @@
           <input id="provider-api-key-ref" name="api_key_ref" placeholder="Environment variable name (optional)">
         </div>
       </div>
-      <p class="form-hint">Use an inline API key or a secret reference. Leave both empty only when the provider does not require credentials.</p>
+      <p class="form-hint">Inline key takes precedence. Use env ref when you do not want to store the key here.</p>
       <div class="modal-actions">
         <button type="button" class="ghost" onclick="closeDialog('providerCreateDialog')">Cancel</button>
         <button type="submit">Save</button>
@@ -147,6 +153,7 @@
     </div>
     <form onsubmit="submitProviderUpdate(this, {{$i}});return false" class="modal-form provider-edit-form">
       <input type="hidden" name="name" value="{{$provider.Name}}">
+      <input type="hidden" name="_enabled_present" value="1">
       <div class="modal-grid">
         <div class="field-group">
           <label>Name</label>
@@ -161,6 +168,7 @@
         <label for="provider-base-url-{{$i}}">Base URL</label>
         <input id="provider-base-url-{{$i}}" name="base_url" value="{{$provider.BaseURL}}" placeholder="Provider base URL">
       </div>
+      <label class="checkline"><input type="checkbox" name="enabled" value="true" {{if $provider.Enabled}}checked{{end}}> Enabled</label>
       <div class="modal-grid">
         <div class="field-group">
           <label for="provider-anthropic-base-url-{{$i}}">Anthropic Base URL</label>
@@ -181,7 +189,7 @@
           <input id="provider-api-key-ref-{{$i}}" name="api_key_ref" value="{{$provider.APIKeyRef}}" placeholder="Environment variable name (optional)">
         </div>
       </div>
-      <p class="form-hint">Use an inline API key or a secret reference. Leave both empty only when the provider does not require credentials.</p>
+      <p class="form-hint">Inline key takes precedence. Use env ref when you do not want to store the key here.</p>
       <div class="modal-actions">
         <button type="button" class="ghost" onclick="closeDialog('providerEditDialog{{$i}}')">Cancel</button>
         <button type="submit">Save</button>
@@ -238,11 +246,12 @@ async function submitProviderCreate(form){
     anthropic_version: form.querySelector('[name=anthropic_version]').value,
     api_key: form.querySelector('[name=api_key]').value,
     api_key_ref: form.querySelector('[name=api_key_ref]').value,
+    enabled: form.querySelector('[name=enabled]').checked,
   };
   const result = await apiCall('POST', '/api/admin/providers', data);
   if (result && result.ok) {
     closeDialog('providerCreateDialog');
-    location.reload();
+    reloadAfterToast('Provider saved');
   }
 }
 
@@ -255,11 +264,12 @@ async function submitProviderUpdate(form, idx){
     anthropic_version: form.querySelector('[name=anthropic_version]').value,
     api_key: form.querySelector('[name=api_key]').value,
     api_key_ref: form.querySelector('[name=api_key_ref]').value,
+    enabled: form.querySelector('[name=enabled]').checked,
   };
   const result = await apiCall('PUT', '/api/admin/providers/' + encodeURIComponent(name), data);
   if (result && result.ok) {
     closeDialog('providerEditDialog'+idx);
-    location.reload();
+    reloadAfterToast('Provider saved');
   }
 }
 
@@ -268,6 +278,7 @@ async function submitProviderDelete(btn, name){
   const result = await apiCall('DELETE', '/api/admin/providers/' + encodeURIComponent(name));
   if (result && result.ok) {
     btn.closest('tr').remove();
+    showToast('Provider deleted');
   }
 }
 

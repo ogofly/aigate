@@ -67,6 +67,7 @@ func (h *Handler) handleApiProvidersCreate(w http.ResponseWriter, r *http.Reques
 		APIKey           string `json:"api_key"`
 		APIKeyRef        string `json:"api_key_ref"`
 		TimeoutSeconds   int    `json:"timeout"`
+		Enabled          *bool  `json:"enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
@@ -81,6 +82,10 @@ func (h *Handler) handleApiProvidersCreate(w http.ResponseWriter, r *http.Reques
 		APIKey:           strings.TrimSpace(body.APIKey),
 		APIKeyRef:        strings.TrimSpace(body.APIKeyRef),
 		TimeoutSeconds:   body.TimeoutSeconds,
+		Enabled:          true,
+	}
+	if body.Enabled != nil {
+		providerCfg.Enabled = *body.Enabled
 	}
 
 	if err := providerCfg.Validate(); err != nil {
@@ -124,6 +129,7 @@ func (h *Handler) handleApiProviderUpdate(w http.ResponseWriter, r *http.Request
 		APIKey           string `json:"api_key"`
 		APIKeyRef        string `json:"api_key_ref"`
 		TimeoutSeconds   *int   `json:"timeout"`
+		Enabled          *bool  `json:"enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
@@ -156,6 +162,10 @@ func (h *Handler) handleApiProviderUpdate(w http.ResponseWriter, r *http.Request
 		APIKey:           apiKey,
 		APIKeyRef:        apiKeyRef,
 		TimeoutSeconds:   timeoutSeconds,
+		Enabled:          existing.Enabled,
+	}
+	if body.Enabled != nil {
+		providerCfg.Enabled = *body.Enabled
 	}
 
 	if err := providerCfg.Validate(); err != nil {
@@ -241,6 +251,9 @@ func (h *Handler) handleApiModelsCreate(w http.ResponseWriter, r *http.Request) 
 		PublicName   string `json:"public_name"`
 		Provider     string `json:"provider"`
 		UpstreamName string `json:"upstream_name"`
+		Priority     int    `json:"priority"`
+		Weight       int    `json:"weight"`
+		Enabled      *bool  `json:"enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
@@ -266,6 +279,12 @@ func (h *Handler) handleApiModelsCreate(w http.ResponseWriter, r *http.Request) 
 		PublicName:   publicName,
 		Provider:     provider,
 		UpstreamName: upstreamName,
+		Priority:     body.Priority,
+		Weight:       body.Weight,
+		Enabled:      true,
+	}
+	if body.Enabled != nil {
+		modelCfg.Enabled = *body.Enabled
 	}
 
 	if err := h.store.UpsertModel(r.Context(), modelCfg); err != nil {
@@ -279,15 +298,15 @@ func (h *Handler) handleApiModelsCreate(w http.ResponseWriter, r *http.Request) 
 	writeSuccess(w, "model created")
 }
 
-// handleApiModelUpdate updates an existing model.
+// handleApiModelUpdate updates an existing model route.
 // PUT /api/admin/models/{public_name}
 func (h *Handler) handleApiModelUpdate(w http.ResponseWriter, r *http.Request) {
 	if !h.requireAdminSession(w, r) {
 		return
 	}
-	publicName := r.PathValue("public_name")
-	if publicName == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "public_name is required")
+	identifier := r.PathValue("public_name")
+	if identifier == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "model route id is required")
 		return
 	}
 
@@ -296,15 +315,17 @@ func (h *Handler) handleApiModelUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "api_model_update_error", err.Error())
 		return
 	}
+	var existing config.ModelConfig
 	foundExisting := false
 	for _, model := range models {
-		if model.PublicName == publicName {
+		if model.ID == identifier || model.PublicName == identifier {
+			existing = model
 			foundExisting = true
 			break
 		}
 	}
 	if !foundExisting {
-		writeError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("model %q not found", publicName))
+		writeError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("model %q not found", identifier))
 		return
 	}
 
@@ -312,6 +333,9 @@ func (h *Handler) handleApiModelUpdate(w http.ResponseWriter, r *http.Request) {
 		PublicName   string `json:"public_name"`
 		Provider     string `json:"provider"`
 		UpstreamName string `json:"upstream_name"`
+		Priority     *int   `json:"priority"`
+		Weight       *int   `json:"weight"`
+		Enabled      *bool  `json:"enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
@@ -319,10 +343,12 @@ func (h *Handler) handleApiModelUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	provider := strings.TrimSpace(body.Provider)
+	if provider == "" {
+		provider = existing.Provider
+	}
 	upstreamName := strings.TrimSpace(body.UpstreamName)
-	if provider == "" || upstreamName == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "provider and upstream_name are required")
-		return
+	if upstreamName == "" {
+		upstreamName = existing.UpstreamName
 	}
 
 	// Verify provider exists.
@@ -331,35 +357,36 @@ func (h *Handler) handleApiModelUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use new public_name from body if provided, otherwise keep the path value.
 	newPublicName := strings.TrimSpace(body.PublicName)
 	if newPublicName == "" {
-		newPublicName = publicName
+		newPublicName = existing.PublicName
 	}
-	if newPublicName != publicName {
-		for _, model := range models {
-			if model.PublicName == newPublicName {
-				writeError(w, http.StatusConflict, "api_model_duplicate", fmt.Sprintf("model %q already exists", newPublicName))
-				return
-			}
-		}
+	priority := existing.Priority
+	if body.Priority != nil {
+		priority = *body.Priority
+	}
+	weight := existing.Weight
+	if body.Weight != nil {
+		weight = *body.Weight
+	}
+	enabled := existing.Enabled
+	if body.Enabled != nil {
+		enabled = *body.Enabled
 	}
 
 	modelCfg := config.ModelConfig{
+		ID:           existing.ID,
 		PublicName:   newPublicName,
 		Provider:     provider,
 		UpstreamName: upstreamName,
+		Priority:     priority,
+		Weight:       weight,
+		Enabled:      enabled,
 	}
 
 	if err := h.store.UpsertModel(r.Context(), modelCfg); err != nil {
 		writeError(w, http.StatusBadRequest, "api_model_update_error", err.Error())
 		return
-	}
-	if newPublicName != publicName {
-		if err := h.store.DeleteModel(r.Context(), publicName); err != nil {
-			writeError(w, http.StatusInternalServerError, "api_model_update_error", err.Error())
-			return
-		}
 	}
 	if err := h.reloadModels(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "api_model_reload_error", err.Error())
@@ -368,7 +395,8 @@ func (h *Handler) handleApiModelUpdate(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, "model updated")
 }
 
-// handleApiModelsDelete deletes a model.
+// handleApiModelsDelete deletes a model route. The path accepts route id, or
+// a public model name for compatibility with older clients.
 // DELETE /api/admin/models/{public_name}
 func (h *Handler) handleApiModelsDelete(w http.ResponseWriter, r *http.Request) {
 	if !h.requireAdminSession(w, r) {
@@ -421,10 +449,12 @@ func (h *Handler) handleApiKeysCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Key     string `json:"key"`
-		Name    string `json:"name"`
-		Owner   string `json:"owner"`
-		Purpose string `json:"purpose"`
+		Key           string   `json:"key"`
+		Name          string   `json:"name"`
+		Owner         string   `json:"owner"`
+		Purpose       string   `json:"purpose"`
+		ModelAccess   string   `json:"model_access"`
+		ModelRouteIDs []string `json:"model_route_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
@@ -444,10 +474,15 @@ func (h *Handler) handleApiKeysCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	keyCfg := config.KeyConfig{
-		Key:     key,
-		Name:    strings.TrimSpace(body.Name),
-		Owner:   strings.TrimSpace(body.Owner),
-		Purpose: strings.TrimSpace(body.Purpose),
+		Key:           key,
+		Name:          strings.TrimSpace(body.Name),
+		Owner:         strings.TrimSpace(body.Owner),
+		Purpose:       strings.TrimSpace(body.Purpose),
+		ModelAccess:   strings.TrimSpace(body.ModelAccess),
+		ModelRouteIDs: cleanRouteIDs(body.ModelRouteIDs),
+	}
+	if keyCfg.ModelAccess == "" {
+		keyCfg.ModelAccess = "all"
 	}
 
 	// Non-admin users can only create keys for themselves.
@@ -479,21 +514,23 @@ func (h *Handler) handleApiKeyUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify key exists and check ownership for non-admin.
+	// Verify key exists and check user assignment for non-admin.
 	existing, err := h.store.GetAuthKey(r.Context(), key)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "key not found")
 		return
 	}
 	if session.Role != roleAdmin && existing.Owner != session.Username {
-		writeError(w, http.StatusForbidden, "forbidden", "cannot update key of another owner")
+		writeError(w, http.StatusForbidden, "forbidden", "cannot update key of another user")
 		return
 	}
 
 	var body struct {
-		Name    string `json:"name"`
-		Owner   string `json:"owner"`
-		Purpose string `json:"purpose"`
+		Name          string   `json:"name"`
+		Owner         string   `json:"owner"`
+		Purpose       string   `json:"purpose"`
+		ModelAccess   string   `json:"model_access"`
+		ModelRouteIDs []string `json:"model_route_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
@@ -501,13 +538,19 @@ func (h *Handler) handleApiKeyUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	keyCfg := config.KeyConfig{
-		Key:     key,
-		Name:    strings.TrimSpace(body.Name),
-		Owner:   strings.TrimSpace(body.Owner),
-		Purpose: strings.TrimSpace(body.Purpose),
+		Key:           key,
+		Name:          strings.TrimSpace(body.Name),
+		Owner:         strings.TrimSpace(body.Owner),
+		Purpose:       strings.TrimSpace(body.Purpose),
+		ModelAccess:   strings.TrimSpace(body.ModelAccess),
+		ModelRouteIDs: cleanRouteIDs(body.ModelRouteIDs),
+	}
+	if keyCfg.ModelAccess == "" {
+		keyCfg.ModelAccess = existing.ModelAccess
+		keyCfg.ModelRouteIDs = append([]string(nil), existing.ModelRouteIDs...)
 	}
 
-	// Non-admin users cannot change the owner.
+	// Non-admin users cannot change the assigned user.
 	if session.Role != roleAdmin {
 		keyCfg.Owner = existing.Owner
 	}
@@ -523,7 +566,7 @@ func (h *Handler) handleApiKeyUpdate(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, "key updated")
 }
 
-// handleApiKeysDelete deletes a key with owner verification.
+// handleApiKeysDelete deletes a key with user verification.
 // DELETE /api/admin/keys/{key}
 func (h *Handler) handleApiKeysDelete(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.requireWebSession(w, r)
@@ -544,7 +587,7 @@ func (h *Handler) handleApiKeysDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if keyCfg.Owner != session.Username {
-			writeError(w, http.StatusForbidden, "forbidden", "cannot delete key of another owner")
+			writeError(w, http.StatusForbidden, "forbidden", "cannot delete key of another user")
 			return
 		}
 	}
@@ -558,4 +601,88 @@ func (h *Handler) handleApiKeysDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeSuccess(w, "key deleted")
+}
+
+// ---------------------------------------------------------------------------
+// Routing Settings API
+// ---------------------------------------------------------------------------
+
+// handleApiRoutingSettingsGet returns global routing settings.
+// GET /api/admin/routing
+func (h *Handler) handleApiRoutingSettingsGet(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdminSession(w, r) {
+		return
+	}
+	settings, err := h.store.GetRoutingSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "api_routing_get_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+// handleApiRoutingSettingsUpdate updates global routing settings.
+// PUT /api/admin/routing
+func (h *Handler) handleApiRoutingSettingsUpdate(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdminSession(w, r) {
+		return
+	}
+	existing, err := h.store.GetRoutingSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "api_routing_get_error", err.Error())
+		return
+	}
+	var body struct {
+		Selection           string `json:"selection"`
+		FailoverEnabled     *bool  `json:"failover_enabled"`
+		FailoverMaxAttempts *int   `json:"failover_max_attempts"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+		return
+	}
+	settings := existing
+	if strings.TrimSpace(body.Selection) != "" {
+		settings.Selection = strings.TrimSpace(body.Selection)
+	}
+	if body.FailoverEnabled != nil {
+		settings.FailoverEnabled = *body.FailoverEnabled
+	}
+	if body.FailoverMaxAttempts != nil {
+		settings.FailoverMaxAttempts = *body.FailoverMaxAttempts
+	}
+	if settings.Selection != "priority" && settings.Selection != "weight" && settings.Selection != "random" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "selection must be priority, weight, or random")
+		return
+	}
+	if settings.FailoverMaxAttempts <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "failover_max_attempts must be greater than 0")
+		return
+	}
+	if err := h.store.UpsertRoutingSettings(r.Context(), settings); err != nil {
+		writeError(w, http.StatusInternalServerError, "api_routing_update_error", err.Error())
+		return
+	}
+	if err := h.reloadModels(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "api_routing_reload_error", err.Error())
+		return
+	}
+	writeSuccess(w, "routing settings updated")
+}
+
+func cleanRouteIDs(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }

@@ -1,0 +1,181 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+{{template "admin_head_assets" .}}
+{{template "admin_theme_init" .}}
+<style>
+{{template "admin_common_styles" .}}
+.home-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:12px}
+.home-date{color:var(--muted);font-size:13px}
+.today-strip{display:grid;grid-template-columns:2fr 1fr;gap:14px;align-items:end;margin:6px 0 14px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.today-main{display:flex;gap:24px;align-items:flex-end;flex-wrap:wrap}
+.today-item{min-width:110px}
+.today-label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+.today-value{margin-top:4px;font-size:30px;line-height:1;font-weight:720;color:var(--text-strong)}
+.config-strip{display:flex;gap:18px;align-items:center;justify-content:flex-end;flex-wrap:wrap;color:var(--muted);font-size:13px}
+.config-item strong{color:var(--text);font-weight:650}
+.chart-grid{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
+.chart-grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.chart-panel{border:1px solid var(--line);border-radius:8px;background:rgba(210,214,220,.018);padding:12px;min-width:0}
+.chart-title{margin:0;color:var(--text-strong);font-size:15px;font-weight:650}
+.chart-subtitle{margin:4px 0 0;color:var(--muted);font-size:12px}
+.chart{width:100%;height:230px;margin-top:8px}
+.trend-chart{height:250px}
+.no-data{display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:var(--muted);font-size:13px;text-align:center}
+@media(max-width:1040px){
+  .today-strip,.chart-grid,.chart-grid.three{grid-template-columns:1fr}
+  .config-strip{justify-content:flex-start}
+}
+@media(max-width:640px){
+  .home-head{align-items:flex-start;flex-direction:column}
+  .today-main{gap:16px}
+  .today-value{font-size:24px}
+  .chart,.trend-chart{height:220px}
+}
+</style>
+</head>
+<body><div class="page">
+{{template "admin_nav" .}}
+<div class="home-head">
+  <div>
+    <h1>Home</h1>
+    <div class="home-date">Today · {{.TodayLabel}}</div>
+  </div>
+</div>
+
+<section class="today-strip" aria-label="Today summary">
+  <div class="today-main">
+    <div class="today-item">
+      <div class="today-label">Requests</div>
+      <div class="today-value">{{compactNumber .TodayRequests}}</div>
+    </div>
+    <div class="today-item">
+      <div class="today-label">Tokens</div>
+      <div class="today-value">{{compactNumber .TodayTokens}}</div>
+    </div>
+    <div class="today-item">
+      <div class="today-label">Errors</div>
+      <div class="today-value">{{compactNumber .TodayErrors}}</div>
+    </div>
+  </div>
+  <div class="config-strip" aria-label="Configuration summary">
+    <span class="config-item">Providers <strong>{{.ProvidersEnabled}}/{{.ProvidersTotal}}</strong></span>
+    <span class="config-item">Models <strong>{{.ModelsEnabled}}/{{.ModelsTotal}}</strong></span>
+    <span class="config-item">Users / Keys <strong>{{.UsersTotal}}/{{.KeysTotal}}</strong></span>
+  </div>
+</section>
+
+<section class="chart-grid">
+  <div class="chart-panel">
+    <h2 class="chart-title">Hourly Usage</h2>
+    <p class="chart-subtitle">Requests and errors by local hour.</p>
+    <div id="homeTrendChart" class="chart trend-chart">{{if not .TrendHourPoints}}<div class="no-data">No usage data for today</div>{{end}}</div>
+  </div>
+</section>
+
+<section class="chart-grid three">
+  <div class="chart-panel">
+    <h2 class="chart-title">Top Keys</h2>
+    <p class="chart-subtitle">Share by tokens or requests.</p>
+    <div id="homeKeyPie" class="chart">{{if not .TopKeys}}<div class="no-data">No key usage for today</div>{{end}}</div>
+  </div>
+  <div class="chart-panel">
+    <h2 class="chart-title">Top Providers</h2>
+    <p class="chart-subtitle">Share by tokens or requests.</p>
+    <div id="homeProviderPie" class="chart">{{if not .TopProviders}}<div class="no-data">No provider usage for today</div>{{end}}</div>
+  </div>
+  <div class="chart-panel">
+    <h2 class="chart-title">Top Models</h2>
+    <p class="chart-subtitle">Share by tokens or requests.</p>
+    <div id="homeModelPie" class="chart">{{if not .TopModels}}<div class="no-data">No model usage for today</div>{{end}}</div>
+  </div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script>
+var trendData = {{toJSON .TrendHourPoints}};
+var providerData = {{toJSON .TopProviders}};
+var modelData = {{toJSON .TopModels}};
+var keyData = {{toJSON .TopKeys}};
+
+function cssValue(name, fallback){
+  var value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function formatNumber(n){
+  if(n < 10000) return String(n);
+  if(n < 1000000) return (Math.round(n / 100) / 10).toFixed(1) + 'K';
+  return (Math.round(n / 10000) / 100).toFixed(2) + 'M';
+}
+
+function renderTrend(){
+  if(!Array.isArray(trendData) || trendData.length === 0 || !window.echarts) return;
+  var chart = echarts.init(document.getElementById('homeTrendChart'));
+  var muted = cssValue('--muted', '#8b9098');
+  var line = cssValue('--line', 'rgba(210,214,220,.1)');
+  chart.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis'},
+    legend:{data:['Requests','Errors'],textStyle:{color:muted},top:0},
+    grid:{left:'3%',right:'3%',top:34,bottom:'3%',containLabel:true},
+    xAxis:{type:'category',data:trendData.map(function(p){return p.date.slice(11);}),axisLabel:{color:muted},axisTick:{show:false}},
+    yAxis:{type:'value',axisLabel:{color:muted},splitLine:{lineStyle:{color:line}}},
+    series:[
+      {name:'Requests',type:'line',smooth:true,data:trendData.map(function(p){return p.request_count;}),itemStyle:{color:'#64748b'},areaStyle:{opacity:.05}},
+      {name:'Errors',type:'line',smooth:true,data:trendData.map(function(p){return p.error_count;}),itemStyle:{color:'#ef4444'},areaStyle:{opacity:.045}}
+    ]
+  });
+  window.addEventListener('resize', function(){chart.resize();});
+}
+
+function pieMetric(data){
+  var tokens = data.reduce(function(sum, item){return sum + (item.tokens || 0);}, 0);
+  return tokens > 0 ? 'tokens' : 'requests';
+}
+
+function usageURL(filterName, value){
+  if(!value || value === 'Other') return '';
+  var params = new URLSearchParams();
+  params.set(filterName, value);
+  return '/admin/usage/view?' + params.toString();
+}
+
+function renderPie(chartId, data, filterName){
+  if(!Array.isArray(data) || data.length === 0 || !window.echarts) return;
+  var metric = pieMetric(data);
+  var chart = echarts.init(document.getElementById(chartId));
+  var muted = cssValue('--muted', '#8b9098');
+  chart.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'item',formatter:function(item){
+      var raw = data.find(function(row){return row.name === item.name;}) || {};
+      return item.name + '<br>Requests: ' + formatNumber(raw.requests || 0) + '<br>Errors: ' + formatNumber(raw.errors || 0) + '<br>Tokens: ' + formatNumber(raw.tokens || 0);
+    }},
+    series:[{
+      type:'pie',
+      radius:['42%','68%'],
+      center:['50%','48%'],
+      avoidLabelOverlap:true,
+      label:{color:muted,formatter:'{b}'},
+      data:data.map(function(item){return {name:item.name,value:item[metric] || 0};})
+    }]
+  });
+  chart.on('click', function(params){
+    var row = data.find(function(item){return item.name === params.name;}) || {};
+    var url = usageURL(filterName, row.filter_value || row.name);
+    if(url){window.location.href = url;}
+  });
+  window.addEventListener('resize', function(){chart.resize();});
+}
+
+renderTrend();
+renderPie('homeProviderPie', providerData, 'provider');
+renderPie('homeModelPie', modelData, 'model');
+renderPie('homeKeyPie', keyData, 'key');
+</script>
+</div>{{template "admin_theme_toggle" .}}</body>
+</html>

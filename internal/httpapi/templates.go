@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"path/filepath"
 	"strings"
@@ -23,8 +24,9 @@ var adminAvatarSVG []byte
 
 func mustLoadTemplate(path string) *template.Template {
 	t := template.Must(template.New("").Funcs(template.FuncMap{
-		"maskID": maskIdentifier,
-		"toJSON": toJSON,
+		"maskID":        maskIdentifier,
+		"toJSON":        toJSON,
+		"compactNumber": compactNumber,
 	}).ParseFS(templatesFS, "templates/_partials.tmpl", path))
 	page := t.Lookup(filepath.Base(path))
 	if page == nil {
@@ -53,7 +55,38 @@ func toJSON(value any) template.JS {
 	return template.JS(data)
 }
 
+func compactNumber(value any) string {
+	var n int64
+	switch v := value.(type) {
+	case int:
+		n = int64(v)
+	case int64:
+		n = v
+	case int32:
+		n = int64(v)
+	case uint:
+		n = int64(v)
+	case uint64:
+		n = int64(v)
+	case uint32:
+		n = int64(v)
+	default:
+		return fmt.Sprint(value)
+	}
+	if n < 0 {
+		return "-" + compactNumber(-n)
+	}
+	if n < 10000 {
+		return fmt.Sprintf("%d", n)
+	}
+	if n < 1000000 {
+		return fmt.Sprintf("%.1fK", float64(n)/1000)
+	}
+	return fmt.Sprintf("%.2fM", float64(n)/1000000)
+}
+
 var adminLoginTemplate = mustLoadTemplate("templates/admin_login.tmpl")
+var adminHomeTemplate = mustLoadTemplate("templates/admin_home.tmpl")
 var adminProvidersTemplate = mustLoadTemplate("templates/admin_providers.tmpl")
 var adminModelsTemplate = mustLoadTemplate("templates/admin_models.tmpl")
 var adminKeysTemplate = mustLoadTemplate("templates/admin_keys.tmpl")

@@ -38,11 +38,21 @@ type stubProvider struct {
 	streamResp         *provider.StreamResponse
 	messagesStreamResp *provider.StreamResponse
 	lastEmbed          provider.EmbeddingRequest
+	chatErrors         []error
+	chatCalls          int
 }
 
 func (s *stubProvider) Chat(_ context.Context, _ config.ProviderConfig, req *provider.ChatRequest, upstreamModel string) (*provider.OpenAIResponse, error) {
 	s.lastModel = upstreamModel
 	s.lastChat = req
+	s.chatCalls++
+	if len(s.chatErrors) > 0 {
+		err := s.chatErrors[0]
+		s.chatErrors = s.chatErrors[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
 	if s.returnError != nil {
 		return nil, s.returnError
 	}
@@ -220,6 +230,229 @@ func TestChatCompletionsRoutesToExpectedProviderModel(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsFailoverUsesSecondRouteWithinMaxAttempts(t *testing.T) {
+	resp := provider.OpenAIResponse{"id": "chatcmpl-test"}
+	p := &stubProvider{
+		response:   &resp,
+		chatErrors: []error{errors.New("upstream status 500")},
+	}
+	rt, err := router.New([]config.ModelConfig{
+		{ID: "mrt_first", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "first-upstream", Priority: 0},
+		{ID: "mrt_second", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "second-upstream", Priority: 1},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
+	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if p.chatCalls != 2 {
+		t.Fatalf("chatCalls = %d, want 2", p.chatCalls)
+	}
+	if p.lastModel != "second-upstream" {
+		t.Fatalf("lastModel = %q, want second-upstream", p.lastModel)
+	}
+}
+
+func TestChatCompletionsFailoverMaxAttemptsIsTotalAttempts(t *testing.T) {
+	p := &stubProvider{chatErrors: []error{
+		errors.New("upstream status 500"),
+		errors.New("upstream status 500"),
+		errors.New("upstream status 500"),
+	}}
+	rt, err := router.New([]config.ModelConfig{
+		{ID: "mrt_first", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "first-upstream", Priority: 0},
+		{ID: "mrt_second", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "second-upstream", Priority: 1},
+		{ID: "mrt_third", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "third-upstream", Priority: 2},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
+	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadGateway)
+	}
+	if p.chatCalls != 2 {
+		t.Fatalf("chatCalls = %d, want max total attempts 2", p.chatCalls)
+	}
+	if p.lastModel != "second-upstream" {
+		t.Fatalf("lastModel = %q, want second-upstream", p.lastModel)
+	}
+}
+
+func TestChatCompletionsDoesNotFailoverNormal4xx(t *testing.T) {
+	p := &stubProvider{chatErrors: []error{errors.New("upstream status 400")}}
+	rt, err := router.New([]config.ModelConfig{
+		{ID: "mrt_first", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "first-upstream", Priority: 0},
+		{ID: "mrt_second", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "second-upstream", Priority: 1},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
+	body := bytes.NewBufferString(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadGateway)
+	}
+	if p.chatCalls != 1 {
+		t.Fatalf("chatCalls = %d, want no failover for 400", p.chatCalls)
+	}
+}
+
+func TestChatCompletionsProviderOverrideRoutesToProvider(t *testing.T) {
+	resp := provider.OpenAIResponse{"id": "chatcmpl-test"}
+	p := &stubProvider{response: &resp}
+	rt, err := router.New([]config.ModelConfig{
+		{ID: "mrt_a", PublicName: "gpt-4o", Provider: "openai-a", UpstreamName: "gpt-4o-a", Priority: 0},
+		{ID: "mrt_b", PublicName: "gpt-4o", Provider: "openai-b", UpstreamName: "gpt-4o-b", Priority: 1},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	for _, providerName := range []string{"openai-a", "openai-b"} {
+		if err := sqliteStore.UpsertProvider(context.Background(), config.ProviderConfig{Name: providerName, BaseURL: "https://" + providerName + ".example/v1", APIKey: "secret", TimeoutSeconds: 60, Enabled: true}); err != nil {
+			t.Fatalf("UpsertProvider(%s) error = %v", providerName, err)
+		}
+	}
+	keys := []config.KeyConfig{{Key: "sk-app-001"}}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeysIfEmpty() error = %v", err)
+	}
+	handler := newHandlerWithStore(keys, rt, usage.New(100), p, sqliteStore)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Provider", "openai-b")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if p.lastModel != "gpt-4o-b" {
+		t.Fatalf("lastModel = %q, want gpt-4o-b", p.lastModel)
+	}
+}
+
+func TestChatCompletionsProviderOverrideDoesNotFailoverAcrossProviders(t *testing.T) {
+	p := &stubProvider{
+		response:   &provider.OpenAIResponse{"id": "chatcmpl-test"},
+		chatErrors: []error{errors.New("upstream status 500")},
+	}
+	rt, err := router.New([]config.ModelConfig{
+		{ID: "mrt_a", PublicName: "gpt-4o", Provider: "openai-a", UpstreamName: "gpt-4o-a", Priority: 0},
+		{ID: "mrt_b", PublicName: "gpt-4o", Provider: "openai-b", UpstreamName: "gpt-4o-b", Priority: 1},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	for _, providerName := range []string{"openai-a", "openai-b"} {
+		if err := sqliteStore.UpsertProvider(context.Background(), config.ProviderConfig{Name: providerName, BaseURL: "https://" + providerName + ".example/v1", APIKey: "secret", TimeoutSeconds: 60, Enabled: true}); err != nil {
+			t.Fatalf("UpsertProvider(%s) error = %v", providerName, err)
+		}
+	}
+	keys := []config.KeyConfig{{Key: "sk-app-001"}}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeysIfEmpty() error = %v", err)
+	}
+	handler := newHandlerWithStore(keys, rt, usage.New(100), p, sqliteStore)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Provider", "openai-a")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadGateway)
+	}
+	if p.chatCalls != 1 {
+		t.Fatalf("chatCalls = %d, want no cross-provider failover", p.chatCalls)
+	}
+	if p.lastModel != "gpt-4o-a" {
+		t.Fatalf("lastModel = %q, want gpt-4o-a", p.lastModel)
+	}
+}
+
+func TestChatCompletionsProviderOverrideStillHonorsSelectedKeyAccess(t *testing.T) {
+	p := &stubProvider{response: &provider.OpenAIResponse{"id": "chatcmpl-test"}}
+	rt, err := router.New([]config.ModelConfig{
+		{ID: "mrt_a", PublicName: "gpt-4o", Provider: "openai-a", UpstreamName: "gpt-4o-a", Priority: 0},
+		{ID: "mrt_b", PublicName: "gpt-4o", Provider: "openai-b", UpstreamName: "gpt-4o-b", Priority: 1},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	for _, providerName := range []string{"openai-a", "openai-b"} {
+		if err := sqliteStore.UpsertProvider(context.Background(), config.ProviderConfig{Name: providerName, BaseURL: "https://" + providerName + ".example/v1", APIKey: "secret", TimeoutSeconds: 60, Enabled: true}); err != nil {
+			t.Fatalf("UpsertProvider(%s) error = %v", providerName, err)
+		}
+	}
+	keys := []config.KeyConfig{{Key: "sk-app-001", ModelAccess: "selected", ModelRouteIDs: []string{"mrt_b"}}}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeysIfEmpty() error = %v", err)
+	}
+	handler := newHandlerWithStore(keys, rt, usage.New(100), p, sqliteStore)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Provider", "openai-a")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", rr.Code, http.StatusForbidden, rr.Body.String())
+	}
+	if p.chatCalls != 0 {
+		t.Fatalf("chatCalls = %d, want no upstream call", p.chatCalls)
+	}
+}
+
 func TestModelsRequiresAuth(t *testing.T) {
 	rt, err := router.New([]config.ModelConfig{
 		{
@@ -282,6 +515,66 @@ func TestModelsReturnsConfiguredModels(t *testing.T) {
 
 	if len(payload.Data) != 2 {
 		t.Fatalf("len(data) = %d, want %d", len(payload.Data), 2)
+	}
+}
+
+func TestModelsReturnsOnlyVisibleDedupedRoutesForKey(t *testing.T) {
+	routes := []config.ModelConfig{
+		{ID: "mrt_allowed", PublicName: "gpt-4o", Provider: "openai", UpstreamName: "gpt-4o-a", Enabled: true},
+		{ID: "mrt_other", PublicName: "gpt-4o", Provider: "openai", UpstreamName: "gpt-4o-b", Enabled: true},
+		{ID: "mrt_disabled", PublicName: "disabled-model", Provider: "openai", UpstreamName: "disabled", Enabled: false},
+		{ID: "mrt_provider_disabled", PublicName: "provider-disabled-model", Provider: "disabled-provider", UpstreamName: "x", Enabled: true},
+	}
+	providers := []config.ProviderConfig{
+		{Name: "openai", BaseURL: "https://api.openai.com/v1", APIKey: "k", Enabled: true},
+		{Name: "disabled-provider", BaseURL: "https://api.disabled.test/v1", APIKey: "k", Enabled: false},
+	}
+	rt, err := router.New(nil)
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	if err := rt.Update(routes, providers, config.RoutingConfig{Selection: "priority"}); err != nil {
+		t.Fatalf("router.Update() error = %v", err)
+	}
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	for _, providerCfg := range providers {
+		if err := sqliteStore.UpsertProvider(context.Background(), providerCfg); err != nil {
+			t.Fatalf("UpsertProvider() error = %v", err)
+		}
+	}
+	for _, route := range routes {
+		if err := sqliteStore.UpsertModel(context.Background(), route); err != nil {
+			t.Fatalf("UpsertModel() error = %v", err)
+		}
+	}
+	keys := []config.KeyConfig{{Key: "sk-selected", ModelAccess: "selected", ModelRouteIDs: []string{"mrt_allowed"}}}
+	if err := sqliteStore.UpsertAuthKey(context.Background(), keys[0]); err != nil {
+		t.Fatalf("UpsertAuthKey() error = %v", err)
+	}
+	handler := newHandlerWithStore(keys, rt, usage.New(100), &stubProvider{}, sqliteStore)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer sk-selected")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(payload.Data) != 1 || payload.Data[0].ID != "gpt-4o" {
+		t.Fatalf("models = %#v, want only deduped gpt-4o", payload.Data)
 	}
 }
 
@@ -983,6 +1276,77 @@ func TestUsageQueryByModelRestAPI(t *testing.T) {
 	}
 }
 
+func TestUsageQueryRestAPIFiltersByProvider(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertUsageRollups(context.Background(), []usage.Rollup{
+		{
+			BucketStart:   time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+			KeyID:         usage.KeyID("sk-app-001"),
+			KeyName:       "alice",
+			Provider:      "openai",
+			PublicModel:   "gpt-4o-mini",
+			UpstreamModel: "gpt-4o-mini",
+			RequestCount:  1,
+			SuccessCount:  1,
+			TotalTokens:   15,
+		},
+		{
+			BucketStart:   time.Date(2026, 5, 10, 1, 0, 0, 0, time.UTC),
+			KeyID:         usage.KeyID("sk-app-001"),
+			KeyName:       "alice",
+			Provider:      "deepseek",
+			PublicModel:   "gpt-4o-mini",
+			UpstreamModel: "deepseek-chat",
+			RequestCount:  3,
+			SuccessCount:  3,
+			TotalTokens:   45,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertUsageRollups() error = %v", err)
+	}
+
+	handler := newHandlerWithStore(
+		[]config.KeyConfig{{Key: "sk-app-001", Name: "alice"}},
+		rt,
+		usage.New(100),
+		&stubProvider{},
+		sqliteStore,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/usage?view=by_model&provider=deepseek", nil)
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	var payload struct {
+		Data []struct {
+			Model        string `json:"model"`
+			RequestCount int64  `json:"request_count"`
+			TotalTokens  int64  `json:"total_tokens"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(payload.Data) != 1 || payload.Data[0].RequestCount != 3 || payload.Data[0].TotalTokens != 45 {
+		t.Fatalf("unexpected provider usage payload: %+v", payload.Data)
+	}
+}
+
 func TestUsageQueryByModelRestAPIEndDateIsInclusiveWithoutSpillingIntoNextDay(t *testing.T) {
 	originalLocal := time.Local
 	time.Local = time.UTC
@@ -1247,6 +1611,91 @@ func TestAdminUsageRequiresAdminSession(t *testing.T) {
 	}
 }
 
+func TestAdminHomeRendersDashboardWithRealData(t *testing.T) {
+	originalLocal := time.Local
+	time.Local = time.UTC
+	defer func() { time.Local = originalLocal }()
+
+	rt, err := router.New([]config.ModelConfig{
+		{ID: "mrt_openai", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini", Enabled: true},
+		{ID: "mrt_deepseek", PublicName: "deepseek-chat", Provider: "deepseek", UpstreamName: "deepseek-chat", Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertProvider(context.Background(), config.ProviderConfig{Name: "openai", BaseURL: "https://openai.example/v1", APIKey: "secret", TimeoutSeconds: 60, Enabled: true}); err != nil {
+		t.Fatalf("UpsertProvider(openai) error = %v", err)
+	}
+	if err := sqliteStore.UpsertProvider(context.Background(), config.ProviderConfig{Name: "deepseek", BaseURL: "https://deepseek.example/v1", APIKey: "secret", TimeoutSeconds: 60, Enabled: false}); err != nil {
+		t.Fatalf("UpsertProvider(deepseek) error = %v", err)
+	}
+	if err := sqliteStore.UpsertModel(context.Background(), config.ModelConfig{ID: "mrt_openai", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini", Enabled: true}); err != nil {
+		t.Fatalf("UpsertModel(openai) error = %v", err)
+	}
+	if err := sqliteStore.UpsertModel(context.Background(), config.ModelConfig{ID: "mrt_deepseek", PublicName: "deepseek-chat", Provider: "deepseek", UpstreamName: "deepseek-chat", Enabled: false}); err != nil {
+		t.Fatalf("UpsertModel(deepseek) error = %v", err)
+	}
+	keys := []config.KeyConfig{
+		{Key: "sk-alice-001", Name: "alice-key", Owner: "alice"},
+		{Key: "sk-bob-001", Name: "bob-key", Owner: "bob"},
+	}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeysIfEmpty() error = %v", err)
+	}
+	today := time.Now().In(time.Local)
+	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.Local)
+	if err := sqliteStore.UpsertUsageRollups(context.Background(), []usage.Rollup{
+		{
+			BucketStart:   todayStart.Add(2 * time.Hour),
+			KeyID:         usage.KeyID("sk-alice-001"),
+			KeyName:       "alice-key",
+			Owner:         "alice",
+			Provider:      "openai",
+			PublicModel:   "gpt-4o-mini",
+			UpstreamModel: "gpt-4o-mini",
+			RequestCount:  12,
+			SuccessCount:  11,
+			ErrorCount:    1,
+			TotalTokens:   12500,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertUsageRollups() error = %v", err)
+	}
+
+	handler := newHandlerWithStore(keys, rt, usage.New(100), &stubProvider{}, sqliteStore)
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewBufferString("username=admin&password=pass"))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"Home", "Today", "12.5K", "Users / Keys", "Top Keys", "Top Providers", "Top Models", "\"name\":\"alice-key\"", "\"name\":\"openai\"", "\"name\":\"gpt-4o-mini\""} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("home page missing %q: %q", want, body)
+		}
+	}
+	if strings.Contains(body, "Public Models") {
+		t.Fatalf("home page should not use public models label: %q", body)
+	}
+}
+
 func TestAdminUsageViewRendersSinglePageWithEmbeddedData(t *testing.T) {
 	originalLocal := time.Local
 	time.Local = time.UTC
@@ -1366,6 +1815,11 @@ func TestAdminUsageViewRendersSinglePageWithEmbeddedData(t *testing.T) {
 	if !strings.Contains(body, "name=\"key\"") || !strings.Contains(body, "name=\"owner\"") {
 		t.Fatalf("usage page missing key/owner filters: %q", body)
 	}
+	for _, want := range []string{"setQuickDate(1)", "setQuickDate(7)", "setQuickDate(30)"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("usage page missing quick date %q: %q", want, body)
+		}
+	}
 	if !strings.Contains(body, "<option value=\""+usage.KeyID("sk-alice-001")+"\" selected") {
 		t.Fatalf("usage page missing selected key filter: %q", body)
 	}
@@ -1395,6 +1849,85 @@ func TestAdminUsageViewRendersSinglePageWithEmbeddedData(t *testing.T) {
 	}
 	if !strings.Contains(body, "\"name\":\"alice-key\"") {
 		t.Fatalf("usage page missing key pie data: %q", body)
+	}
+}
+
+func TestAdminUsageViewFiltersByProvider(t *testing.T) {
+	originalLocal := time.Local
+	time.Local = time.UTC
+	defer func() { time.Local = originalLocal }()
+
+	rt, err := router.New([]config.ModelConfig{
+		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	keys := []config.KeyConfig{{Key: "sk-alice-001", Name: "alice-key", Owner: "alice"}}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeysIfEmpty() error = %v", err)
+	}
+	if err := sqliteStore.UpsertUsageRollups(context.Background(), []usage.Rollup{
+		{
+			BucketStart:   time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+			KeyID:         usage.KeyID("sk-alice-001"),
+			KeyName:       "alice-key",
+			Owner:         "alice",
+			Provider:      "openai",
+			PublicModel:   "gpt-4o-mini",
+			UpstreamModel: "gpt-4o-mini",
+			RequestCount:  1,
+			SuccessCount:  1,
+			TotalTokens:   15,
+		},
+		{
+			BucketStart:   time.Date(2026, 5, 10, 1, 0, 0, 0, time.UTC),
+			KeyID:         usage.KeyID("sk-alice-001"),
+			KeyName:       "alice-key",
+			Owner:         "alice",
+			Provider:      "deepseek",
+			PublicModel:   "deepseek-chat",
+			UpstreamModel: "deepseek-chat",
+			RequestCount:  2,
+			SuccessCount:  2,
+			TotalTokens:   30,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertUsageRollups() error = %v", err)
+	}
+
+	handler := newHandlerWithStore(keys, rt, usage.New(100), &stubProvider{}, sqliteStore)
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewBufferString("username=admin&password=pass"))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/view?start=2026-05-10&end=2026-05-10&provider=deepseek", nil)
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "<option value=\"deepseek\" selected") {
+		t.Fatalf("usage page missing selected provider: %q", body)
+	}
+	if !strings.Contains(body, "\"name\":\"deepseek-chat\"") {
+		t.Fatalf("usage page missing provider filtered model: %q", body)
+	}
+	if strings.Contains(body, "\"name\":\"gpt-4o-mini\"") {
+		t.Fatalf("usage page includes unselected provider model: %q", body)
 	}
 }
 
@@ -1751,7 +2284,10 @@ func TestAdminKeysPageMasksKeyByDefault(t *testing.T) {
 		t.Fatalf("router.New() error = %v", err)
 	}
 
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-bootstrap-001"}, {Key: "sk-user-001", Name: "user1"}}, rt, usage.New(100), &stubProvider{})
+	handler := newHandler(t, []config.KeyConfig{
+		{Key: "sk-bootstrap-001"},
+		{Key: "sk-user-001", Name: "user1", ModelAccess: "selected", ModelRouteIDs: []string{"mrt_a", "mrt_b"}},
+	}, rt, usage.New(100), &stubProvider{})
 
 	loginBody := bytes.NewBufferString("username=admin&password=pass")
 	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
@@ -1790,6 +2326,80 @@ func TestAdminKeysPageMasksKeyByDefault(t *testing.T) {
 	if !strings.Contains(body, "submitKeyDelete") {
 		t.Fatalf("body missing key delete handler: %q", body)
 	}
+	if !strings.Contains(body, "Selected · 2 routes") {
+		t.Fatalf("body missing selected route count: %q", body)
+	}
+}
+
+func TestAdminKeysPageRouteSelectorHidesRouteIDText(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{ID: "mrt_key_route", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini", Enabled: true},
+		{ID: "mrt_key_route_azure", PublicName: "gpt-4o-mini", Provider: "azure-us", UpstreamName: "gpt-4o-2024-11", Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertModel(context.Background(), config.ModelConfig{ID: "mrt_key_route", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini", Enabled: true}); err != nil {
+		t.Fatalf("UpsertModel() error = %v", err)
+	}
+	if err := sqliteStore.UpsertModel(context.Background(), config.ModelConfig{ID: "mrt_key_route_azure", PublicName: "gpt-4o-mini", Provider: "azure-us", UpstreamName: "gpt-4o-2024-11", Enabled: true}); err != nil {
+		t.Fatalf("UpsertModel() error = %v", err)
+	}
+	keys := []config.KeyConfig{{Key: "sk-bootstrap-001", Name: "bootstrap"}}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeysIfEmpty() error = %v", err)
+	}
+	handler := newHandlerWithStore(keys, rt, usage.New(100), &stubProvider{}, sqliteStore)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewBufferString("username=admin&password=pass"))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/keys", nil)
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "<span class=\"mono\">mrt_key_route</span>") {
+		t.Fatalf("keys page visibly includes route id: %q", body)
+	}
+	if strings.Contains(body, "gpt-4o-mini / openai / gpt-4o-mini") {
+		t.Fatalf("keys page still uses flat route label: %q", body)
+	}
+	if !strings.Contains(body, "<span>gpt-4o-mini</span><span class=\"route-selected-count\">0 selected</span>") {
+		t.Fatalf("keys page missing public model group title: %q", body)
+	}
+	if !strings.Contains(body, "Disabled providers/routes are never usable.") {
+		t.Fatalf("keys page missing model access rule hint: %q", body)
+	}
+	if !strings.Contains(body, ".route-access-block[hidden]{display:none}") {
+		t.Fatalf("keys page missing route access hidden style: %q", body)
+	}
+	if !strings.Contains(body, "if(access !== 'selected'){return [];}") {
+		t.Fatalf("keys page should not submit route ids when model access is all: %q", body)
+	}
+	if !strings.Contains(body, "<span class=\"route-provider\">openai</span>") {
+		t.Fatalf("keys page missing provider route label: %q", body)
+	}
+	if !strings.Contains(body, "upstream: gpt-4o-2024-11") {
+		t.Fatalf("keys page missing upstream detail for renamed route: %q", body)
+	}
+	if !strings.Contains(body, "value=\"mrt_key_route\"") {
+		t.Fatalf("keys page missing submitted route id value: %q", body)
+	}
 }
 
 func TestAdminProvidersPageHasDeleteConfirm(t *testing.T) {
@@ -1820,6 +2430,70 @@ func TestAdminProvidersPageHasDeleteConfirm(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "submitProviderDelete") {
 		t.Fatalf("providers page missing delete confirm: %q", rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "Connection") {
+		t.Fatalf("providers page missing connection column: %q", rr.Body.String())
+	}
+}
+
+func TestAdminProvidersTableHidesConnectionDetails(t *testing.T) {
+	rt, err := router.New(nil)
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertProvider(context.Background(), config.ProviderConfig{
+		Name:             "private-provider",
+		BaseURL:          "https://private.example/v1",
+		AnthropicBaseURL: "https://anthropic.private.example",
+		AnthropicVersion: "2023-06-01",
+		APIKeyRef:        "PRIVATE_SECRET_REF",
+		TimeoutSeconds:   30,
+		Enabled:          true,
+	}); err != nil {
+		t.Fatalf("UpsertProvider() error = %v", err)
+	}
+	handler := httpapi.NewWithClient(auth.New(nil), config.AdminConfig{Username: "admin", Password: "pass"}, &stubProvider{}, rt, usage.New(100), sqliteStore, []string{"private-provider"})
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewBufferString("username=admin&password=pass"))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	tableStart := strings.Index(body, "<table id=\"providers-table\"")
+	tableEnd := strings.Index(body, "</table>")
+	if tableStart < 0 || tableEnd < tableStart {
+		t.Fatalf("providers table missing: %q", body)
+	}
+	tableHTML := body[tableStart:tableEnd]
+	for _, hidden := range []string{"https://private.example/v1", "https://anthropic.private.example", "2023-06-01", "PRIVATE_SECRET_REF"} {
+		if strings.Contains(tableHTML, hidden) {
+			t.Fatalf("providers table leaked %q: %q", hidden, tableHTML)
+		}
+	}
+	for _, want := range []string{"OpenAI", "Anthropic", "Key env"} {
+		if !strings.Contains(tableHTML, want) {
+			t.Fatalf("providers table missing %q: %q", want, tableHTML)
+		}
+	}
+	if strings.Contains(tableHTML, "Credentials configured") {
+		t.Fatalf("providers table still uses generic credential label: %q", tableHTML)
 	}
 }
 
@@ -1893,6 +2567,53 @@ func TestAdminModelsPageHasDeleteConfirm(t *testing.T) {
 	if !strings.Contains(rr.Body.String(), "submitModelDelete") {
 		t.Fatalf("models page missing delete handler: %q", rr.Body.String())
 	}
+	for _, want := range []string{"name=\"create_mode\"", "value=\"batch\"", "name=\"batch_provider\"", "name=\"batch_models\"", "parseBatchModelLines", "submitModelBatchCreate", "batch-model-preview", "priority: lower number first", "weight/random: sticky by session/body", "Lower number wins.", "Used only when selection is weight."} {
+		if !strings.Contains(rr.Body.String(), want) {
+			t.Fatalf("models page missing batch create support %q: %q", want, rr.Body.String())
+		}
+	}
+}
+
+func TestAdminModelsPageHidesRouteIDColumn(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{ID: "mrt_visible_route", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini", Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertModel(context.Background(), config.ModelConfig{ID: "mrt_visible_route", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini", Enabled: true}); err != nil {
+		t.Fatalf("UpsertModel() error = %v", err)
+	}
+	handler := newHandlerWithStore([]config.KeyConfig{{Key: "sk-bootstrap-001"}}, rt, usage.New(100), &stubProvider{}, sqliteStore)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewBufferString("username=admin&password=pass"))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/models", nil)
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "Route ID") || strings.Contains(body, "<td class=\"mono\">mrt_visible_route</td>") {
+		t.Fatalf("models page visibly includes route id: %q", body)
+	}
+	if !strings.Contains(body, "data-route-id=\"mrt_visible_route\"") {
+		t.Fatalf("models page missing hidden route id action data: %q", body)
+	}
 }
 
 func TestAdminPlaygroundRequiresSession(t *testing.T) {
@@ -1953,28 +2674,32 @@ func TestAdminPlaygroundInitializesChatWindow(t *testing.T) {
 	}
 }
 
-func TestAdminPlaygroundChatWorks(t *testing.T) {
-	resp := provider.OpenAIResponse{
-		"choices": []map[string]any{
-			{
-				"message": map[string]any{
-					"role":    "assistant",
-					"content": "hello from upstream",
-				},
-			},
-		},
-	}
-	p := &stubProvider{response: &resp}
+func TestAdminPlaygroundUsesPublicAPIsDirectly(t *testing.T) {
 	rt, err := router.New([]config.ModelConfig{
-		{PublicName: "openai/gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
+		{ID: "mrt_a", PublicName: "gpt-4o", Provider: "openai-a", UpstreamName: "gpt-4o-a", Enabled: true},
+		{ID: "mrt_b", PublicName: "gpt-4o", Provider: "openai-b", UpstreamName: "gpt-4o-b", Enabled: true},
 	})
 	if err != nil {
 		t.Fatalf("router.New() error = %v", err)
 	}
-	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001", Name: "alice"}}, rt, usage.New(100), p)
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertProvider(context.Background(), config.ProviderConfig{Name: "openai-a", BaseURL: "https://a.example/v1", APIKey: "secret", TimeoutSeconds: 60, Enabled: true}); err != nil {
+		t.Fatalf("UpsertProvider(openai-a) error = %v", err)
+	}
+	if err := sqliteStore.UpsertProvider(context.Background(), config.ProviderConfig{Name: "openai-b", BaseURL: "https://b.example/v1", APIKey: "secret", TimeoutSeconds: 60, Enabled: true}); err != nil {
+		t.Fatalf("UpsertProvider(openai-b) error = %v", err)
+	}
+	keys := []config.KeyConfig{{Key: "sk-app-001", Name: "alice"}}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeysIfEmpty() error = %v", err)
+	}
+	handler := newHandlerWithStore(keys, rt, usage.New(100), &stubProvider{}, sqliteStore)
 
-	loginBody := bytes.NewBufferString("username=admin&password=pass")
-	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewBufferString("username=admin&password=pass"))
 	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	loginRR := httptest.NewRecorder()
 	handler.ServeHTTP(loginRR, loginReq)
@@ -1983,44 +2708,33 @@ func TestAdminPlaygroundChatWorks(t *testing.T) {
 		t.Fatal("expected admin session cookie")
 	}
 
-	form := url.Values{
-		"api_key": {"sk-app-001"},
-		"model":   {"openai/gpt-4o-mini"},
-		"message": {"hi"},
-	}
-	req := httptest.NewRequest(http.MethodPost, "/admin/playground/chat", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := httptest.NewRequest(http.MethodGet, "/admin/playground", nil)
 	req.AddCookie(cookies[0])
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 	body := rr.Body.String()
-	if !strings.Contains(body, "hello from upstream") {
-		t.Fatalf("playground body missing chat output: %q", body)
-	}
-	if !strings.Contains(body, "API Base URL") || !strings.Contains(body, "openai/gpt-4o-mini") {
-		t.Fatalf("playground body missing connect settings: %q", body)
-	}
-	if p.lastModel != "gpt-4o-mini" {
-		t.Fatalf("lastModel = %q, want %q", p.lastModel, "gpt-4o-mini")
-	}
-	if p.lastChat == nil {
-		t.Fatalf("unexpected chat request: %#v", p.lastChat)
-	}
-	switch rawMessages := p.lastChat.Raw["messages"].(type) {
-	case []any:
-		if len(rawMessages) == 0 {
-			t.Fatalf("unexpected raw messages: %#v", p.lastChat.Raw["messages"])
+	for _, want := range []string{"/v1/chat/completions", "/v1/responses", "/anthropic/v1/messages", "Authorization", "X-Provider", "providerOptions", "Default route", "openai-a", "openai-b", "Request Preview", "Adds X-Provider; failover stays within provider."} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("playground body missing %q: %q", want, body)
 		}
-	case []map[string]any:
-		if len(rawMessages) == 0 {
-			t.Fatalf("unexpected raw messages: %#v", p.lastChat.Raw["messages"])
-		}
-	default:
-		t.Fatalf("unexpected raw messages type: %#v", p.lastChat.Raw["messages"])
+	}
+	if strings.Contains(body, "stopBtn") || strings.Contains(body, "stopStream") || strings.Contains(body, "Stop streaming") {
+		t.Fatalf("playground still exposes stop controls: %q", body)
+	}
+	if strings.Contains(body, "/admin/playground/chat") || strings.Contains(body, "/admin/playground/chat/ajax") {
+		t.Fatalf("playground still references admin chat proxy: %q", body)
+	}
+
+	postReq := httptest.NewRequest(http.MethodPost, "/admin/playground/chat", strings.NewReader("api_key=sk-app-001"))
+	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	postReq.AddCookie(cookies[0])
+	postRR := httptest.NewRecorder()
+	handler.ServeHTTP(postRR, postReq)
+	if postRR.Code == http.StatusOK {
+		t.Fatalf("old playground chat route still handled successfully")
 	}
 }
 

@@ -14,13 +14,14 @@ type modelResponse struct {
 
 func (h *Handler) handleModels(w http.ResponseWriter, r *http.Request) {
 	logger.L.Info("request", "op", "models")
-	if !h.auth.Check(r) {
+	principal, ok := h.auth.Authenticate(r)
+	if !ok {
 		logger.L.Warn("auth failed", "op", "models")
 		writeError(w, http.StatusUnauthorized, "invalid_api_key", "invalid api key")
 		return
 	}
 
-	models := h.router.ListModels()
+	models := h.router.ListModelsForAccess(routeAccess(principal))
 	data := make([]modelResponse, 0, len(models))
 	for _, model := range models {
 		data = append(data, buildModelResponse(model))
@@ -35,7 +36,8 @@ func (h *Handler) handleModels(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleModel(w http.ResponseWriter, r *http.Request) {
 	logger.L.Info("request", "op", "model_detail")
-	if !h.auth.Check(r) {
+	principal, ok := h.auth.Authenticate(r)
+	if !ok {
 		logger.L.Warn("auth failed", "op", "model_detail")
 		writeError(w, http.StatusUnauthorized, "invalid_api_key", "invalid api key")
 		return
@@ -46,8 +48,8 @@ func (h *Handler) handleModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "model_required", "model is required")
 		return
 	}
-	if _, err := h.router.Resolve(model); err != nil {
-		writeError(w, http.StatusNotFound, "model_not_found", "model not found")
+	if _, err := h.router.ResolvePlan(model, routeAccess(principal), ""); err != nil {
+		writeRouteError(w, http.StatusNotFound, err)
 		return
 	}
 

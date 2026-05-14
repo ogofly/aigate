@@ -26,10 +26,12 @@ func (a *Auth) Update(keys []config.KeyConfig) {
 			continue
 		}
 		set[key.Key] = Principal{
-			Key:     key.Key,
-			Name:    key.Name,
-			Owner:   key.Owner,
-			Purpose: key.Purpose,
+			Key:           key.Key,
+			Name:          key.Name,
+			Owner:         key.Owner,
+			Purpose:       key.Purpose,
+			ModelAccess:   key.ModelAccess,
+			ModelRouteIDs: append([]string(nil), key.ModelRouteIDs...),
 		}
 	}
 	a.mu.Lock()

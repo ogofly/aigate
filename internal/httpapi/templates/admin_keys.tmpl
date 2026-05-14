@@ -25,6 +25,17 @@
 #new-key-input,.gen-btn{height:42px}
 #new-key-input{flex:1 1 auto;min-width:0;margin-right:0;border-radius:8px 0 0 8px}
 .gen-btn{flex:0 0 auto;padding:0 14px;border-radius:0 8px 8px 0;white-space:nowrap}
+.route-list{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px;display:grid;gap:8px}
+.route-access-block[hidden]{display:none}
+.route-group{display:grid;gap:3px}
+.route-group-title{display:flex;justify-content:space-between;gap:8px;font-size:12px;font-weight:700;color:var(--text-strong);line-height:1.35;padding:2px 4px;overflow-wrap:anywhere}
+.route-selected-count{flex:0 0 auto;color:var(--muted);font-weight:600}
+.route-group-items{display:grid;gap:2px}
+.route-option{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;align-items:start;min-height:32px;padding:6px;border-radius:6px}
+.route-option:hover{background:rgba(210,214,220,.025)}
+.route-option input{margin:2px 0 0}
+.route-option span{overflow-wrap:anywhere;line-height:1.35}
+.route-provider{color:var(--text)}
 </style>
 </head>
 <body><div class="page">
@@ -47,8 +58,9 @@
   <thead>
     <tr>
       <th>Name</th>
-      {{if .IsAdmin}}<th>Owner</th>{{end}}
+      {{if .IsAdmin}}<th>User</th>{{end}}
       <th>Purpose</th>
+      <th>Model Access</th>
       <th>Key</th>
       <th></th>
     </tr>
@@ -59,6 +71,7 @@
       <td>{{.Name}}</td>
       {{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}
       <td>{{.Purpose}}</td>
+      <td>{{if eq .ModelAccess "selected"}}<span class="badge info">Selected · {{len .ModelRouteIDs}} routes</span>{{else}}<span class="badge ok">All</span>{{end}}</td>
       <td>
         <div class="key-cell">
           <span class="key-text" data-key="{{.Key}}" onclick="toggleKeyText(this)">****</span>
@@ -66,12 +79,12 @@
         </div>
       </td>
       <td>
-        <button type="button" onclick="openKeyEditDialog('{{.Name}}', '{{.Owner}}', '{{.Purpose}}', '{{.Key}}')">Edit</button>
-        <button type="button" onclick="submitKeyDelete(this, '{{.Name}}', '{{.Purpose}}', '{{.Key}}')">Delete</button>
+        <button type="button" data-model-access="{{.ModelAccess}}" data-route-ids="{{range .ModelRouteIDs}}{{.}},{{end}}" onclick="openKeyEditDialog(this, '{{.Name}}', '{{.Owner}}', '{{.Purpose}}', '{{.Key}}')">Edit</button>
+        <button type="button" class="danger" onclick="submitKeyDelete(this, '{{.Name}}', '{{.Purpose}}', '{{.Key}}')">Delete</button>
       </td>
     </tr>
     {{else}}
-    <tr><td colspan="{{if .IsAdmin}}5{{else}}4{{end}}" class="muted">No keys configured</td></tr>
+    <tr><td colspan="{{if .IsAdmin}}6{{else}}5{{end}}" class="muted">No keys configured</td></tr>
     {{end}}
   </tbody>
 </table></div>
@@ -80,7 +93,7 @@
     <div class="modal-head">
       <div>
         <h2 class="panel-title">New Key</h2>
-        <p class="modal-copy">Create a managed key and add optional owner and usage context.</p>
+        <p class="modal-copy">Create a managed key and add optional user and usage context.</p>
       </div>
       <button type="button" class="modal-close ghost" onclick="closeDialog('keyCreateDialog')" aria-label="Close">×</button>
     </div>
@@ -99,13 +112,36 @@
         </div>
         {{if .IsAdmin}}
         <div class="field-group">
-          <label for="key-owner">Owner</label>
-          <input id="key-owner" name="owner" placeholder="Owner name">
+          <label for="key-owner">User</label>
+          <input id="key-owner" name="owner" placeholder="User name">
         </div>
         {{end}}
         <div class="field-group key-span">
           <label for="key-purpose">Purpose</label>
           <input id="key-purpose" name="purpose" placeholder="Usage context">
+        </div>
+        <div class="field-group key-span">
+          <label for="key-model-access">Model Access</label>
+          <select id="key-model-access" name="model_access" onchange="toggleRouteList(this)">
+            <option value="all">all</option>
+            <option value="selected">selected</option>
+          </select>
+          <p class="form-hint">All can use every enabled route. Selected only allows checked routes. Disabled providers/routes are never usable.</p>
+        </div>
+        <div class="field-group key-span route-access-block" hidden>
+          <label>Routes</label>
+          <div class="route-list">
+            {{range .ModelRouteGroups}}
+            <div class="route-group">
+              <div class="route-group-title"><span>{{.PublicName}}</span><span class="route-selected-count">0 selected</span></div>
+              <div class="route-group-items">
+                {{range .Routes}}
+                <label class="route-option"><input type="checkbox" name="model_route_ids" value="{{.ID}}"><span><span class="route-provider">{{.Provider}}</span>{{if ne .UpstreamName .PublicName}} <span class="muted">· upstream: {{.UpstreamName}}</span>{{end}}{{if not .Enabled}} <span class="badge off">Disabled</span>{{end}}</span></label>
+                {{end}}
+              </div>
+            </div>
+            {{else}}<div class="muted">No routes configured</div>{{end}}
+          </div>
         </div>
       </div>
       <div class="modal-actions">
@@ -121,7 +157,7 @@
     <div class="modal-head">
       <div>
         <h2 class="panel-title">Edit Key</h2>
-        <p class="modal-copy">Update the name, owner, or purpose for this managed key.</p>
+        <p class="modal-copy">Update the name, user, or purpose for this managed key.</p>
       </div>
       <button type="button" class="modal-close ghost" onclick="closeDialog('keyEditDialog')" aria-label="Close">×</button>
     </div>
@@ -134,13 +170,36 @@
         </div>
         {{if .IsAdmin}}
         <div class="field-group">
-          <label for="edit-key-owner">Owner</label>
-          <input id="edit-key-owner" name="owner" placeholder="Owner name">
+          <label for="edit-key-owner">User</label>
+          <input id="edit-key-owner" name="owner" placeholder="User name">
         </div>
         {{end}}
         <div class="field-group key-span">
           <label for="edit-key-purpose">Purpose</label>
           <input id="edit-key-purpose" name="purpose" placeholder="Usage context">
+        </div>
+        <div class="field-group key-span">
+          <label for="edit-key-model-access">Model Access</label>
+          <select id="edit-key-model-access" name="model_access" onchange="toggleRouteList(this)">
+            <option value="all">all</option>
+            <option value="selected">selected</option>
+          </select>
+          <p class="form-hint">All can use every enabled route. Selected only allows checked routes. Disabled providers/routes are never usable.</p>
+        </div>
+        <div class="field-group key-span route-access-block" hidden>
+          <label>Routes</label>
+          <div class="route-list">
+            {{range .ModelRouteGroups}}
+            <div class="route-group">
+              <div class="route-group-title"><span>{{.PublicName}}</span><span class="route-selected-count">0 selected</span></div>
+              <div class="route-group-items">
+                {{range .Routes}}
+                <label class="route-option"><input type="checkbox" name="model_route_ids" value="{{.ID}}"><span><span class="route-provider">{{.Provider}}</span>{{if ne .UpstreamName .PublicName}} <span class="muted">· upstream: {{.UpstreamName}}</span>{{end}}{{if not .Enabled}} <span class="badge off">Disabled</span>{{end}}</span></label>
+                {{end}}
+              </div>
+            </div>
+            {{else}}<div class="muted">No routes configured</div>{{end}}
+          </div>
         </div>
       </div>
       <div class="modal-actions">
@@ -250,18 +309,41 @@ function confirmDeleteKey(name, purpose){
   return confirm('Delete key: ' + name + (purpose ? ' (' + purpose + ')' : '') + '?');
 }
 
+function toggleRouteList(select){
+  const block = select.closest('form')?.querySelector('.route-access-block');
+  if(block){block.hidden = select.value !== 'selected';}
+  updateRouteSelectionCounts(select.closest('form'));
+}
+
+function updateRouteSelectionCounts(form){
+  if(!form){return;}
+  form.querySelectorAll('.route-group').forEach(group => {
+    const count = group.querySelectorAll('[name=model_route_ids]:checked').length;
+    const label = group.querySelector('.route-selected-count');
+    if(label){label.textContent = count + ' selected';}
+  });
+}
+
+function selectedRouteIDs(form){
+  const access = form.querySelector('[name=model_access]')?.value || 'all';
+  if(access !== 'selected'){return [];}
+  return Array.from(form.querySelectorAll('[name=model_route_ids]:checked')).map(input => input.value);
+}
+
 async function submitKeyCreate(form){
   const data = {
     key: form.querySelector('[name=key]').value,
     name: form.querySelector('[name=name]').value,
     purpose: form.querySelector('[name=purpose]').value,
+    model_access: form.querySelector('[name=model_access]').value,
+    model_route_ids: selectedRouteIDs(form),
   };
   const ownerField = form.querySelector('[name=owner]');
   if (ownerField) data.owner = ownerField.value;
   const result = await apiCall('POST', '/api/admin/keys', data);
   if (result && result.ok) {
     closeDialog('keyCreateDialog');
-    location.reload();
+    reloadAfterToast('Key saved');
   }
 }
 
@@ -270,16 +352,23 @@ async function submitKeyDelete(btn, name, purpose, key){
   const result = await apiCall('DELETE', '/api/admin/keys/' + encodeURIComponent(key));
   if (result && result.ok) {
     btn.closest('tr').remove();
+    showToast('Key deleted');
   }
 }
 
-function openKeyEditDialog(name, owner, purpose, key){
+function openKeyEditDialog(button, name, owner, purpose, key){
   const form = document.querySelector('#keyEditDialog form');
   form.querySelector('[name=key]').value = key;
   form.querySelector('[name=name]').value = name;
   const ownerField = form.querySelector('[name=owner]');
   if (ownerField) ownerField.value = owner;
   form.querySelector('[name=purpose]').value = purpose;
+  const access = button.dataset.modelAccess || 'all';
+  const routeIds = new Set((button.dataset.routeIds || '').split(',').filter(Boolean));
+  form.querySelector('[name=model_access]').value = access === 'selected' ? 'selected' : 'all';
+  form.querySelectorAll('[name=model_route_ids]').forEach(input => { input.checked = routeIds.has(input.value); });
+  toggleRouteList(form.querySelector('[name=model_access]'));
+  updateRouteSelectionCounts(form);
   openDialog('keyEditDialog');
 }
 
@@ -288,15 +377,21 @@ async function submitKeyUpdate(form){
   const data = {
     name: form.querySelector('[name=name]').value,
     purpose: form.querySelector('[name=purpose]').value,
+    model_access: form.querySelector('[name=model_access]').value,
+    model_route_ids: selectedRouteIDs(form),
   };
   const ownerField = form.querySelector('[name=owner]');
   if (ownerField) data.owner = ownerField.value;
   const result = await apiCall('PUT', '/api/admin/keys/' + encodeURIComponent(key), data);
   if (result && result.ok) {
     closeDialog('keyEditDialog');
-    location.reload();
+    reloadAfterToast('Key saved');
   }
 }
+
+document.querySelectorAll('[name=model_route_ids]').forEach(input => {
+  input.addEventListener('change', function(){ updateRouteSelectionCounts(input.closest('form')); });
+});
 
 document.getElementById('keyCreateDialog')?.addEventListener('click', function(e){
   const rect = this.getBoundingClientRect();

@@ -646,7 +646,7 @@ func TestAPIModelUpdateNotFound(t *testing.T) {
 	assertStatus(t, rr, http.StatusNotFound)
 }
 
-func TestAPIModelUpdateRenameConflict(t *testing.T) {
+func TestAPIModelUpdateAllowsDuplicatePublicNameForDistinctRoute(t *testing.T) {
 	handler := newTestAPIHandler(t, []config.KeyConfig{{Key: "sk-1"}})
 	cookie := loginAndCookie(t, handler)
 
@@ -662,7 +662,22 @@ func TestAPIModelUpdateRenameConflict(t *testing.T) {
 		"provider":      "openai",
 		"upstream_name": "gpt-4.1",
 	})
-	assertStatus(t, rr, http.StatusConflict)
+	assertStatus(t, rr, http.StatusOK)
+
+	rr = apiGet(t, handler, "/api/admin/models", cookie)
+	assertStatus(t, rr, http.StatusOK)
+
+	var models []config.ModelConfig
+	parseJSON(t, rr, &models)
+	count := 0
+	for _, model := range models {
+		if model.PublicName == "existing-model" {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Fatalf("duplicate public model route count = %d, want 2", count)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -966,6 +981,7 @@ func TestAPIReturnsJSONContentType(t *testing.T) {
 		"/api/admin/providers",
 		"/api/admin/models",
 		"/api/admin/keys",
+		"/api/admin/routing",
 	}
 
 	for _, url := range endpoints {
@@ -977,6 +993,33 @@ func TestAPIReturnsJSONContentType(t *testing.T) {
 				t.Fatalf("Content-Type = %q, want application/json", ct)
 			}
 		})
+	}
+}
+
+func TestAPIRoutingSettingsUpdate(t *testing.T) {
+	handler := newTestAPIHandler(t, []config.KeyConfig{{Key: "sk-1"}})
+	cookie := loginAndCookie(t, handler)
+
+	rr := apiPut(t, handler, "/api/admin/routing", cookie, map[string]any{
+		"selection":             "weight",
+		"failover_enabled":      false,
+		"failover_max_attempts": 3,
+	})
+	assertStatus(t, rr, http.StatusOK)
+
+	rr = apiGet(t, handler, "/api/admin/routing", cookie)
+	assertStatus(t, rr, http.StatusOK)
+
+	var settings config.RoutingConfig
+	parseJSON(t, rr, &settings)
+	if settings.Selection != "weight" {
+		t.Fatalf("selection = %q, want weight", settings.Selection)
+	}
+	if settings.FailoverEnabled {
+		t.Fatal("failover_enabled = true, want false")
+	}
+	if settings.FailoverMaxAttempts != 3 {
+		t.Fatalf("failover_max_attempts = %d, want 3", settings.FailoverMaxAttempts)
 	}
 }
 

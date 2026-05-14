@@ -83,6 +83,15 @@ func main() {
 		slog.Error("init router", "error", err)
 		os.Exit(1)
 	}
+	routingSettings, err := sqliteStore.GetRoutingSettings(ctx)
+	if err != nil {
+		slog.Error("load routing settings", "error", err)
+		os.Exit(1)
+	}
+	if err := rt.Update(models, providerConfigs, routingSettings); err != nil {
+		slog.Error("init router settings", "error", err)
+		os.Exit(1)
+	}
 
 	authenticator := auth.New(keyConfigs)
 	recorder := usage.New(1000)

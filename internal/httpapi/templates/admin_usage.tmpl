@@ -8,6 +8,8 @@
 .filters label{display:flex;flex-direction:column;gap:6px;font-size:13px;min-width:0}
 .filter-actions{display:flex;gap:8px;align-items:center;padding-bottom:6px}
 .filter-actions button{min-height:40px;padding:10px 14px}
+.quick-dates{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding-bottom:6px}
+.quick-dates button{min-height:40px;padding:10px 12px}
 a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
 .section-card{margin-top:16px}
 .section-card:first-of-type{margin-top:0}
@@ -58,11 +60,17 @@ a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
   <label>Start Date <input type="date" name="start" value="{{.FilterStart}}"></label>
   <label>End Date <input type="date" name="end" value="{{.FilterEnd}}"></label>
   <label>Model <select name="model"><option value="">All</option>{{range .UsageModels}}<option value="{{.}}" {{if eq . $.FilterModel}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <label>Provider <select name="provider"><option value="">All</option>{{range .UsageProviders}}<option value="{{.}}" {{if eq . $.FilterProvider}}selected{{end}}>{{.}}</option>{{end}}</select></label>
   <label>Key <select name="key"><option value="">All</option>{{range .UsageKeys}}<option value="{{.Value}}" {{if eq .Value $.FilterKey}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
-  {{if .IsAdmin}}<label>Owner <select name="owner"><option value="">All</option>{{range .UsageOwners}}<option value="{{.}}" {{if eq . $.FilterOwner}}selected{{end}}>{{.}}</option>{{end}}</select></label>{{end}}
+  {{if .IsAdmin}}<label>User <select name="owner"><option value="">All</option>{{range .UsageOwners}}<option value="{{.}}" {{if eq . $.FilterOwner}}selected{{end}}>{{.}}</option>{{end}}</select></label>{{end}}
+  <div class="quick-dates" aria-label="Quick date filters">
+    <button type="button" class="ghost" onclick="setQuickDate(1)">Today</button>
+    <button type="button" class="ghost" onclick="setQuickDate(7)">7d</button>
+    <button type="button" class="ghost" onclick="setQuickDate(30)">30d</button>
+  </div>
   <div class="filter-actions">
     <button type="submit">Filter</button>
-    {{if or .FilterStart .FilterEnd .FilterModel .FilterKey .FilterOwner}}<a class="clear-filters" href="/admin/usage/view">Clear Filters</a>{{end}}
+    {{if or .FilterStart .FilterEnd .FilterModel .FilterProvider .FilterKey .FilterOwner}}<a class="clear-filters" href="/admin/usage/view">Clear Filters</a>{{end}}
   </div>
 </form>
 </section>
@@ -130,7 +138,7 @@ a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
 <div id="keyPieChart" class="pie-chart"></div>
 <div class="table-wrap"><table id="key-table"><thead><tr>
 <th><button type="button" class="sort-btn" onclick="sortTable('key-table',0,'text')">Name</button></th>
-{{if .IsAdmin}}<th><button type="button" class="sort-btn" onclick="sortTable('key-table',1,'text')">Owner</button></th>{{end}}
+{{if .IsAdmin}}<th><button type="button" class="sort-btn" onclick="sortTable('key-table',1,'text')">User</button></th>{{end}}
 {{if .IsAdmin}}
 <th><button type="button" class="sort-btn" onclick="sortTable('key-table',2,'text')">Purpose</button></th>
 <th><button type="button" class="sort-btn" onclick="sortTable('key-table',3,'num')">Requests</button></th>
@@ -160,6 +168,24 @@ function readJSONList(id){
   var el=document.getElementById(id);
   if(!el||!el.textContent.trim())return [];
   return JSON.parse('['+el.textContent+']');
+}
+
+function localDateString(date){
+  var y = date.getFullYear();
+  var m = String(date.getMonth() + 1).padStart(2, '0');
+  var d = String(date.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + d;
+}
+
+function setQuickDate(days){
+  var form = document.querySelector('form.filters');
+  if(!form){return;}
+  var end = new Date();
+  var start = new Date();
+  start.setDate(end.getDate() - Math.max(days - 1, 0));
+  form.querySelector('[name=start]').value = localDateString(start);
+  form.querySelector('[name=end]').value = localDateString(end);
+  form.submit();
 }
 
 function formatTokens(n){

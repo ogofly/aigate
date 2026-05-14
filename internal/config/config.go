@@ -16,6 +16,7 @@ type Config struct {
 	Admin     AdminConfig      `json:"admin"`
 	Providers []ProviderConfig `json:"providers"`
 	Models    []ModelConfig    `json:"models"`
+	Routing   RoutingConfig    `json:"routing"`
 	Storage   StorageConfig    `json:"storage"`
 }
 
@@ -33,10 +34,12 @@ type AuthConfig struct {
 }
 
 type KeyConfig struct {
-	Key     string `json:"key"`
-	Name    string `json:"name"`
-	Owner   string `json:"owner,omitempty"`
-	Purpose string `json:"purpose,omitempty"`
+	Key           string   `json:"key"`
+	Name          string   `json:"name"`
+	Owner         string   `json:"owner,omitempty"`
+	Purpose       string   `json:"purpose,omitempty"`
+	ModelAccess   string   `json:"model_access,omitempty"`
+	ModelRouteIDs []string `json:"model_route_ids,omitempty"`
 }
 
 type ProviderConfig struct {
@@ -47,12 +50,23 @@ type ProviderConfig struct {
 	APIKey           string `json:"api_key"`
 	APIKeyRef        string `json:"api_key_ref"`
 	TimeoutSeconds   int    `json:"timeout"`
+	Enabled          bool   `json:"enabled"`
 }
 
 type ModelConfig struct {
+	ID           string `json:"id"`
 	PublicName   string `json:"public_name"`
 	Provider     string `json:"provider"`
 	UpstreamName string `json:"upstream_name"`
+	Priority     int    `json:"priority"`
+	Weight       int    `json:"weight"`
+	Enabled      bool   `json:"enabled"`
+}
+
+type RoutingConfig struct {
+	Selection           string `json:"selection"`
+	FailoverEnabled     bool   `json:"failover_enabled"`
+	FailoverMaxAttempts int    `json:"failover_max_attempts"`
 }
 
 type StorageConfig struct {
@@ -66,7 +80,7 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	var cfg Config
+	cfg := Config{Routing: RoutingConfig{Selection: "priority", FailoverEnabled: true, FailoverMaxAttempts: 2}}
 	if err := json.Unmarshal([]byte(expandEnv(string(data))), &cfg); err != nil {
 		return nil, err
 	}
@@ -91,7 +105,9 @@ func (c *Config) Validate() error {
 		return errors.New("admin.password is required")
 	}
 	seenKeys := make(map[string]struct{}, len(c.Auth.Keys))
-	for _, key := range c.Auth.Keys {
+	for i, key := range c.Auth.Keys {
+		c.Auth.Keys[i].SetDefaults()
+		key = c.Auth.Keys[i]
 		if key.Key == "" {
 			return errors.New("auth.keys[].key is required")
 		}
@@ -106,9 +122,12 @@ func (c *Config) Validate() error {
 	if c.Storage.FlushIntervalSeconds <= 0 {
 		c.Storage.FlushIntervalSeconds = 60
 	}
+	c.Routing.SetDefaults()
 
 	seenProviders := make(map[string]struct{}, len(c.Providers))
-	for _, p := range c.Providers {
+	for i, p := range c.Providers {
+		c.Providers[i].SetDefaults()
+		p = c.Providers[i]
 		if err := p.Validate(); err != nil {
 			return err
 		}
@@ -119,7 +138,9 @@ func (c *Config) Validate() error {
 	}
 
 	seenModels := make(map[string]struct{}, len(c.Models))
-	for _, m := range c.Models {
+	for i, m := range c.Models {
+		c.Models[i].SetDefaults()
+		m = c.Models[i]
 		if m.PublicName == "" {
 			return errors.New("model.public_name is required")
 		}
@@ -132,13 +153,46 @@ func (c *Config) Validate() error {
 		if _, ok := seenProviders[m.Provider]; !ok {
 			return fmt.Errorf("model %q references unknown provider %q", m.PublicName, m.Provider)
 		}
-		if _, ok := seenModels[m.PublicName]; ok {
-			return fmt.Errorf("duplicate model %q", m.PublicName)
+		routeKey := strings.Join([]string{m.PublicName, m.Provider, m.UpstreamName}, "\x00")
+		if _, ok := seenModels[routeKey]; ok {
+			return fmt.Errorf("duplicate model route %q/%q/%q", m.PublicName, m.Provider, m.UpstreamName)
 		}
-		seenModels[m.PublicName] = struct{}{}
+		seenModels[routeKey] = struct{}{}
 	}
 
 	return nil
+}
+
+func (k *KeyConfig) SetDefaults() {
+	if strings.TrimSpace(k.ModelAccess) == "" {
+		k.ModelAccess = "all"
+	}
+	if k.ModelAccess != "all" && k.ModelAccess != "selected" {
+		k.ModelAccess = "all"
+	}
+}
+
+func (p *ProviderConfig) SetDefaults() {
+}
+
+func (m *ModelConfig) SetDefaults() {
+	if m.Weight <= 0 {
+		m.Weight = 1
+	}
+}
+
+func (r *RoutingConfig) SetDefaults() {
+	switch strings.TrimSpace(r.Selection) {
+	case "", "priority", "weight", "random":
+		if strings.TrimSpace(r.Selection) == "" {
+			r.Selection = "priority"
+		}
+	default:
+		r.Selection = "priority"
+	}
+	if r.FailoverMaxAttempts <= 0 {
+		r.FailoverMaxAttempts = 2
+	}
 }
 
 func (p ProviderConfig) Validate() error {
@@ -206,5 +260,35 @@ func (k *KeyConfig) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*k = KeyConfig(out)
+	return nil
+}
+
+func (p *ProviderConfig) UnmarshalJSON(data []byte) error {
+	type alias ProviderConfig
+	out := alias{Enabled: true}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return err
+	}
+	*p = ProviderConfig(out)
+	return nil
+}
+
+func (m *ModelConfig) UnmarshalJSON(data []byte) error {
+	type alias ModelConfig
+	out := alias{Enabled: true, Weight: 1}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return err
+	}
+	*m = ModelConfig(out)
+	return nil
+}
+
+func (r *RoutingConfig) UnmarshalJSON(data []byte) error {
+	type alias RoutingConfig
+	out := alias{Selection: "priority", FailoverEnabled: true, FailoverMaxAttempts: 2}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return err
+	}
+	*r = RoutingConfig(out)
 	return nil
 }

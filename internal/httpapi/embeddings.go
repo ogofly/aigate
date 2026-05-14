@@ -35,26 +35,42 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, err := h.router.Resolve(model)
+	plan, err := h.resolveRoutePlan(r, principal, model, req)
 	if err != nil {
 		logger.L.Warn("model not found", "op", "embeddings", "model", model)
 		h.recordUsage(principal, "embeddings", "", model, "", false, 0, 0, 0, http.StatusBadRequest, time.Since(start))
-		writeError(w, http.StatusBadRequest, "model_not_found", "model not found")
+		writeRouteError(w, http.StatusBadRequest, err)
 		return
 	}
+	target := plan[0]
 	logger.L.Info("request resolved", "op", "embeddings", "model", model, "provider", target.ProviderName, "upstream_model", target.UpstreamModel)
-	providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
-	if err != nil {
-		h.recordUsage(principal, "embeddings", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-		writeError(w, http.StatusBadGateway, "provider_not_found", err.Error())
-		return
-	}
 
-	resp, err := h.client.Embed(r.Context(), providerCfg, req, target.UpstreamModel)
-	if err != nil {
+	var resp *provider.EmbeddingResponse
+	var lastErr error
+	attemptLimit := maxAttempts(len(plan), h.routeAttempts(r.Context()))
+	for attempt := 0; attempt < attemptLimit; attempt++ {
+		target = plan[attempt]
+		providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
+		if err != nil {
+			lastErr = providerNotFoundError(target, err)
+			break
+		}
+		resp, err = h.client.Embed(r.Context(), providerCfg, req, target.UpstreamModel)
+		if err == nil {
+			break
+		}
+		lastErr = err
+		if attempt+1 < attemptLimit && retryableUpstreamError(err) {
+			continue
+		}
 		logger.L.Error("embed request failed", "op", "embeddings", "model", model, "provider", target.ProviderName, "client_ip", clientIP(r), "error", err)
 		h.recordUsage(principal, "embeddings", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 		writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
+		return
+	}
+	if resp == nil {
+		h.recordUsage(principal, "embeddings", target.ProviderName, model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
+		writeError(w, http.StatusBadGateway, "upstream_error", lastErr.Error())
 		return
 	}
 

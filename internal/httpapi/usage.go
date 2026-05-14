@@ -45,7 +45,10 @@ func usageView(r *http.Request) string {
 	if strings.TrimSpace(q.Get("group_by")) != "" || strings.TrimSpace(q.Get("groupBy")) != "" {
 		return "trend"
 	}
-	if strings.TrimSpace(q.Get("start")) != "" || strings.TrimSpace(q.Get("end")) != "" || strings.TrimSpace(q.Get("model")) != "" {
+	if strings.TrimSpace(q.Get("start")) != "" ||
+		strings.TrimSpace(q.Get("end")) != "" ||
+		strings.TrimSpace(q.Get("model")) != "" ||
+		strings.TrimSpace(q.Get("provider")) != "" {
 		return "by_model"
 	}
 	return ""
@@ -152,6 +155,9 @@ func parseUsageQuery(r *http.Request) (store.UsageFilter, string, error) {
 	}
 	if model := strings.TrimSpace(q.Get("model")); model != "" {
 		filter.Model = model
+	}
+	if provider := strings.TrimSpace(q.Get("provider")); provider != "" {
+		filter.Provider = provider
 	}
 
 	groupBy := strings.TrimSpace(q.Get("group_by"))

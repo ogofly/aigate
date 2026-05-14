@@ -32,27 +32,51 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, err := h.router.Resolve(req.Model)
+	plan, err := h.resolveRoutePlan(r, principal, req.Model, req.Raw)
 	if err != nil {
 		logger.L.Warn("model not found", "op", "messages", "model", req.Model)
 		h.recordUsage(principal, "messages", "", req.Model, "", false, 0, 0, 0, http.StatusBadRequest, time.Since(start))
-		writeError(w, http.StatusBadRequest, "model_not_found", "model not found")
+		writeRouteError(w, http.StatusBadRequest, err)
 		return
 	}
-	providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
-	if err != nil {
-		h.recordUsage(principal, "messages", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-		writeError(w, http.StatusBadGateway, "provider_not_found", err.Error())
-		return
-	}
+	target := plan[0]
 
 	if req.Stream {
 		requestID := nextStreamRequestID()
-		streamResp, err := h.client.MessagesStream(r.Context(), providerCfg, &req, target.UpstreamModel)
-		if err != nil {
-			logger.L.Error("stream request failed", "op", "messages", "request_id", requestID, "model", req.Model, "provider", target.ProviderName, "client_ip", clientIP(r), "error", err)
+		var streamResp *provider.StreamResponse
+		var lastErr error
+		attemptLimit := maxAttempts(len(plan), h.routeAttempts(r.Context()))
+		for attempt := 0; attempt < attemptLimit; attempt++ {
+			target = plan[attempt]
+			providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
+			if err != nil {
+				lastErr = providerNotFoundError(target, err)
+				break
+			}
+			streamResp, err = h.client.MessagesStream(r.Context(), providerCfg, &req, target.UpstreamModel)
+			if err != nil {
+				lastErr = err
+				if attempt+1 < attemptLimit && retryableUpstreamError(err) {
+					continue
+				}
+				logger.L.Error("stream request failed", "op", "messages", "request_id", requestID, "model", req.Model, "provider", target.ProviderName, "client_ip", clientIP(r), "error", err)
+				h.recordUsage(principal, "messages", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
+				writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
+				return
+			}
+			if streamResp.StatusCode >= 200 && streamResp.StatusCode < 300 {
+				break
+			}
+			if attempt+1 < attemptLimit && retryableStatus(streamResp.StatusCode) {
+				_, _ = io.Copy(io.Discard, streamResp.Body)
+				streamResp.Body.Close()
+				continue
+			}
+			break
+		}
+		if streamResp == nil {
 			h.recordUsage(principal, "messages", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-			writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
+			writeError(w, http.StatusBadGateway, "upstream_error", lastErr.Error())
 			return
 		}
 		defer streamResp.Body.Close()
@@ -84,11 +108,32 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.client.Messages(r.Context(), providerCfg, &req, target.UpstreamModel)
-	if err != nil {
+	var resp *provider.AnthropicResponse
+	var lastErr error
+	attemptLimit := maxAttempts(len(plan), h.routeAttempts(r.Context()))
+	for attempt := 0; attempt < attemptLimit; attempt++ {
+		target = plan[attempt]
+		providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
+		if err != nil {
+			lastErr = providerNotFoundError(target, err)
+			break
+		}
+		resp, err = h.client.Messages(r.Context(), providerCfg, &req, target.UpstreamModel)
+		if err == nil {
+			break
+		}
+		lastErr = err
+		if attempt+1 < attemptLimit && retryableUpstreamError(err) {
+			continue
+		}
 		logger.L.Error("messages request failed", "op", "messages", "model", req.Model, "provider", target.ProviderName, "client_ip", clientIP(r), "error", err)
 		h.recordUsage(principal, "messages", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
 		writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
+		return
+	}
+	if resp == nil {
+		h.recordUsage(principal, "messages", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
+		writeError(w, http.StatusBadGateway, "upstream_error", lastErr.Error())
 		return
 	}
 	requestTokens, responseTokens, totalTokens := usage.ExtractUsage(map[string]any(*resp))

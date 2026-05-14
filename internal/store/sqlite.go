@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 
 	"aigate/internal/config"
@@ -45,19 +46,39 @@ func (s *SQLiteStore) init(ctx context.Context) error {
 			anthropic_version TEXT NOT NULL DEFAULT '',
 			api_key_ref TEXT NOT NULL,
 			timeout_seconds INTEGER NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
 			updated_at TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS models (
-			public_name TEXT PRIMARY KEY,
+			id TEXT PRIMARY KEY,
+			public_name TEXT NOT NULL,
 			provider TEXT NOT NULL,
 			upstream_name TEXT NOT NULL,
+			priority INTEGER NOT NULL DEFAULT 0,
+			weight INTEGER NOT NULL DEFAULT 1,
+			enabled INTEGER NOT NULL DEFAULT 1,
 			updated_at TEXT NOT NULL
+			, UNIQUE(public_name, provider, upstream_name)
 		)`,
 		`CREATE TABLE IF NOT EXISTS auth_keys (
 			key TEXT PRIMARY KEY,
 			name TEXT NOT NULL DEFAULT '',
 			owner TEXT NOT NULL DEFAULT '',
 			purpose TEXT NOT NULL DEFAULT '',
+			model_access TEXT NOT NULL DEFAULT 'all',
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS auth_key_model_routes (
+			key TEXT NOT NULL,
+			model_route_id TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (key, model_route_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS routing_settings (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			selection TEXT NOT NULL DEFAULT 'priority',
+			failover_enabled INTEGER NOT NULL DEFAULT 1,
+			failover_max_attempts INTEGER NOT NULL DEFAULT 2,
 			updated_at TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS usage_rollups (
@@ -91,7 +112,16 @@ func (s *SQLiteStore) init(ctx context.Context) error {
 	if err := s.migrateProvidersAnthropicColumns(ctx); err != nil {
 		return err
 	}
+	if err := s.migrateProvidersEnabledColumn(ctx); err != nil {
+		return err
+	}
+	if err := s.migrateModelsRoutesTable(ctx); err != nil {
+		return err
+	}
 	if err := s.migrateAuthKeysTable(ctx); err != nil {
+		return err
+	}
+	if err := s.migrateRoutingSettings(ctx); err != nil {
 		return err
 	}
 	return s.migrateUsageRollupsTable(ctx)
@@ -148,6 +178,7 @@ func (s *SQLiteStore) migrateProvidersTable(ctx context.Context) error {
 			anthropic_version TEXT NOT NULL DEFAULT '',
 			api_key_ref TEXT NOT NULL DEFAULT '',
 			timeout_seconds INTEGER NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
 			updated_at TEXT NOT NULL
 		)`,
 		`DROP TABLE providers_old`,
@@ -156,8 +187,8 @@ func (s *SQLiteStore) migrateProvidersTable(ctx context.Context) error {
 		stmts = []string{
 			stmts[0],
 			stmts[1],
-			`INSERT INTO providers(name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds, updated_at)
-			 SELECT name, api_key, base_url, '', '', '', timeout_seconds, updated_at FROM providers_old`,
+			`INSERT INTO providers(name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds, enabled, updated_at)
+			 SELECT name, api_key, base_url, '', '', '', timeout_seconds, 1, updated_at FROM providers_old`,
 			stmts[2],
 		}
 	}
@@ -165,8 +196,8 @@ func (s *SQLiteStore) migrateProvidersTable(ctx context.Context) error {
 		stmts = []string{
 			stmts[0],
 			stmts[1],
-			`INSERT INTO providers(name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds, updated_at)
-			 SELECT name, '', base_url, '', '', api_key_ref, timeout_seconds, updated_at FROM providers_old`,
+			`INSERT INTO providers(name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds, enabled, updated_at)
+			 SELECT name, '', base_url, '', '', api_key_ref, timeout_seconds, 1, updated_at FROM providers_old`,
 			stmts[2],
 		}
 	}
@@ -223,8 +254,148 @@ func (s *SQLiteStore) migrateProvidersAnthropicColumns(ctx context.Context) erro
 	return nil
 }
 
-func (s *SQLiteStore) migrateAuthKeysTable(context.Context) error {
+func (s *SQLiteStore) migrateProvidersEnabledColumn(ctx context.Context) error {
+	hasEnabled, err := s.tableHasColumn(ctx, "providers", "enabled")
+	if err != nil {
+		return err
+	}
+	if hasEnabled {
+		return nil
+	}
+	_, err = s.db.ExecContext(ctx, `ALTER TABLE providers ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`)
+	return err
+}
+
+func (s *SQLiteStore) migrateModelsRoutesTable(ctx context.Context) error {
+	hasID, err := s.tableHasColumn(ctx, "models", "id")
+	if err != nil {
+		return err
+	}
+	hasEnabled, err := s.tableHasColumn(ctx, "models", "enabled")
+	if err != nil {
+		return err
+	}
+	if hasID && hasEnabled {
+		return nil
+	}
+
+	type legacyModel struct {
+		PublicName   string
+		Provider     string
+		UpstreamName string
+		UpdatedAt    string
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT public_name, provider, upstream_name, updated_at FROM models`)
+	if err != nil {
+		return err
+	}
+	var legacy []legacyModel
+	for rows.Next() {
+		var item legacyModel
+		if err := rows.Scan(&item.PublicName, &item.Provider, &item.UpstreamName, &item.UpdatedAt); err != nil {
+			rows.Close()
+			return err
+		}
+		legacy = append(legacy, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE models RENAME TO models_old`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE models (
+			id TEXT PRIMARY KEY,
+			public_name TEXT NOT NULL,
+			provider TEXT NOT NULL,
+			upstream_name TEXT NOT NULL,
+			priority INTEGER NOT NULL DEFAULT 0,
+			weight INTEGER NOT NULL DEFAULT 1,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			updated_at TEXT NOT NULL,
+			UNIQUE(public_name, provider, upstream_name)
+		)`); err != nil {
+		return err
+	}
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO models(id, public_name, provider, upstream_name, priority, weight, enabled, updated_at)
+		VALUES (?, ?, ?, ?, 0, 1, 1, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, item := range legacy {
+		updatedAt := item.UpdatedAt
+		if updatedAt == "" {
+			updatedAt = now
+		}
+		if _, err := stmt.ExecContext(ctx, newModelRouteID(), item.PublicName, item.Provider, item.UpstreamName, updatedAt); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DROP TABLE models_old`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *SQLiteStore) migrateAuthKeysTable(ctx context.Context) error {
+	hasModelAccess, err := s.tableHasColumn(ctx, "auth_keys", "model_access")
+	if err != nil {
+		return err
+	}
+	if !hasModelAccess {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE auth_keys ADD COLUMN model_access TEXT NOT NULL DEFAULT 'all'`); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (s *SQLiteStore) migrateRoutingSettings(ctx context.Context) error {
+	settings := config.RoutingConfig{Selection: "priority", FailoverEnabled: true, FailoverMaxAttempts: 2}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO routing_settings(id, selection, failover_enabled, failover_max_attempts, updated_at)
+		VALUES (1, ?, ?, ?, ?)
+		ON CONFLICT(id) DO NOTHING
+	`, settings.Selection, boolToInt(settings.FailoverEnabled), settings.FailoverMaxAttempts, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+func (s *SQLiteStore) tableHasColumn(ctx context.Context, table, column string) (bool, error) {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &pk); err != nil {
+			return false, err
+		}
+		if strings.EqualFold(name, column) {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func (s *SQLiteStore) migrateUsageRollupsTable(ctx context.Context) error {
@@ -395,6 +566,9 @@ func (s *SQLiteStore) SeedProvidersIfEmpty(ctx context.Context, providers []conf
 		return nil
 	}
 	for _, provider := range providers {
+		if !provider.Enabled {
+			provider.Enabled = true
+		}
 		if err := s.UpsertProvider(ctx, provider); err != nil {
 			return err
 		}
@@ -411,6 +585,12 @@ func (s *SQLiteStore) SeedModelsIfEmpty(ctx context.Context, models []config.Mod
 		return nil
 	}
 	for _, model := range models {
+		if !model.Enabled {
+			model.Enabled = true
+		}
+		if model.Weight <= 0 {
+			model.Weight = 1
+		}
 		if err := s.UpsertModel(ctx, model); err != nil {
 			return err
 		}
@@ -435,7 +615,7 @@ func (s *SQLiteStore) SeedAuthKeysIfEmpty(ctx context.Context, keys []config.Key
 }
 
 func (s *SQLiteStore) ListProviders(ctx context.Context) ([]config.ProviderConfig, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds FROM providers ORDER BY name`)
+	rows, err := s.db.QueryContext(ctx, `SELECT name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds, enabled FROM providers ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -444,9 +624,11 @@ func (s *SQLiteStore) ListProviders(ctx context.Context) ([]config.ProviderConfi
 	var out []config.ProviderConfig
 	for rows.Next() {
 		var provider config.ProviderConfig
-		if err := rows.Scan(&provider.Name, &provider.APIKey, &provider.BaseURL, &provider.AnthropicBaseURL, &provider.AnthropicVersion, &provider.APIKeyRef, &provider.TimeoutSeconds); err != nil {
+		var enabled int
+		if err := rows.Scan(&provider.Name, &provider.APIKey, &provider.BaseURL, &provider.AnthropicBaseURL, &provider.AnthropicVersion, &provider.APIKeyRef, &provider.TimeoutSeconds, &enabled); err != nil {
 			return nil, err
 		}
+		provider.Enabled = enabled != 0
 		out = append(out, provider)
 	}
 	return out, rows.Err()
@@ -454,19 +636,21 @@ func (s *SQLiteStore) ListProviders(ctx context.Context) ([]config.ProviderConfi
 
 func (s *SQLiteStore) GetProvider(ctx context.Context, name string) (config.ProviderConfig, error) {
 	var provider config.ProviderConfig
-	err := s.db.QueryRowContext(ctx, `SELECT name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds FROM providers WHERE name = ?`, name).
-		Scan(&provider.Name, &provider.APIKey, &provider.BaseURL, &provider.AnthropicBaseURL, &provider.AnthropicVersion, &provider.APIKeyRef, &provider.TimeoutSeconds)
+	var enabled int
+	err := s.db.QueryRowContext(ctx, `SELECT name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds, enabled FROM providers WHERE name = ?`, name).
+		Scan(&provider.Name, &provider.APIKey, &provider.BaseURL, &provider.AnthropicBaseURL, &provider.AnthropicVersion, &provider.APIKeyRef, &provider.TimeoutSeconds, &enabled)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return config.ProviderConfig{}, fmt.Errorf("provider %q not found", name)
 		}
 		return config.ProviderConfig{}, err
 	}
+	provider.Enabled = enabled != 0
 	return provider, nil
 }
 
 func (s *SQLiteStore) ListModels(ctx context.Context) ([]config.ModelConfig, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT public_name, provider, upstream_name FROM models ORDER BY public_name`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, public_name, provider, upstream_name, priority, weight, enabled FROM models ORDER BY public_name, priority, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -475,16 +659,18 @@ func (s *SQLiteStore) ListModels(ctx context.Context) ([]config.ModelConfig, err
 	var out []config.ModelConfig
 	for rows.Next() {
 		var model config.ModelConfig
-		if err := rows.Scan(&model.PublicName, &model.Provider, &model.UpstreamName); err != nil {
+		var enabled int
+		if err := rows.Scan(&model.ID, &model.PublicName, &model.Provider, &model.UpstreamName, &model.Priority, &model.Weight, &enabled); err != nil {
 			return nil, err
 		}
+		model.Enabled = enabled != 0
 		out = append(out, model)
 	}
 	return out, rows.Err()
 }
 
 func (s *SQLiteStore) ListAuthKeys(ctx context.Context) ([]config.KeyConfig, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT key, name, owner, purpose FROM auth_keys ORDER BY key`)
+	rows, err := s.db.QueryContext(ctx, `SELECT key, name, owner, purpose, model_access FROM auth_keys ORDER BY key`)
 	if err != nil {
 		return nil, err
 	}
@@ -493,16 +679,25 @@ func (s *SQLiteStore) ListAuthKeys(ctx context.Context) ([]config.KeyConfig, err
 	var out []config.KeyConfig
 	for rows.Next() {
 		var item config.KeyConfig
-		if err := rows.Scan(&item.Key, &item.Name, &item.Owner, &item.Purpose); err != nil {
+		if err := rows.Scan(&item.Key, &item.Name, &item.Owner, &item.Purpose, &item.ModelAccess); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		if err := s.populateKeyRoutes(ctx, &out[i]); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func (s *SQLiteStore) ListAuthKeysByOwner(ctx context.Context, owner string) ([]config.KeyConfig, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT key, name, owner, purpose FROM auth_keys WHERE owner = ? ORDER BY key`, owner)
+	rows, err := s.db.QueryContext(ctx, `SELECT key, name, owner, purpose, model_access FROM auth_keys WHERE owner = ? ORDER BY key`, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -511,22 +706,34 @@ func (s *SQLiteStore) ListAuthKeysByOwner(ctx context.Context, owner string) ([]
 	var out []config.KeyConfig
 	for rows.Next() {
 		var item config.KeyConfig
-		if err := rows.Scan(&item.Key, &item.Name, &item.Owner, &item.Purpose); err != nil {
+		if err := rows.Scan(&item.Key, &item.Name, &item.Owner, &item.Purpose, &item.ModelAccess); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		if err := s.populateKeyRoutes(ctx, &out[i]); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func (s *SQLiteStore) GetAuthKey(ctx context.Context, key string) (config.KeyConfig, error) {
 	var item config.KeyConfig
-	err := s.db.QueryRowContext(ctx, `SELECT key, name, owner, purpose FROM auth_keys WHERE key = ?`, key).
-		Scan(&item.Key, &item.Name, &item.Owner, &item.Purpose)
+	err := s.db.QueryRowContext(ctx, `SELECT key, name, owner, purpose, model_access FROM auth_keys WHERE key = ?`, key).
+		Scan(&item.Key, &item.Name, &item.Owner, &item.Purpose, &item.ModelAccess)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return config.KeyConfig{}, fmt.Errorf("auth key not found")
 		}
+		return config.KeyConfig{}, err
+	}
+	if err := s.populateKeyRoutes(ctx, &item); err != nil {
 		return config.KeyConfig{}, err
 	}
 	return item, nil
@@ -534,8 +741,8 @@ func (s *SQLiteStore) GetAuthKey(ctx context.Context, key string) (config.KeyCon
 
 func (s *SQLiteStore) UpsertProvider(ctx context.Context, provider config.ProviderConfig) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO providers(name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO providers(name, api_key, base_url, anthropic_base_url, anthropic_version, api_key_ref, timeout_seconds, enabled, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(name) DO UPDATE SET
 			api_key = excluded.api_key,
 			base_url = excluded.base_url,
@@ -543,20 +750,36 @@ func (s *SQLiteStore) UpsertProvider(ctx context.Context, provider config.Provid
 			anthropic_version = excluded.anthropic_version,
 			api_key_ref = excluded.api_key_ref,
 			timeout_seconds = excluded.timeout_seconds,
+			enabled = excluded.enabled,
 			updated_at = excluded.updated_at
-	`, provider.Name, provider.APIKey, provider.BaseURL, provider.AnthropicBaseURL, provider.AnthropicVersion, provider.APIKeyRef, provider.TimeoutSeconds, time.Now().UTC().Format(time.RFC3339))
+	`, provider.Name, provider.APIKey, provider.BaseURL, provider.AnthropicBaseURL, provider.AnthropicVersion, provider.APIKeyRef, provider.TimeoutSeconds, boolToInt(provider.Enabled), time.Now().UTC().Format(time.RFC3339))
 	return err
 }
 
 func (s *SQLiteStore) UpsertModel(ctx context.Context, model config.ModelConfig) error {
+	if strings.TrimSpace(model.ID) == "" {
+		model.ID = newModelRouteID()
+	}
+	model.SetDefaults()
+	if exists, err := s.modelRouteIDExists(ctx, model.ID); err != nil {
+		return err
+	} else if exists {
+		_, err := s.db.ExecContext(ctx, `
+			UPDATE models
+			SET public_name = ?, provider = ?, upstream_name = ?, priority = ?, weight = ?, enabled = ?, updated_at = ?
+			WHERE id = ?
+		`, model.PublicName, model.Provider, model.UpstreamName, model.Priority, model.Weight, boolToInt(model.Enabled), time.Now().UTC().Format(time.RFC3339), model.ID)
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO models(public_name, provider, upstream_name, updated_at)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(public_name) DO UPDATE SET
-			provider = excluded.provider,
-			upstream_name = excluded.upstream_name,
+		INSERT INTO models(id, public_name, provider, upstream_name, priority, weight, enabled, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(public_name, provider, upstream_name) DO UPDATE SET
+			priority = excluded.priority,
+			weight = excluded.weight,
+			enabled = excluded.enabled,
 			updated_at = excluded.updated_at
-	`, model.PublicName, model.Provider, model.UpstreamName, time.Now().UTC().Format(time.RFC3339))
+	`, model.ID, model.PublicName, model.Provider, model.UpstreamName, model.Priority, model.Weight, boolToInt(model.Enabled), time.Now().UTC().Format(time.RFC3339))
 	return err
 }
 
@@ -566,26 +789,160 @@ func (s *SQLiteStore) DeleteProvider(ctx context.Context, name string) error {
 }
 
 func (s *SQLiteStore) DeleteModel(ctx context.Context, publicName string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM models WHERE public_name = ?`, publicName)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM auth_key_model_routes WHERE model_route_id IN (SELECT id FROM models WHERE id = ? OR public_name = ?)`, publicName, publicName); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM models WHERE id = ? OR public_name = ?`, publicName, publicName); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *SQLiteStore) UpsertAuthKey(ctx context.Context, key config.KeyConfig) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO auth_keys(key, name, owner, purpose, updated_at)
-		VALUES (?, ?, ?, ?, ?)
+	key.SetDefaults()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO auth_keys(key, name, owner, purpose, model_access, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(key) DO UPDATE SET
 			name = excluded.name,
 			owner = excluded.owner,
 			purpose = excluded.purpose,
+			model_access = excluded.model_access,
 			updated_at = excluded.updated_at
-	`, key.Key, key.Name, key.Owner, key.Purpose, time.Now().UTC().Format(time.RFC3339))
-	return err
+	`, key.Key, key.Name, key.Owner, key.Purpose, key.ModelAccess, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM auth_key_model_routes WHERE key = ?`, key.Key); err != nil {
+		return err
+	}
+	if strings.EqualFold(key.ModelAccess, "selected") {
+		stmt, err := tx.PrepareContext(ctx, `
+			INSERT INTO auth_key_model_routes(key, model_route_id, updated_at)
+			VALUES (?, ?, ?)
+			ON CONFLICT(key, model_route_id) DO NOTHING
+		`)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+		now := time.Now().UTC().Format(time.RFC3339)
+		for _, routeID := range key.ModelRouteIDs {
+			routeID = strings.TrimSpace(routeID)
+			if routeID == "" {
+				continue
+			}
+			if _, err := stmt.ExecContext(ctx, key.Key, routeID, now); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *SQLiteStore) DeleteAuthKey(ctx context.Context, key string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_keys WHERE key = ?`, key)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM auth_key_model_routes WHERE key = ?`, key); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM auth_keys WHERE key = ?`, key); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *SQLiteStore) GetRoutingSettings(ctx context.Context) (config.RoutingConfig, error) {
+	settings := config.RoutingConfig{Selection: "priority", FailoverEnabled: true, FailoverMaxAttempts: 2}
+	var failoverEnabled int
+	err := s.db.QueryRowContext(ctx, `SELECT selection, failover_enabled, failover_max_attempts FROM routing_settings WHERE id = 1`).
+		Scan(&settings.Selection, &failoverEnabled, &settings.FailoverMaxAttempts)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return settings, nil
+		}
+		return config.RoutingConfig{}, err
+	}
+	settings.FailoverEnabled = failoverEnabled != 0
+	if settings.FailoverMaxAttempts <= 0 {
+		settings.FailoverMaxAttempts = 2
+	}
+	if settings.Selection != "priority" && settings.Selection != "weight" && settings.Selection != "random" {
+		settings.Selection = "priority"
+	}
+	return settings, nil
+}
+
+func (s *SQLiteStore) UpsertRoutingSettings(ctx context.Context, settings config.RoutingConfig) error {
+	if settings.Selection != "priority" && settings.Selection != "weight" && settings.Selection != "random" {
+		settings.Selection = "priority"
+	}
+	if settings.FailoverMaxAttempts <= 0 {
+		settings.FailoverMaxAttempts = 2
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO routing_settings(id, selection, failover_enabled, failover_max_attempts, updated_at)
+		VALUES (1, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			selection = excluded.selection,
+			failover_enabled = excluded.failover_enabled,
+			failover_max_attempts = excluded.failover_max_attempts,
+			updated_at = excluded.updated_at
+	`, settings.Selection, boolToInt(settings.FailoverEnabled), settings.FailoverMaxAttempts, time.Now().UTC().Format(time.RFC3339))
 	return err
+}
+
+func (s *SQLiteStore) populateKeyRoutes(ctx context.Context, key *config.KeyConfig) error {
+	if key == nil {
+		return nil
+	}
+	key.SetDefaults()
+	rows, err := s.db.QueryContext(ctx, `SELECT model_route_id FROM auth_key_model_routes WHERE key = ? ORDER BY model_route_id`, key.Key)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	key.ModelRouteIDs = nil
+	for rows.Next() {
+		var routeID string
+		if err := rows.Scan(&routeID); err != nil {
+			return err
+		}
+		key.ModelRouteIDs = append(key.ModelRouteIDs, routeID)
+	}
+	return rows.Err()
+}
+
+func (s *SQLiteStore) modelRouteIDExists(ctx context.Context, id string) (bool, error) {
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM models WHERE id = ?`, id).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func newModelRouteID() string {
+	return "mrt_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func (s *SQLiteStore) UpsertUsageRollups(ctx context.Context, rollups []usage.Rollup) error {
@@ -707,26 +1064,7 @@ func (s *SQLiteStore) QueryUsageRollups(ctx context.Context, filter UsageFilter)
 		FROM usage_rollups
 		WHERE 1=1`
 	args := []any{}
-	if filter.KeyID != "" {
-		query += " AND key_id = ?"
-		args = append(args, filter.KeyID)
-	}
-	if !filter.StartTime.IsZero() {
-		query += " AND bucket_start >= ?"
-		args = append(args, filter.StartTime.UTC().Format(time.RFC3339))
-	}
-	if !filter.EndTime.IsZero() {
-		query += " AND bucket_start < ?"
-		args = append(args, filter.EndTime.UTC().Add(24*time.Hour).Format(time.RFC3339))
-	}
-	if filter.Model != "" {
-		query += " AND public_model = ?"
-		args = append(args, filter.Model)
-	}
-	if filter.Owner != "" {
-		query += " AND owner = ?"
-		args = append(args, filter.Owner)
-	}
+	query, args = appendUsageFilter(query, args, filter)
 	query += " ORDER BY bucket_start, key_id, endpoint, provider, public_model, upstream_model"
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -792,26 +1130,7 @@ func (s *SQLiteStore) QueryUsageTrend(ctx context.Context, filter UsageFilter, g
 		FROM usage_rollups
 		WHERE 1=1`
 	args := []any{}
-	if filter.KeyID != "" {
-		query += " AND key_id = ?"
-		args = append(args, filter.KeyID)
-	}
-	if !filter.StartTime.IsZero() {
-		query += " AND bucket_start >= ?"
-		args = append(args, filter.StartTime.UTC().Format(time.RFC3339))
-	}
-	if !filter.EndTime.IsZero() {
-		query += " AND bucket_start < ?"
-		args = append(args, filter.EndTime.UTC().Add(24*time.Hour).Format(time.RFC3339))
-	}
-	if filter.Model != "" {
-		query += " AND public_model = ?"
-		args = append(args, filter.Model)
-	}
-	if filter.Owner != "" {
-		query += " AND owner = ?"
-		args = append(args, filter.Owner)
-	}
+	query, args = appendUsageFilter(query, args, filter)
 	query += " GROUP BY bucket_start ORDER BY 1"
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -898,6 +1217,7 @@ type UsageFilter struct {
 	EndTime   time.Time
 	KeyID     string
 	Model     string
+	Provider  string
 	Owner     string
 }
 
@@ -917,26 +1237,7 @@ func (s *SQLiteStore) QueryUsage(ctx context.Context, filter UsageFilter) ([]usa
 		FROM usage_rollups
 		WHERE 1=1`
 	args := []any{}
-	if filter.KeyID != "" {
-		query += " AND key_id = ?"
-		args = append(args, filter.KeyID)
-	}
-	if !filter.StartTime.IsZero() {
-		query += " AND bucket_start >= ?"
-		args = append(args, filter.StartTime.UTC().Format(time.RFC3339))
-	}
-	if !filter.EndTime.IsZero() {
-		query += " AND bucket_start < ?"
-		args = append(args, filter.EndTime.UTC().Add(24*time.Hour).Format(time.RFC3339))
-	}
-	if filter.Model != "" {
-		query += " AND public_model = ?"
-		args = append(args, filter.Model)
-	}
-	if filter.Owner != "" {
-		query += " AND owner = ?"
-		args = append(args, filter.Owner)
-	}
+	query, args = appendUsageFilter(query, args, filter)
 	query += " GROUP BY key_id ORDER BY key_id"
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -985,6 +1286,24 @@ func (s *SQLiteStore) ListUsageModels(ctx context.Context) ([]string, error) {
 	return models, rows.Err()
 }
 
+func (s *SQLiteStore) ListUsageProviders(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT provider FROM usage_rollups WHERE provider != '' ORDER BY provider`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var providers []string
+	for rows.Next() {
+		var provider string
+		if err := rows.Scan(&provider); err != nil {
+			return nil, err
+		}
+		providers = append(providers, provider)
+	}
+	return providers, rows.Err()
+}
+
 func (s *SQLiteStore) QueryUsageByModel(ctx context.Context, filter UsageFilter) ([]usage.ModelSummary, error) {
 	query := `
 		SELECT
@@ -999,26 +1318,7 @@ func (s *SQLiteStore) QueryUsageByModel(ctx context.Context, filter UsageFilter)
 		FROM usage_rollups
 		WHERE public_model != ''`
 	args := []any{}
-	if filter.KeyID != "" {
-		query += " AND key_id = ?"
-		args = append(args, filter.KeyID)
-	}
-	if !filter.StartTime.IsZero() {
-		query += " AND bucket_start >= ?"
-		args = append(args, filter.StartTime.UTC().Format(time.RFC3339))
-	}
-	if !filter.EndTime.IsZero() {
-		query += " AND bucket_start < ?"
-		args = append(args, filter.EndTime.UTC().Add(24*time.Hour).Format(time.RFC3339))
-	}
-	if filter.Model != "" {
-		query += " AND public_model = ?"
-		args = append(args, filter.Model)
-	}
-	if filter.Owner != "" {
-		query += " AND owner = ?"
-		args = append(args, filter.Owner)
-	}
+	query, args = appendUsageFilter(query, args, filter)
 	query += " GROUP BY public_model ORDER BY request_count DESC"
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -1045,6 +1345,34 @@ func (s *SQLiteStore) QueryUsageByModel(ctx context.Context, filter UsageFilter)
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+func appendUsageFilter(query string, args []any, filter UsageFilter) (string, []any) {
+	if filter.KeyID != "" {
+		query += " AND key_id = ?"
+		args = append(args, filter.KeyID)
+	}
+	if !filter.StartTime.IsZero() {
+		query += " AND bucket_start >= ?"
+		args = append(args, filter.StartTime.UTC().Format(time.RFC3339))
+	}
+	if !filter.EndTime.IsZero() {
+		query += " AND bucket_start < ?"
+		args = append(args, filter.EndTime.UTC().Add(24*time.Hour).Format(time.RFC3339))
+	}
+	if filter.Model != "" {
+		query += " AND public_model = ?"
+		args = append(args, filter.Model)
+	}
+	if filter.Provider != "" {
+		query += " AND provider = ?"
+		args = append(args, filter.Provider)
+	}
+	if filter.Owner != "" {
+		query += " AND owner = ?"
+		args = append(args, filter.Owner)
+	}
+	return query, args
 }
 
 func (s *SQLiteStore) Ping(ctx context.Context) error {

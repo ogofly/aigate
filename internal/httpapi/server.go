@@ -96,8 +96,6 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /admin/models", h.handleAdminModelsSave)
 	h.mux.HandleFunc("POST /admin/models/delete", h.handleAdminModelsDelete)
 	h.mux.HandleFunc("GET /admin/playground", h.handleAdminPlaygroundPage)
-	h.mux.HandleFunc("POST /admin/playground/chat", h.handleAdminPlaygroundChat)
-	h.mux.HandleFunc("POST /admin/playground/chat/ajax", h.handleAdminPlaygroundChatAJAX)
 	h.mux.HandleFunc("GET /admin/usage/view", h.handleAdminUsagePage)
 	h.mux.HandleFunc("GET /admin/usage/trend", h.handleAdminUsageTrend)
 
@@ -115,6 +113,8 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /api/admin/keys", h.handleApiKeysCreate)
 	h.mux.HandleFunc("PUT /api/admin/keys/{key}", h.handleApiKeyUpdate)
 	h.mux.HandleFunc("DELETE /api/admin/keys/{key}", h.handleApiKeysDelete)
+	h.mux.HandleFunc("GET /api/admin/routing", h.handleApiRoutingSettingsGet)
+	h.mux.HandleFunc("PUT /api/admin/routing", h.handleApiRoutingSettingsUpdate)
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
