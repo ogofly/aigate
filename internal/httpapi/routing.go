@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -26,28 +25,11 @@ func routeAccess(principal auth.Principal) router.Access {
 	}
 }
 
-func (h *Handler) resolveRoutePlan(r *http.Request, principal auth.Principal, model string, raw map[string]any) ([]router.RouteTarget, error) {
-	access := routeAccess(principal)
-	access.Provider = routeProviderOverride(r)
-	return h.router.ResolvePlan(model, access, routeSessionSeed(r, raw))
-}
-
 func routeProviderOverride(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
 	return strings.TrimSpace(r.Header.Get("X-Provider"))
-}
-
-func (h *Handler) routeAttempts(ctx context.Context) int {
-	settings, err := h.store.GetRoutingSettings(ctx)
-	if err != nil || !settings.FailoverEnabled {
-		return 1
-	}
-	if settings.FailoverMaxAttempts <= 0 {
-		return 2
-	}
-	return settings.FailoverMaxAttempts
 }
 
 func routeSessionSeed(r *http.Request, raw map[string]any) string {

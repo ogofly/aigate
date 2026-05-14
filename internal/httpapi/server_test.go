@@ -230,6 +230,35 @@ func TestChatCompletionsRoutesToExpectedProviderModel(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsRejectsOversizedBody(t *testing.T) {
+	resp := provider.OpenAIResponse{"id": "chatcmpl-test"}
+	p := &stubProvider{response: &resp}
+	rt, err := router.New([]config.ModelConfig{{
+		PublicName:   "gpt-4o-mini",
+		Provider:     "openai",
+		UpstreamName: "gpt-4o-mini-upstream",
+	}})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), p)
+	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"` + strings.Repeat("a", 33<<20) + `"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer sk-app-001")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d; body=%s", rr.Code, http.StatusRequestEntityTooLarge, rr.Body.String())
+	}
+	if p.lastChat != nil {
+		t.Fatal("provider was called for oversized request")
+	}
+}
+
 func TestChatCompletionsFailoverUsesSecondRouteWithinMaxAttempts(t *testing.T) {
 	resp := provider.OpenAIResponse{"id": "chatcmpl-test"}
 	p := &stubProvider{
@@ -2716,7 +2745,7 @@ func TestAdminPlaygroundUsesPublicAPIsDirectly(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"/v1/chat/completions", "/v1/responses", "/anthropic/v1/messages", "Authorization", "X-Provider", "providerOptions", "Default route", "openai-a", "openai-b", "Request Preview", "Adds X-Provider; failover stays within provider."} {
+	for _, want := range []string{"/v1/chat/completions", "/v1/responses", "/anthropic/v1/messages", "Authorization", "X-Provider", "providerOptions", "Default route", "openai-a", "openai-b", "Request Preview", "Copy curl", "curl -X POST", "curlCommand(false)", "Adds X-Provider; failover stays within provider."} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("playground body missing %q: %q", want, body)
 		}

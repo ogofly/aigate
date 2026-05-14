@@ -189,7 +189,7 @@
           <input id="provider-api-key-ref-{{$i}}" name="api_key_ref" value="{{$provider.APIKeyRef}}" placeholder="Environment variable name (optional)">
         </div>
       </div>
-      <p class="form-hint">Inline key takes precedence. Use env ref when you do not want to store the key here.</p>
+      <p class="form-hint">Leave API Key blank to keep the current inline key. Inline key takes precedence over env ref.</p>
       <div class="modal-actions">
         <button type="button" class="ghost" onclick="closeDialog('providerEditDialog{{$i}}')">Cancel</button>
         <button type="submit">Save</button>

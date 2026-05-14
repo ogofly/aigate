@@ -3,6 +3,8 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"sort"
 	"sync"
@@ -15,10 +17,13 @@ import (
 	"aigate/internal/usage"
 )
 
+const maxRequestBodyBytes int64 = 32 << 20
+
 type Handler struct {
 	auth          *auth.Auth
 	admin         config.AdminConfig
-	client        provider.Client
+	client        gatewayProviderClient
+	executor      *GatewayExecutor
 	router        *router.Router
 	usage         *usage.Recorder
 	store         *store.SQLiteStore
@@ -45,6 +50,7 @@ func NewWithClient(authenticator *auth.Auth, admin config.AdminConfig, client pr
 		sessions:      newAdminSessionStore(),
 		mux:           http.NewServeMux(),
 	}
+	h.executor = NewGatewayExecutor(rt, sqliteStore, client, recorder)
 
 	h.routes()
 	return h
@@ -151,6 +157,25 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any, invalidMessage string) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(dst); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body too large")
+			return false
+		}
+		writeError(w, http.StatusBadRequest, "invalid_request", invalidMessage)
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid_request", invalidMessage)
+		return false
+	}
+	return true
 }
 
 func clientIP(r *http.Request) string {

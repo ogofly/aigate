@@ -28,7 +28,25 @@ const (
 	testSessionCookie = "aigate_admin_session"
 )
 
+type providerAPIResponse struct {
+	Name             string `json:"name"`
+	BaseURL          string `json:"base_url"`
+	AnthropicBaseURL string `json:"anthropic_base_url"`
+	AnthropicVersion string `json:"anthropic_version"`
+	APIKey           string `json:"api_key"`
+	APIKeyConfigured bool   `json:"api_key_configured"`
+	APIKeyRef        string `json:"api_key_ref"`
+	TimeoutSeconds   int    `json:"timeout"`
+	Enabled          bool   `json:"enabled"`
+}
+
 func newTestAPIHandler(t *testing.T, keys []config.KeyConfig) http.Handler {
+	t.Helper()
+	handler, _ := newTestAPIHandlerWithStore(t, keys)
+	return handler
+}
+
+func newTestAPIHandlerWithStore(t *testing.T, keys []config.KeyConfig) (http.Handler, *store.SQLiteStore) {
 	t.Helper()
 	os.Setenv("OPENAI_API_KEY", "test-secret")
 	t.Cleanup(func() { os.Unsetenv("OPENAI_API_KEY") })
@@ -63,7 +81,7 @@ func newTestAPIHandler(t *testing.T, keys []config.KeyConfig) http.Handler {
 	}
 	t.Cleanup(func() { _ = sqliteStore.Close() })
 
-	return newHandlerWithStore(keys, rt, usage.New(100), &stubProvider{}, sqliteStore)
+	return newHandlerWithStore(keys, rt, usage.New(100), &stubProvider{}, sqliteStore), sqliteStore
 }
 
 // loginAndCookie performs admin login and returns a reusable cookie string.
@@ -133,6 +151,18 @@ func apiPost(t *testing.T, handler http.Handler, url string, cookie string, payl
 		body = bytes.NewReader([]byte{})
 	}
 	req := httptest.NewRequest(http.MethodPost, url, body)
+	req.Header.Set("Content-Type", "application/json")
+	if cookie != "" {
+		req.Header.Set("Cookie", cookie)
+	}
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	return rr
+}
+
+func apiPostRaw(t *testing.T, handler http.Handler, url string, cookie string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, url, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	if cookie != "" {
 		req.Header.Set("Cookie", cookie)
@@ -280,7 +310,7 @@ func TestAPIProvidersCreateAndList(t *testing.T) {
 	rr = apiGet(t, handler, "/api/admin/providers", cookie)
 	assertStatus(t, rr, http.StatusOK)
 
-	var providers []config.ProviderConfig
+	var providers []providerAPIResponse
 	parseJSON(t, rr, &providers)
 	if len(providers) != 2 {
 		t.Fatalf("len(providers) = %d, want 2", len(providers))
@@ -295,8 +325,11 @@ func TestAPIProvidersCreateAndList(t *testing.T) {
 			if p.TimeoutSeconds != 30 {
 				t.Fatalf("timeout = %d, want 30", p.TimeoutSeconds)
 			}
-			if p.APIKey != "test-key-123" {
-				t.Fatalf("api_key = %q, want test-key-123", p.APIKey)
+			if p.APIKey != "" {
+				t.Fatalf("api_key = %q, want hidden", p.APIKey)
+			}
+			if !p.APIKeyConfigured {
+				t.Fatal("api_key_configured = false, want true")
 			}
 			return
 		}
@@ -312,10 +345,13 @@ func TestAPIProviderGet(t *testing.T) {
 	rr := apiGet(t, handler, "/api/admin/providers/openai", cookie)
 	assertStatus(t, rr, http.StatusOK)
 
-	var provider config.ProviderConfig
+	var provider providerAPIResponse
 	parseJSON(t, rr, &provider)
 	if provider.Name != "openai" {
 		t.Fatalf("name = %q, want openai", provider.Name)
+	}
+	if provider.APIKey != "" {
+		t.Fatalf("api_key = %q, want hidden", provider.APIKey)
 	}
 }
 
@@ -370,8 +406,21 @@ func TestAPIProviderCreateValidation(t *testing.T) {
 	}
 }
 
-func TestAPIProviderUpdate(t *testing.T) {
+func TestAPIProviderCreateRejectsTrailingJSON(t *testing.T) {
 	handler := newTestAPIHandler(t, []config.KeyConfig{{Key: "sk-1"}})
+	cookie := loginAndCookie(t, handler)
+
+	rr := apiPostRaw(t, handler, "/api/admin/providers", cookie, `{"name":"test","base_url":"https://api.test.com/v1","api_key":"k"}{"name":"extra"}`)
+	assertStatus(t, rr, http.StatusBadRequest)
+
+	code := parseErrorResponse(t, rr)
+	if code != "invalid_request" {
+		t.Fatalf("error code = %q, want invalid_request", code)
+	}
+}
+
+func TestAPIProviderUpdate(t *testing.T) {
+	handler, sqliteStore := newTestAPIHandlerWithStore(t, []config.KeyConfig{{Key: "sk-1"}})
 	cookie := loginAndCookie(t, handler)
 
 	// First create a provider
@@ -404,7 +453,7 @@ func TestAPIProviderUpdate(t *testing.T) {
 	rr = apiGet(t, handler, "/api/admin/providers/updatable", cookie)
 	assertStatus(t, rr, http.StatusOK)
 
-	var provider config.ProviderConfig
+	var provider providerAPIResponse
 	parseJSON(t, rr, &provider)
 	if provider.BaseURL != "https://api.new.com/v2" {
 		t.Fatalf("base_url = %q, want https://api.new.com/v2", provider.BaseURL)
@@ -412,9 +461,15 @@ func TestAPIProviderUpdate(t *testing.T) {
 	if provider.TimeoutSeconds != 120 {
 		t.Fatalf("timeout = %d, want 120", provider.TimeoutSeconds)
 	}
-	// API key should be preserved
-	if provider.APIKey != "old-key" {
-		t.Fatalf("api_key = %q, want old-key (preserved)", provider.APIKey)
+	if provider.APIKey != "" {
+		t.Fatalf("api_key = %q, want hidden", provider.APIKey)
+	}
+	stored, err := sqliteStore.GetProvider(context.Background(), "updatable")
+	if err != nil {
+		t.Fatalf("GetProvider() error = %v", err)
+	}
+	if stored.APIKey != "old-key" {
+		t.Fatalf("stored api_key = %q, want old-key (preserved)", stored.APIKey)
 	}
 }
 
@@ -569,6 +624,78 @@ func TestAPIModelCreateAndDelete(t *testing.T) {
 	}
 }
 
+func TestAPIModelDeleteAmbiguousPublicNameRequiresRouteID(t *testing.T) {
+	handler := newTestAPIHandler(t, []config.KeyConfig{{Key: "sk-1"}})
+	cookie := loginAndCookie(t, handler)
+
+	for _, upstream := range []string{"gpt-4-a", "gpt-4-b"} {
+		rr := apiPost(t, handler, "/api/admin/models", cookie, map[string]any{
+			"public_name":   "shared-model",
+			"provider":      "openai",
+			"upstream_name": upstream,
+		})
+		assertStatus(t, rr, http.StatusOK)
+	}
+
+	rr := apiDelete(t, handler, "/api/admin/models/shared-model", cookie)
+	assertStatus(t, rr, http.StatusBadRequest)
+
+	code := parseErrorResponse(t, rr)
+	if code != "api_model_delete_error" {
+		t.Fatalf("error code = %q, want api_model_delete_error", code)
+	}
+}
+
+func TestAPIModelDeleteByRouteIDOnlyDeletesOneRoute(t *testing.T) {
+	handler := newTestAPIHandler(t, []config.KeyConfig{{Key: "sk-1"}})
+	cookie := loginAndCookie(t, handler)
+
+	for _, upstream := range []string{"gpt-4-a", "gpt-4-b"} {
+		rr := apiPost(t, handler, "/api/admin/models", cookie, map[string]any{
+			"public_name":   "shared-model",
+			"provider":      "openai",
+			"upstream_name": upstream,
+		})
+		assertStatus(t, rr, http.StatusOK)
+	}
+
+	rr := apiGet(t, handler, "/api/admin/models", cookie)
+	assertStatus(t, rr, http.StatusOK)
+	var models []config.ModelConfig
+	parseJSON(t, rr, &models)
+
+	routeID := ""
+	for _, model := range models {
+		if model.PublicName == "shared-model" && model.UpstreamName == "gpt-4-a" {
+			routeID = model.ID
+			break
+		}
+	}
+	if routeID == "" {
+		t.Fatal("route id for shared-model/gpt-4-a not found")
+	}
+
+	rr = apiDelete(t, handler, "/api/admin/models/"+routeID, cookie)
+	assertStatus(t, rr, http.StatusOK)
+
+	rr = apiGet(t, handler, "/api/admin/models", cookie)
+	assertStatus(t, rr, http.StatusOK)
+	models = nil
+	parseJSON(t, rr, &models)
+	remainingSharedRoutes := 0
+	for _, model := range models {
+		if model.PublicName == "shared-model" {
+			remainingSharedRoutes++
+			if model.UpstreamName != "gpt-4-b" {
+				t.Fatalf("remaining shared upstream = %q, want gpt-4-b", model.UpstreamName)
+			}
+		}
+	}
+	if remainingSharedRoutes != 1 {
+		t.Fatalf("remaining shared routes = %d, want 1", remainingSharedRoutes)
+	}
+}
+
 func TestAPIModelCreateValidation(t *testing.T) {
 	handler := newTestAPIHandler(t, []config.KeyConfig{{Key: "sk-1"}})
 	cookie := loginAndCookie(t, handler)
@@ -677,6 +804,30 @@ func TestAPIModelUpdateAllowsDuplicatePublicNameForDistinctRoute(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("duplicate public model route count = %d, want 2", count)
+	}
+}
+
+func TestAPIModelUpdateAmbiguousPublicNameRequiresRouteID(t *testing.T) {
+	handler := newTestAPIHandler(t, []config.KeyConfig{{Key: "sk-1"}})
+	cookie := loginAndCookie(t, handler)
+
+	for _, upstream := range []string{"gpt-4-a", "gpt-4-b"} {
+		rr := apiPost(t, handler, "/api/admin/models", cookie, map[string]any{
+			"public_name":   "shared-model",
+			"provider":      "openai",
+			"upstream_name": upstream,
+		})
+		assertStatus(t, rr, http.StatusOK)
+	}
+
+	rr := apiPut(t, handler, "/api/admin/models/shared-model", cookie, map[string]any{
+		"priority": 10,
+	})
+	assertStatus(t, rr, http.StatusBadRequest)
+
+	code := parseErrorResponse(t, rr)
+	if code != "ambiguous_model_route" {
+		t.Fatalf("error code = %q, want ambiguous_model_route", code)
 	}
 }
 
@@ -1072,7 +1223,7 @@ func TestAPIFullWorkflow(t *testing.T) {
 	rr = apiGet(t, handler, "/api/admin/providers", cookie)
 	assertStatus(t, rr, http.StatusOK)
 
-	var providers []config.ProviderConfig
+	var providers []providerAPIResponse
 	parseJSON(t, rr, &providers)
 	hasProvider := false
 	for _, p := range providers {

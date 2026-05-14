@@ -48,6 +48,8 @@ textarea{min-height:64px;resize:vertical}
 .metric-label{font-size:12px;color:var(--muted);letter-spacing:0;text-transform:uppercase}
 .metric-value{margin-top:6px;font-size:13px;overflow-wrap:anywhere}
 aside .hint{margin-top:12px;display:block}
+.request-preview-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.request-preview-head button{padding:5px 10px;font-size:12px}
 @media (max-width:900px){.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}}
 @media (max-width:640px){
 .card{padding:14px}
@@ -131,8 +133,8 @@ textarea{min-height:64px}
 <div class="metric-value">Requests from this page use the same auth, routing, and upstream path as the public API.</div>
 </div>
 <div class="metric request-preview">
-<div class="metric-label">Request Preview</div>
-<pre class="metric-value mono" id="requestPreview"></pre>
+<div class="request-preview-head"><div class="metric-label">Request Preview</div><button type="button" class="ghost" onclick="copyCurl(this)">Copy curl</button></div>
+<pre class="metric-value mono" id="requestPreview" data-copy=""></pre>
 </div>
 </div>
 <div class="hint" id="endpointHint">Endpoint: <span class="mono">/chat/completions</span></div>
@@ -280,23 +282,43 @@ function requestHeaders(){
 	return headers;
 }
 
-function requestPreviewPayload(){
+function shellQuote(value){
+	return "'" + String(value).replace(/'/g, "'\"'\"'") + "'";
+}
+
+function curlCommand(maskSecret){
 	const headers = requestHeaders();
-	return {
-		method:'POST',
-		path:apiPath(),
-		headers:{
-			Authorization:'Bearer ' + (apiKeySelect.options[apiKeySelect.selectedIndex]?.dataset.mask || ''),
-			'Content-Type':headers['Content-Type'],
-			...(headers['X-Provider'] ? {'X-Provider':headers['X-Provider']} : {})
-		},
-		body:requestBody(document.getElementById('stream').checked),
-	};
+	const selectedKey = apiKeySelect.options[apiKeySelect.selectedIndex];
+	const authValue = maskSecret ? (selectedKey?.dataset.mask || '') : apiKeySelect.value;
+	const lines = [
+		'curl -X POST ' + shellQuote(apiBase + apiPath()),
+		'  -H ' + shellQuote('Authorization: Bearer ' + authValue),
+		'  -H ' + shellQuote('Content-Type: application/json'),
+	];
+	if (headers['X-Provider']) {
+		lines.push('  -H ' + shellQuote('X-Provider: ' + headers['X-Provider']));
+	}
+	lines.push('  -d ' + shellQuote(JSON.stringify(requestBody(document.getElementById('stream').checked), null, 2)));
+	return lines.join(' \\\n');
 }
 
 function updateRequestPreview(){
 	if(!requestPreview){return;}
-	requestPreview.textContent = JSON.stringify(requestPreviewPayload(), null, 2);
+	requestPreview.textContent = curlCommand(true);
+	requestPreview.dataset.copy = curlCommand(false);
+}
+
+async function copyCurl(button){
+	if(!requestPreview){return;}
+	try{
+		await copyWithFallback(requestPreview.dataset.copy || requestPreview.textContent || "");
+		const origin = button.textContent;
+		button.textContent = "Copied";
+		setTimeout(()=>{button.textContent = origin;}, 1000);
+	}catch(_e){
+		button.textContent = "Failed";
+		setTimeout(()=>{button.textContent = "Copy curl";}, 1000);
+	}
 }
 
 function updateModeUI(){

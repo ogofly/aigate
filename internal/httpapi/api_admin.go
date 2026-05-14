@@ -1,13 +1,24 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"aigate/internal/config"
 )
+
+type apiProviderResponse struct {
+	Name             string `json:"name"`
+	BaseURL          string `json:"base_url"`
+	AnthropicBaseURL string `json:"anthropic_base_url"`
+	AnthropicVersion string `json:"anthropic_version"`
+	APIKey           string `json:"api_key,omitempty"`
+	APIKeyConfigured bool   `json:"api_key_configured"`
+	APIKeyRef        string `json:"api_key_ref"`
+	TimeoutSeconds   int    `json:"timeout"`
+	Enabled          bool   `json:"enabled"`
+}
 
 func writeSuccess(w http.ResponseWriter, message string) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": message})
@@ -31,7 +42,7 @@ func (h *Handler) handleApiProvidersList(w http.ResponseWriter, r *http.Request)
 	if providers == nil {
 		providers = []config.ProviderConfig{}
 	}
-	writeJSON(w, http.StatusOK, providers)
+	writeJSON(w, http.StatusOK, apiProviderResponses(providers))
 }
 
 // handleApiProviderGet returns a single provider by name.
@@ -50,7 +61,7 @@ func (h *Handler) handleApiProviderGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "provider_not_found", fmt.Sprintf("provider %q not found", name))
 		return
 	}
-	writeJSON(w, http.StatusOK, provider)
+	writeJSON(w, http.StatusOK, apiProviderFromConfig(provider))
 }
 
 // handleApiProvidersCreate creates a new provider.
@@ -69,8 +80,7 @@ func (h *Handler) handleApiProvidersCreate(w http.ResponseWriter, r *http.Reques
 		TimeoutSeconds   int    `json:"timeout"`
 		Enabled          *bool  `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+	if !decodeJSONBody(w, r, &body, "invalid JSON body") {
 		return
 	}
 
@@ -131,8 +141,7 @@ func (h *Handler) handleApiProviderUpdate(w http.ResponseWriter, r *http.Request
 		TimeoutSeconds   *int   `json:"timeout"`
 		Enabled          *bool  `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+	if !decodeJSONBody(w, r, &body, "invalid JSON body") {
 		return
 	}
 
@@ -255,8 +264,7 @@ func (h *Handler) handleApiModelsCreate(w http.ResponseWriter, r *http.Request) 
 		Weight       int    `json:"weight"`
 		Enabled      *bool  `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+	if !decodeJSONBody(w, r, &body, "invalid JSON body") {
 		return
 	}
 
@@ -317,12 +325,22 @@ func (h *Handler) handleApiModelUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	var existing config.ModelConfig
 	foundExisting := false
+	publicNameMatches := 0
 	for _, model := range models {
-		if model.ID == identifier || model.PublicName == identifier {
+		if model.ID == identifier {
 			existing = model
 			foundExisting = true
 			break
 		}
+		if model.PublicName == identifier {
+			publicNameMatches++
+			existing = model
+			foundExisting = true
+		}
+	}
+	if publicNameMatches > 1 {
+		writeError(w, http.StatusBadRequest, "ambiguous_model_route", "model has multiple routes; use model route id")
+		return
 	}
 	if !foundExisting {
 		writeError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("model %q not found", identifier))
@@ -337,8 +355,7 @@ func (h *Handler) handleApiModelUpdate(w http.ResponseWriter, r *http.Request) {
 		Weight       *int   `json:"weight"`
 		Enabled      *bool  `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+	if !decodeJSONBody(w, r, &body, "invalid JSON body") {
 		return
 	}
 
@@ -409,7 +426,7 @@ func (h *Handler) handleApiModelsDelete(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.store.DeleteModel(r.Context(), publicName); err != nil {
-		writeError(w, http.StatusInternalServerError, "api_model_delete_error", err.Error())
+		writeError(w, http.StatusBadRequest, "api_model_delete_error", err.Error())
 		return
 	}
 	if err := h.reloadModels(r.Context()); err != nil {
@@ -456,8 +473,7 @@ func (h *Handler) handleApiKeysCreate(w http.ResponseWriter, r *http.Request) {
 		ModelAccess   string   `json:"model_access"`
 		ModelRouteIDs []string `json:"model_route_ids"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+	if !decodeJSONBody(w, r, &body, "invalid JSON body") {
 		return
 	}
 
@@ -532,8 +548,7 @@ func (h *Handler) handleApiKeyUpdate(w http.ResponseWriter, r *http.Request) {
 		ModelAccess   string   `json:"model_access"`
 		ModelRouteIDs []string `json:"model_route_ids"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+	if !decodeJSONBody(w, r, &body, "invalid JSON body") {
 		return
 	}
 
@@ -637,8 +652,7 @@ func (h *Handler) handleApiRoutingSettingsUpdate(w http.ResponseWriter, r *http.
 		FailoverEnabled     *bool  `json:"failover_enabled"`
 		FailoverMaxAttempts *int   `json:"failover_max_attempts"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+	if !decodeJSONBody(w, r, &body, "invalid JSON body") {
 		return
 	}
 	settings := existing
@@ -668,6 +682,27 @@ func (h *Handler) handleApiRoutingSettingsUpdate(w http.ResponseWriter, r *http.
 		return
 	}
 	writeSuccess(w, "routing settings updated")
+}
+
+func apiProviderResponses(providers []config.ProviderConfig) []apiProviderResponse {
+	out := make([]apiProviderResponse, 0, len(providers))
+	for _, provider := range providers {
+		out = append(out, apiProviderFromConfig(provider))
+	}
+	return out
+}
+
+func apiProviderFromConfig(provider config.ProviderConfig) apiProviderResponse {
+	return apiProviderResponse{
+		Name:             provider.Name,
+		BaseURL:          provider.BaseURL,
+		AnthropicBaseURL: provider.AnthropicBaseURL,
+		AnthropicVersion: provider.AnthropicVersion,
+		APIKeyConfigured: strings.TrimSpace(provider.APIKey) != "",
+		APIKeyRef:        provider.APIKeyRef,
+		TimeoutSeconds:   provider.TimeoutSeconds,
+		Enabled:          provider.Enabled,
+	}
 }
 
 func cleanRouteIDs(values []string) []string {

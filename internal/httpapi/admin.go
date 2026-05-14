@@ -20,6 +20,7 @@ import (
 const adminSessionCookie = "aigate_admin_session"
 const adminSystemName = "LLM Gateway"
 const adminSessionTTL = 24 * time.Hour
+const adminReloadTimeout = 5 * time.Second
 
 type webRole string
 
@@ -1366,6 +1367,9 @@ func filterUsageByOwner(summaries []usage.Summary, owner string) []usage.Summary
 }
 
 func (h *Handler) reloadModels(ctx context.Context) error {
+	ctx, cancel := reloadContext(ctx)
+	defer cancel()
+
 	models, err := h.store.ListModels(ctx)
 	if err != nil {
 		return err
@@ -1382,6 +1386,9 @@ func (h *Handler) reloadModels(ctx context.Context) error {
 }
 
 func (h *Handler) reloadProvidersAndModels(ctx context.Context) error {
+	ctx, cancel := reloadContext(ctx)
+	defer cancel()
+
 	models, err := h.store.ListModels(ctx)
 	if err != nil {
 		return err
@@ -1406,12 +1413,20 @@ func (h *Handler) reloadProvidersAndModels(ctx context.Context) error {
 }
 
 func (h *Handler) reloadAuthKeys(ctx context.Context) error {
+	ctx, cancel := reloadContext(ctx)
+	defer cancel()
+
 	keys, err := h.store.ListAuthKeys(ctx)
 	if err != nil {
 		return err
 	}
 	h.auth.Update(keys)
 	return nil
+}
+
+func reloadContext(parent context.Context) (context.Context, context.CancelFunc) {
+	_ = parent
+	return context.WithTimeout(context.Background(), adminReloadTimeout)
 }
 
 func containsString(values []string, target string) bool {

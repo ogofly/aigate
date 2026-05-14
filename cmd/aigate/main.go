@@ -106,8 +106,11 @@ func main() {
 	handler := httpapi.New(authenticator, cfg.Admin, rt, recorder, sqliteStore, providerNames)
 
 	server := &http.Server{
-		Addr:    cfg.Server.Listen,
-		Handler: handler,
+		Addr:              cfg.Server.Listen,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       2 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
 	}
 
 	slog.Info("server starting", "addr", cfg.Server.Listen, "admin", "http://localhost"+adminPort(cfg.Server.Listen)+"/admin")

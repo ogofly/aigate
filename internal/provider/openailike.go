@@ -5,11 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"strings"
-	"time"
+	"sync"
 
 	"aigate/internal/config"
 )
@@ -34,195 +31,115 @@ func newOpenAILikeProviderWithStream(cfg config.ProviderConfig, stream bool) (*O
 }
 
 func newOpenAILikeProviderWithBaseURLAndStream(cfg config.ProviderConfig, base string, stream bool) (*OpenAILikeProvider, error) {
-	baseURL := strings.TrimRight(base, "/")
-	if err := validateAbsoluteHTTPURL(baseURL); err != nil {
-		return nil, fmt.Errorf("invalid base_url: %w", err)
+	resolved, err := resolveProviderConfig(cfg, base)
+	if err != nil {
+		return nil, err
 	}
+	return newOpenAILikeProviderFromResolved(resolved, stream), nil
+}
 
-	timeout := 60 * time.Second
-	if cfg.TimeoutSeconds > 0 {
-		timeout = time.Duration(cfg.TimeoutSeconds) * time.Second
-	}
-	apiKey := strings.TrimSpace(cfg.APIKey)
-	if apiKey == "" && cfg.APIKeyRef != "" {
-		apiKey = strings.TrimSpace(os.Getenv(cfg.APIKeyRef))
-		if apiKey == "" {
-			return nil, fmt.Errorf("provider %q api key env %q is empty", cfg.Name, cfg.APIKeyRef)
-		}
-	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("provider %q requires api_key or api_key_ref", cfg.Name)
-	}
-
+func newOpenAILikeProviderFromResolved(cfg resolvedProviderConfig, stream bool) *OpenAILikeProvider {
 	return &OpenAILikeProvider{
-		baseURL: baseURL,
-		apiKey:  apiKey,
-		client:  newHTTPClient(timeout, stream),
-	}, nil
+		baseURL: cfg.baseURL,
+		apiKey:  cfg.apiKey,
+		client:  newHTTPClient(cfg.timeout, stream),
+	}
 }
 
 // OpenAILikeClient implements the OpenAI-compatible Chat, ChatStream, and Embed methods.
-type OpenAILikeClient struct{}
+type OpenAILikeClient struct {
+	mu        sync.Mutex
+	providers map[openAILikeProviderKey]*OpenAILikeProvider
+}
+
+type openAILikeProviderKey struct {
+	baseURL string
+	apiKey  string
+	timeout int64
+	stream  bool
+}
+
+func (c *OpenAILikeClient) provider(cfg config.ProviderConfig, stream bool) (*OpenAILikeProvider, error) {
+	resolved, err := resolveProviderConfig(cfg, cfg.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	key := openAILikeProviderKey{
+		baseURL: resolved.baseURL,
+		apiKey:  resolved.apiKey,
+		timeout: int64(resolved.timeout),
+		stream:  stream,
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.providers == nil {
+		c.providers = make(map[openAILikeProviderKey]*OpenAILikeProvider)
+	}
+	if p, ok := c.providers[key]; ok {
+		return p, nil
+	}
+	p := newOpenAILikeProviderFromResolved(resolved, stream)
+	c.providers[key] = p
+	return p, nil
+}
 
 func (c *OpenAILikeClient) Chat(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*OpenAIResponse, error) {
-	p, err := newOpenAILikeProvider(provider)
+	p, err := c.provider(provider, false)
 	if err != nil {
 		return nil, err
 	}
 	payload := *req
 	payload.Model = upstreamModel
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
-	}
-
 	var out OpenAIResponse
-	if err := json.Unmarshal(respBody, &out); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := p.doJSON(ctx, "/chat/completions", payload, "", &out); err != nil {
+		return nil, err
 	}
 
 	return &out, nil
 }
 
 func (c *OpenAILikeClient) Responses(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*OpenAIResponse, error) {
-	p, err := newOpenAILikeProvider(provider)
+	p, err := c.provider(provider, false)
 	if err != nil {
 		return nil, err
 	}
 	payload := *req
 	payload.Model = upstreamModel
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/responses", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-
-	resp, err := p.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
-	}
-
 	var out OpenAIResponse
-	if err := json.Unmarshal(respBody, &out); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	if err := p.doJSON(ctx, "/responses", payload, "application/json", &out); err != nil {
+		return nil, err
 	}
 
 	return &out, nil
 }
 
 func (c *OpenAILikeClient) ChatStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*StreamResponse, error) {
-	p, err := newOpenAILikeProviderWithStream(provider, true)
+	p, err := c.provider(provider, true)
 	if err != nil {
 		return nil, err
 	}
 	payload := *req
 	payload.Model = upstreamModel
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	resp, err := p.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
-	}
-
-	return &StreamResponse{
-		StatusCode: resp.StatusCode,
-		Header:     resp.Header.Clone(),
-		Body:       resp.Body,
-	}, nil
+	return p.doStream(ctx, "/chat/completions", payload)
 }
 
 func (c *OpenAILikeClient) ResponsesStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*StreamResponse, error) {
-	p, err := newOpenAILikeProviderWithStream(provider, true)
+	p, err := c.provider(provider, true)
 	if err != nil {
 		return nil, err
 	}
 	payload := *req
 	payload.Model = upstreamModel
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/responses", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	resp, err := p.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
-	}
-
-	return &StreamResponse{
-		StatusCode: resp.StatusCode,
-		Header:     resp.Header.Clone(),
-		Body:       resp.Body,
-	}, nil
+	return p.doStream(ctx, "/responses", payload)
 }
 
 func (c *OpenAILikeClient) Embed(ctx context.Context, provider config.ProviderConfig, req EmbeddingRequest, upstreamModel string) (*EmbeddingResponse, error) {
-	p, err := newOpenAILikeProvider(provider)
+	p, err := c.provider(provider, false)
 	if err != nil {
 		return nil, err
 	}
@@ -232,38 +149,71 @@ func (c *OpenAILikeClient) Embed(ctx context.Context, provider config.ProviderCo
 	}
 	payload["model"] = upstreamModel
 
+	var out EmbeddingResponse
+	if err := p.doJSON(ctx, "/embeddings", payload, "", &out); err != nil {
+		return nil, err
+	}
+
+	return &out, nil
+}
+
+func (p *OpenAILikeProvider) doJSON(ctx context.Context, path string, payload any, accept string, out any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+
+	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	if accept != "" {
+		httpReq.Header.Set("Accept", accept)
+	}
+
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := readUpstreamResponse(resp)
+	if err != nil {
+		return err
+	}
+
+	if err := json.Unmarshal(respBody, out); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	return nil
+}
+
+func (p *OpenAILikeProvider) doStream(ctx context.Context, path string, payload any) (*StreamResponse, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/embeddings", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 
 	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("send request: %w", err)
 	}
-	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
-	}
-
-	var out EmbeddingResponse
-	if err := json.Unmarshal(respBody, &out); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-
-	return &out, nil
+	return &StreamResponse{
+		StatusCode: resp.StatusCode,
+		Header:     resp.Header.Clone(),
+		Body:       resp.Body,
+	}, nil
 }

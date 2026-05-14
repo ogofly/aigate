@@ -794,10 +794,43 @@ func (s *SQLiteStore) DeleteModel(ctx context.Context, publicName string) error 
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM auth_key_model_routes WHERE model_route_id IN (SELECT id FROM models WHERE id = ? OR public_name = ?)`, publicName, publicName); err != nil {
+
+	var routeID string
+	err = tx.QueryRowContext(ctx, `SELECT id FROM models WHERE id = ?`, publicName).Scan(&routeID)
+	if err != nil && err != sql.ErrNoRows {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM models WHERE id = ? OR public_name = ?`, publicName, publicName); err != nil {
+	if err == sql.ErrNoRows {
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM models WHERE public_name = ?`, publicName)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			if routeID != "" {
+				rows.Close()
+				return fmt.Errorf("model %q has multiple routes; use model route id", publicName)
+			}
+			routeID = id
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+	}
+	if routeID == "" {
+		return tx.Commit()
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM auth_key_model_routes WHERE model_route_id = ?`, routeID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM models WHERE id = ?`, routeID); err != nil {
 		return err
 	}
 	return tx.Commit()

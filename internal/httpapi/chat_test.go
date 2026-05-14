@@ -42,6 +42,9 @@ func TestInspectSSEChunkHandlesSplitLines(t *testing.T) {
 	if len(last) != 1 {
 		t.Fatalf("last = %#v", last)
 	}
+	if last[0] != "data" {
+		t.Fatalf("last[0] = %q, want data", last[0])
+	}
 	if snapshot.present {
 		t.Fatalf("snapshot.present = true, want false")
 	}
@@ -57,6 +60,9 @@ func TestInspectSSEChunkExtractsUsageFromPayload(t *testing.T) {
 	}
 	if len(last) != 1 {
 		t.Fatalf("last = %#v", last)
+	}
+	if last[0] != "usage" {
+		t.Fatalf("last[0] = %q, want usage", last[0])
 	}
 	if !snapshot.present {
 		t.Fatal("snapshot.present = false, want true")

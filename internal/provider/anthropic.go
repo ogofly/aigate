@@ -5,18 +5,56 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"time"
+	"sync"
 
 	"aigate/internal/config"
 )
 
-type AnthropicClient struct{}
+type AnthropicClient struct {
+	mu        sync.Mutex
+	providers map[anthropicProviderKey]*anthropicProvider
+}
+
+type anthropicProviderKey struct {
+	baseURL string
+	apiKey  string
+	timeout int64
+	stream  bool
+	version string
+}
+
+func (c *AnthropicClient) provider(cfg config.ProviderConfig, stream bool) (*anthropicProvider, error) {
+	if trimSpace(cfg.AnthropicBaseURL) == "" {
+		return nil, fmt.Errorf("provider %q anthropic_base_url is required", cfg.Name)
+	}
+	resolved, err := resolveProviderConfig(cfg, cfg.AnthropicBaseURL)
+	if err != nil {
+		return nil, err
+	}
+	key := anthropicProviderKey{
+		baseURL: resolved.baseURL,
+		apiKey:  resolved.apiKey,
+		timeout: int64(resolved.timeout),
+		stream:  stream,
+		version: anthropicVersion(cfg),
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.providers == nil {
+		c.providers = make(map[anthropicProviderKey]*anthropicProvider)
+	}
+	if p, ok := c.providers[key]; ok {
+		return p, nil
+	}
+	p := newAnthropicProviderFromResolved(resolved, stream)
+	c.providers[key] = p
+	return p, nil
+}
 
 func (c *AnthropicClient) Messages(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*AnthropicResponse, error) {
-	p, err := newAnthropicProvider(provider, false)
+	p, err := c.provider(provider, false)
 	if err != nil {
 		return nil, err
 	}
@@ -42,12 +80,9 @@ func (c *AnthropicClient) Messages(ctx context.Context, provider config.Provider
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readUpstreamResponse(resp)
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("upstream status %d: %s", resp.StatusCode, trimSpace(string(respBody)))
+		return nil, err
 	}
 
 	var out AnthropicResponse
@@ -58,7 +93,7 @@ func (c *AnthropicClient) Messages(ctx context.Context, provider config.Provider
 }
 
 func (c *AnthropicClient) MessagesStream(ctx context.Context, provider config.ProviderConfig, req *ChatRequest, upstreamModel string) (*StreamResponse, error) {
-	p, err := newAnthropicProvider(provider, true)
+	p, err := c.provider(provider, true)
 	if err != nil {
 		return nil, err
 	}
@@ -106,29 +141,17 @@ func newAnthropicProvider(cfg config.ProviderConfig, stream bool) (*anthropicPro
 }
 
 func newAnthropicProviderWithBaseURL(cfg config.ProviderConfig, base string, stream bool) (*anthropicProvider, error) {
-	baseURL := trimTrailingSlash(base)
-	if err := validateAbsoluteHTTPURL(baseURL); err != nil {
-		return nil, fmt.Errorf("invalid base_url: %w", err)
+	resolved, err := resolveProviderConfig(cfg, base)
+	if err != nil {
+		return nil, err
 	}
+	return newAnthropicProviderFromResolved(resolved, stream), nil
+}
 
-	timeout := 60 * time.Second
-	if cfg.TimeoutSeconds > 0 {
-		timeout = time.Duration(cfg.TimeoutSeconds) * time.Second
-	}
-	apiKey := trimSpace(cfg.APIKey)
-	if apiKey == "" && cfg.APIKeyRef != "" {
-		apiKey = trimSpace(os.Getenv(cfg.APIKeyRef))
-		if apiKey == "" {
-			return nil, fmt.Errorf("provider %q api key env %q is empty", cfg.Name, cfg.APIKeyRef)
-		}
-	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("provider %q requires api_key or api_key_ref", cfg.Name)
-	}
-
+func newAnthropicProviderFromResolved(cfg resolvedProviderConfig, stream bool) *anthropicProvider {
 	return &anthropicProvider{
-		baseURL: baseURL,
-		apiKey:  apiKey,
-		client:  newHTTPClient(timeout, stream),
-	}, nil
+		baseURL: cfg.baseURL,
+		apiKey:  cfg.apiKey,
+		client:  newHTTPClient(cfg.timeout, stream),
+	}
 }

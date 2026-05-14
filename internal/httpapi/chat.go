@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,9 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"aigate/internal/auth"
+	"aigate/internal/config"
 	"aigate/internal/logger"
 	"aigate/internal/provider"
+	"aigate/internal/router"
 	"aigate/internal/usage"
 )
 
@@ -36,131 +38,44 @@ func (h *Handler) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req provider.ChatRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
+	if !decodeJSONBody(w, r, &req, "invalid request body") {
 		return
 	}
 
 	if req.Model == "" {
 		logger.L.Warn("model required", "op", "chat_completions", "method", r.Method, "path", r.URL.Path)
-		h.recordUsage(principal, "chat.completions", "", req.Model, "", false, 0, 0, 0, http.StatusBadRequest, time.Since(start))
+		h.executor.recordUsage(principal, "chat.completions", "", req.Model, "", false, 0, 0, 0, http.StatusBadRequest, time.Since(start))
 		writeError(w, http.StatusBadRequest, "model_required", "model is required")
 		return
 	}
 
-	plan, err := h.resolveRoutePlan(r, principal, req.Model, req.Raw)
-	if err != nil {
-		logger.L.Warn("model not found", "op", "chat_completions", "model", req.Model)
-		h.recordUsage(principal, "chat.completions", "", req.Model, "", false, 0, 0, 0, http.StatusBadRequest, time.Since(start))
-		writeRouteError(w, http.StatusBadRequest, err)
-		return
-	}
-	target := plan[0]
-	logger.L.Info("request resolved", "op", "chat_completions", "model", req.Model, "provider", target.ProviderName, "upstream_model", target.UpstreamModel, "stream", req.Stream)
-
 	if req.Stream {
-		requestID := nextStreamRequestID()
-		var streamResp *provider.StreamResponse
-		var lastErr error
-		attemptLimit := maxAttempts(len(plan), h.routeAttempts(r.Context()))
-		for attempt := 0; attempt < attemptLimit; attempt++ {
-			target = plan[attempt]
-			providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
-			if err != nil {
-				lastErr = providerNotFoundError(target, err)
-				break
-			}
-			streamResp, err = h.client.ChatStream(r.Context(), providerCfg, &req, target.UpstreamModel)
-			if err != nil {
-				lastErr = err
-				if attempt+1 < attemptLimit && retryableUpstreamError(err) {
-					continue
-				}
-				logger.L.Error("stream request failed", "op", "chat_completions", "request_id", requestID, "model", req.Model, "provider", target.ProviderName, "client_ip", clientIP(r), "error", err)
-				h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-				writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
-				return
-			}
-			if streamResp.StatusCode >= 200 && streamResp.StatusCode < 300 {
-				break
-			}
-			if attempt+1 < attemptLimit && retryableStatus(streamResp.StatusCode) {
-				_, _ = io.Copy(io.Discard, streamResp.Body)
-				streamResp.Body.Close()
-				continue
-			}
-			break
-		}
-		if streamResp == nil {
-			h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-			writeError(w, http.StatusBadGateway, "upstream_error", lastErr.Error())
-			return
-		}
-		defer streamResp.Body.Close()
-		logger.L.Info("stream start", "op", "chat_completions", "request_id", requestID, "key_id", usage.KeyID(principal.Key), "provider", target.ProviderName, "model", req.Model, "upstream_model", target.UpstreamModel, "client_ip", clientIP(r), "user_agent", r.UserAgent())
-
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			writeError(w, http.StatusInternalServerError, "stream_unsupported", "streaming unsupported")
-			return
-		}
-
-		copyProxyHeaders(w.Header(), streamResp.Header)
-		w.WriteHeader(streamResp.StatusCode)
-
-		if streamResp.StatusCode < 200 || streamResp.StatusCode >= 300 {
-			logger.L.Warn("stream error", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "upstream_status", streamResp.StatusCode, "client_ip", clientIP(r), "duration_ms", time.Since(start).Milliseconds())
-			bytesSent, copyErr := io.Copy(w, streamResp.Body)
-			if copyErr != nil {
-				logger.L.Error("stream abort", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "reason", "downstream_write_error", "error", copyErr, "client_ip", clientIP(r), "duration_ms", time.Since(start).Milliseconds(), "bytes_sent", bytesSent, "upstream_status", streamResp.StatusCode)
-				return
-			}
-			h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, streamResp.StatusCode, time.Since(start))
-			return
-		}
-
-		streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, streamErr := proxyStreamBody(w, flusher, streamResp.Body, requestID, target.ProviderName, req.Model, start)
-		if streamErr != nil {
-			return
-		}
-		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, true, streamUsage.requestTokens, streamUsage.responseTokens, streamUsage.totalTokens, streamResp.StatusCode, time.Since(start))
-		logger.L.Info("stream end", "op", "chat_completions", "request_id", requestID, "provider", target.ProviderName, "model", req.Model, "client_ip", clientIP(r), "status", streamResp.StatusCode, "duration_ms", time.Since(start).Milliseconds(), "chunk_count", chunkCount, "bytes_sent", bytesSent, "sse_event_count", sseEventCount, "saw_done", sawDone, "usage_present", streamUsage.present, "request_tokens", streamUsage.requestTokens, "response_tokens", streamUsage.responseTokens, "total_tokens", streamUsage.totalTokens, "last_events", strings.Join(lastEvents, " | "))
+		h.executor.ExecuteStream(w, r, principal, start, gatewayStreamEndpoint{
+			op:            "chat_completions",
+			usageEndpoint: "chat.completions",
+			model:         req.Model,
+			raw:           req.Raw,
+			call: func(ctx context.Context, client gatewayProviderClient, providerCfg config.ProviderConfig, target router.RouteTarget) (*provider.StreamResponse, error) {
+				return client.ChatStream(ctx, providerCfg, &req, target.UpstreamModel)
+			},
+		})
 		return
 	}
 
-	var resp *provider.OpenAIResponse
-	var lastErr error
-	attemptLimit := maxAttempts(len(plan), h.routeAttempts(r.Context()))
-	for attempt := 0; attempt < attemptLimit; attempt++ {
-		target = plan[attempt]
-		providerCfg, err := h.store.GetProvider(r.Context(), target.ProviderName)
-		if err != nil {
-			lastErr = providerNotFoundError(target, err)
-			break
-		}
-		resp, err = h.client.Chat(r.Context(), providerCfg, &req, target.UpstreamModel)
-		if err == nil {
-			break
-		}
-		lastErr = err
-		if attempt+1 < attemptLimit && retryableUpstreamError(err) {
-			continue
-		}
-		logger.L.Error("chat request failed", "op", "chat_completions", "model", req.Model, "provider", target.ProviderName, "client_ip", clientIP(r), "error", err)
-		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-		writeError(w, http.StatusBadGateway, "upstream_error", err.Error())
+	result, errResp := h.executor.ExecuteJSON(r.Context(), r, principal, start, gatewayJSONEndpoint{
+		op:            "chat_completions",
+		usageEndpoint: "chat.completions",
+		model:         req.Model,
+		raw:           req.Raw,
+		call: func(ctx context.Context, client gatewayProviderClient, providerCfg config.ProviderConfig, target router.RouteTarget) (any, error) {
+			return client.Chat(ctx, providerCfg, &req, target.UpstreamModel)
+		},
+	})
+	if errResp != nil {
+		writeGatewayError(w, errResp)
 		return
 	}
-	if resp == nil {
-		h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, false, 0, 0, 0, http.StatusBadGateway, time.Since(start))
-		writeError(w, http.StatusBadGateway, "upstream_error", lastErr.Error())
-		return
-	}
-
-	requestTokens, responseTokens, totalTokens := usage.ExtractUsage(map[string]any(*resp))
-	h.recordUsage(principal, "chat.completions", target.ProviderName, req.Model, target.UpstreamModel, true, requestTokens, responseTokens, totalTokens, http.StatusOK, time.Since(start))
-	writeJSON(w, http.StatusOK, resp)
-	logger.L.Info("chat complete", "op", "chat_completions", "model", req.Model, "provider", target.ProviderName, "client_ip", clientIP(r), "status", http.StatusOK, "request_tokens", requestTokens, "response_tokens", responseTokens, "total_tokens", totalTokens, "duration_ms", time.Since(start).Milliseconds())
+	writeJSON(w, result.status, result.payload)
 }
 
 func proxyStreamBody(w http.ResponseWriter, flusher http.Flusher, body io.Reader, requestID, providerName, model string, start time.Time) (streamUsageSnapshot, int, int, int, bool, []string, error) {
@@ -186,7 +101,7 @@ func proxyStreamBody(w http.ResponseWriter, flusher http.Flusher, body io.Reader
 				firstChunkLogged = true
 			}
 			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
-				logger.L.Error("stream abort", "op", "chat_completions", "request_id", requestID, "provider", providerName, "model", model, "reason", "downstream_write_error", "error", writeErr, "duration_ms", time.Since(start).Milliseconds(), "chunk_count", chunkCount, "bytes_sent", bytesSent, "sse_event_count", sseEventCount, "saw_done", sawDone, "last_events", strings.Join(lastEvents, " | "))
+				logger.L.Error("stream abort", "op", "chat_completions", "request_id", requestID, "provider", providerName, "model", model, "reason", "downstream_write_error", "error", writeErr, "duration_ms", time.Since(start).Milliseconds(), "chunk_count", chunkCount, "bytes_sent", bytesSent, "sse_event_count", sseEventCount, "saw_done", sawDone, "last_event_kinds", strings.Join(lastEvents, " | "))
 				return streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, writeErr
 			}
 			flusher.Flush()
@@ -197,7 +112,7 @@ func proxyStreamBody(w http.ResponseWriter, flusher http.Flusher, body io.Reader
 		if readErr == io.EOF {
 			return streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, nil
 		}
-		logger.L.Error("stream abort", "op", "chat_completions", "request_id", requestID, "provider", providerName, "model", model, "reason", streamAbortReason(readErr), "error", readErr, "duration_ms", time.Since(start).Milliseconds(), "chunk_count", chunkCount, "bytes_sent", bytesSent, "sse_event_count", sseEventCount, "saw_done", sawDone, "last_events", strings.Join(lastEvents, " | "))
+		logger.L.Error("stream abort", "op", "chat_completions", "request_id", requestID, "provider", providerName, "model", model, "reason", streamAbortReason(readErr), "error", readErr, "duration_ms", time.Since(start).Milliseconds(), "chunk_count", chunkCount, "bytes_sent", bytesSent, "sse_event_count", sseEventCount, "saw_done", sawDone, "last_event_kinds", strings.Join(lastEvents, " | "))
 		return streamUsage, chunkCount, bytesSent, sseEventCount, sawDone, lastEvents, readErr
 	}
 }
@@ -218,13 +133,6 @@ func shouldProxyHeader(name string) bool {
 	default:
 		return true
 	}
-}
-
-func (h *Handler) recordUsage(principal auth.Principal, endpoint, providerName, publicModel, upstreamModel string, success bool, requestTokens, responseTokens, totalTokens, statusCode int, latency time.Duration) {
-	if h.usage == nil {
-		return
-	}
-	h.usage.Record(usage.NewRecord(principal, endpoint, providerName, publicModel, upstreamModel, success, requestTokens, responseTokens, totalTokens, statusCode, latency))
 }
 
 func nextStreamRequestID() string {
@@ -269,7 +177,7 @@ func inspectSSEChunk(partial, chunk string, eventCount int, sawDone bool, lastEv
 		} else if usageSnapshot, ok := extractUsageFromSSEPayload(payload); ok {
 			snapshot = usageSnapshot
 		}
-		lastEvents = append(lastEvents, summarizeSSEPayload(payload))
+		lastEvents = append(lastEvents, classifySSEPayload(payload))
 		if len(lastEvents) > 3 {
 			lastEvents = lastEvents[len(lastEvents)-3:]
 		}
@@ -277,14 +185,24 @@ func inspectSSEChunk(partial, chunk string, eventCount int, sawDone bool, lastEv
 	return newPartial, eventCount, sawDone, lastEvents, snapshot
 }
 
-func summarizeSSEPayload(payload string) string {
+func classifySSEPayload(payload string) string {
 	if payload == "[DONE]" {
 		return payload
 	}
-	if len(payload) <= 96 {
-		return payload
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(payload), &raw); err != nil {
+		return "data"
 	}
-	return payload[:93] + "..."
+	if typ, _ := raw["type"].(string); typ != "" {
+		return typ
+	}
+	if _, ok := raw["usage"]; ok {
+		return "usage"
+	}
+	if _, ok := raw["choices"]; ok {
+		return "choices"
+	}
+	return "data"
 }
 
 func extractUsageFromSSEPayload(payload string) (streamUsageSnapshot, bool) {

@@ -71,6 +71,13 @@ func TestNewHTTPClientKeepsTimeoutForNonStreamOnly(t *testing.T) {
 	if stream.Timeout != 0 {
 		t.Fatalf("stream.Timeout = %v, want %v", stream.Timeout, 0)
 	}
+	transport, ok := stream.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("stream.Transport = %T, want *http.Transport", stream.Transport)
+	}
+	if transport.ResponseHeaderTimeout != 3 {
+		t.Fatalf("stream ResponseHeaderTimeout = %v, want %v", transport.ResponseHeaderTimeout, 3)
+	}
 }
 
 func TestChatUsesRawPayloadAndOnlyRewritesModel(t *testing.T) {
@@ -132,6 +139,152 @@ func TestChatUsesRawPayloadAndOnlyRewritesModel(t *testing.T) {
 	}
 	if _, exists := captured["stream"]; exists {
 		t.Fatalf("stream should stay absent, got %#v", captured["stream"])
+	}
+}
+
+func TestChatUpstreamErrorDoesNotExposeBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "secret upstream details", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	client := NewClient()
+	var req ChatRequest
+	if err := json.Unmarshal([]byte(`{"model":"public-model","messages":[{"role":"user","content":"hi"}]}`), &req); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	_, err := client.Chat(context.Background(), config.ProviderConfig{
+		Name:           "openai",
+		BaseURL:        srv.URL,
+		APIKey:         "test-secret",
+		TimeoutSeconds: 30,
+	}, &req, "upstream-model")
+	if err == nil {
+		t.Fatal("Chat() error = nil")
+	}
+	if !strings.Contains(err.Error(), "upstream status 500") {
+		t.Fatalf("Chat() error = %q, want upstream status", err.Error())
+	}
+	if strings.Contains(err.Error(), "secret upstream details") {
+		t.Fatalf("Chat() error exposed upstream body: %q", err.Error())
+	}
+}
+
+func TestOpenAILikeClientReusesProviderForSameConfig(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-test"}`))
+	}))
+	defer srv.Close()
+
+	client := &OpenAILikeClient{}
+	req := &ChatRequest{
+		Model: "public-model",
+		Raw: map[string]any{
+			"model":    "public-model",
+			"messages": []any{},
+		},
+	}
+	cfg := config.ProviderConfig{
+		Name:           "openai",
+		BaseURL:        srv.URL,
+		APIKey:         "test-secret",
+		TimeoutSeconds: 30,
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := client.Chat(context.Background(), cfg, req, "upstream-model"); err != nil {
+			t.Fatalf("Chat(%d) error = %v", i, err)
+		}
+	}
+	if len(client.providers) != 1 {
+		t.Fatalf("cached providers = %d, want 1", len(client.providers))
+	}
+}
+
+func TestResponsesUsesEndpointHeadersAndRawPayload(t *testing.T) {
+	var captured map[string]any
+	var gotPath string
+	var acceptHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		acceptHeader = r.Header.Get("Accept")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("io.ReadAll() error = %v", err)
+		}
+		if err := json.Unmarshal(body, &captured); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp-test"}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient()
+	var req ChatRequest
+	if err := json.Unmarshal([]byte(`{"model":"public-model","input":"hello","metadata":{"trace":"abc"}}`), &req); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	_, err := client.Responses(context.Background(), config.ProviderConfig{
+		Name:           "openai",
+		BaseURL:        srv.URL,
+		APIKey:         "test-secret",
+		TimeoutSeconds: 30,
+	}, &req, "upstream-model")
+	if err != nil {
+		t.Fatalf("Responses() error = %v", err)
+	}
+	if gotPath != "/responses" {
+		t.Fatalf("path = %q, want /responses", gotPath)
+	}
+	if acceptHeader != "application/json" {
+		t.Fatalf("Accept = %q, want application/json", acceptHeader)
+	}
+	if got, _ := captured["model"].(string); got != "upstream-model" {
+		t.Fatalf("model = %#v, want upstream-model", captured["model"])
+	}
+	if _, ok := captured["metadata"].(map[string]any); !ok {
+		t.Fatalf("metadata = %#v, want map", captured["metadata"])
+	}
+}
+
+func TestEmbedUsesEmbeddingsEndpointAndRewritesModel(t *testing.T) {
+	var captured map[string]any
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("io.ReadAll() error = %v", err)
+		}
+		if err := json.Unmarshal(body, &captured); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[],"usage":{"prompt_tokens":1,"total_tokens":1}}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient()
+	_, err := client.Embed(context.Background(), config.ProviderConfig{
+		Name:           "openai",
+		BaseURL:        srv.URL,
+		APIKey:         "test-secret",
+		TimeoutSeconds: 30,
+	}, EmbeddingRequest{"model": "public-model", "input": "hello"}, "upstream-embed")
+	if err != nil {
+		t.Fatalf("Embed() error = %v", err)
+	}
+	if gotPath != "/embeddings" {
+		t.Fatalf("path = %q, want /embeddings", gotPath)
+	}
+	if got, _ := captured["model"].(string); got != "upstream-embed" {
+		t.Fatalf("model = %#v, want upstream-embed", captured["model"])
+	}
+	if got, _ := captured["input"].(string); got != "hello" {
+		t.Fatalf("input = %#v, want hello", captured["input"])
 	}
 }
 
