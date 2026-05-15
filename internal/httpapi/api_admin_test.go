@@ -998,6 +998,95 @@ func TestAPIKeyCreateUserForcesOwnOwner(t *testing.T) {
 	t.Fatal("created key not found in user's key list")
 }
 
+func TestAPIKeyCreateUserCannotEscalateSelectedModelAccess(t *testing.T) {
+	models := []config.ModelConfig{
+		{ID: "mrt_allowed", PublicName: "allowed-model", Provider: "openai", UpstreamName: "allowed-upstream", Enabled: true},
+		{ID: "mrt_denied", PublicName: "denied-model", Provider: "openai", UpstreamName: "denied-upstream", Enabled: true},
+	}
+	rt, err := router.New(models)
+	if err != nil {
+		t.Fatalf("router.New error = %v", err)
+	}
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("NewSQLite error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertProvider(context.Background(), config.ProviderConfig{Name: "openai", BaseURL: "https://api.openai.com/v1", APIKey: "secret", TimeoutSeconds: 60, Enabled: true}); err != nil {
+		t.Fatalf("UpsertProvider error = %v", err)
+	}
+	for _, model := range models {
+		if err := sqliteStore.UpsertModel(context.Background(), model); err != nil {
+			t.Fatalf("UpsertModel error = %v", err)
+		}
+	}
+	keys := []config.KeyConfig{{Key: "sk-user-pass", Owner: "testuser", ModelAccess: "selected", ModelRouteIDs: []string{"mrt_allowed"}}}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeys error = %v", err)
+	}
+	handler := httpapi.NewWithClient(auth.New(keys), config.AdminConfig{Username: "admin", Password: "pass"}, &stubProvider{}, rt, usage.New(100), sqliteStore, []string{"openai"})
+	userCookie := userLoginAndCookie(t, handler, "testuser", "sk-user-pass")
+
+	rr := apiPost(t, handler, "/api/admin/keys", userCookie, map[string]any{
+		"key":          "sk-escalated-all",
+		"model_access": "all",
+	})
+	assertStatus(t, rr, http.StatusForbidden)
+
+	rr = apiPost(t, handler, "/api/admin/keys", userCookie, map[string]any{
+		"key":             "sk-escalated-route",
+		"model_access":    "selected",
+		"model_route_ids": []string{"mrt_denied"},
+	})
+	assertStatus(t, rr, http.StatusForbidden)
+
+	rr = apiPost(t, handler, "/api/admin/keys", userCookie, map[string]any{
+		"key":             "sk-selected-child",
+		"model_access":    "selected",
+		"model_route_ids": []string{"mrt_allowed"},
+	})
+	assertStatus(t, rr, http.StatusOK)
+}
+
+func TestAPIKeyUpdateUserCannotEscalateSelectedModelAccess(t *testing.T) {
+	models := []config.ModelConfig{
+		{ID: "mrt_allowed", PublicName: "allowed-model", Provider: "openai", UpstreamName: "allowed-upstream", Enabled: true},
+		{ID: "mrt_denied", PublicName: "denied-model", Provider: "openai", UpstreamName: "denied-upstream", Enabled: true},
+	}
+	rt, err := router.New(models)
+	if err != nil {
+		t.Fatalf("router.New error = %v", err)
+	}
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("NewSQLite error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertProvider(context.Background(), config.ProviderConfig{Name: "openai", BaseURL: "https://api.openai.com/v1", APIKey: "secret", TimeoutSeconds: 60, Enabled: true}); err != nil {
+		t.Fatalf("UpsertProvider error = %v", err)
+	}
+	for _, model := range models {
+		if err := sqliteStore.UpsertModel(context.Background(), model); err != nil {
+			t.Fatalf("UpsertModel error = %v", err)
+		}
+	}
+	keys := []config.KeyConfig{
+		{Key: "sk-user-pass", Owner: "testuser", ModelAccess: "selected", ModelRouteIDs: []string{"mrt_allowed"}},
+		{Key: "sk-child", Owner: "testuser", ModelAccess: "selected", ModelRouteIDs: []string{"mrt_allowed"}},
+	}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeys error = %v", err)
+	}
+	handler := httpapi.NewWithClient(auth.New(keys), config.AdminConfig{Username: "admin", Password: "pass"}, &stubProvider{}, rt, usage.New(100), sqliteStore, []string{"openai"})
+	userCookie := userLoginAndCookie(t, handler, "testuser", "sk-user-pass")
+
+	rr := apiPut(t, handler, "/api/admin/keys/sk-child", userCookie, map[string]any{
+		"name":         "child",
+		"model_access": "all",
+	})
+	assertStatus(t, rr, http.StatusForbidden)
+}
+
 func TestAPIKeyDelete(t *testing.T) {
 	handler := newTestAPIHandler(t, []config.KeyConfig{{Key: "sk-1"}})
 	cookie := loginAndCookie(t, handler)
@@ -1037,6 +1126,7 @@ func TestAPIKeyDeleteOwnerCheck(t *testing.T) {
 	// Create two keys owned by different users
 	keys := []config.KeyConfig{
 		{Key: "sk-user1", Name: "user1 key", Owner: "user1"},
+		{Key: "sk-user1-extra", Name: "user1 extra key", Owner: "user1"},
 		{Key: "sk-user2", Name: "user2 key", Owner: "user2"},
 	}
 
@@ -1078,6 +1168,52 @@ func TestAPIKeyDeleteOwnerCheck(t *testing.T) {
 	// user1 deletes own key — should succeed
 	rr = apiDelete(t, handler, "/api/admin/keys/sk-user1", user1Cookie)
 	assertStatus(t, rr, http.StatusOK)
+}
+
+func TestAPIKeyDeleteUserCannotDeleteLastOwnKey(t *testing.T) {
+	keys := []config.KeyConfig{
+		{Key: "sk-user1", Name: "user1 key", Owner: "user1"},
+	}
+
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("NewSQLite error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeys error = %v", err)
+	}
+
+	rt, err := router.New([]config.ModelConfig{{
+		PublicName:   "gpt-4o",
+		Provider:     "openai",
+		UpstreamName: "gpt-4o",
+	}})
+	if err != nil {
+		t.Fatalf("router.New error = %v", err)
+	}
+
+	os.Setenv("OPENAI_API_KEY", "test-secret")
+	defer os.Unsetenv("OPENAI_API_KEY")
+
+	handler := httpapi.NewWithClient(
+		auth.New(keys),
+		config.AdminConfig{Username: "admin", Password: "pass"},
+		&stubProvider{}, rt, usage.New(100), sqliteStore, []string{"openai"},
+	)
+	user1Cookie := userLoginAndCookie(t, handler, "user1", "sk-user1")
+
+	rr := apiDelete(t, handler, "/api/admin/keys/sk-user1", user1Cookie)
+	assertStatus(t, rr, http.StatusConflict)
+
+	got, err := sqliteStore.GetAuthKey(context.Background(), "sk-user1")
+	if err != nil {
+		t.Fatalf("GetAuthKey() error = %v", err)
+	}
+	if got.Key != "sk-user1" {
+		t.Fatalf("key = %q, want sk-user1", got.Key)
+	}
 }
 
 func TestAPIKeyDeleteAdminCanDeleteAny(t *testing.T) {

@@ -80,7 +80,7 @@
       </td>
       <td>
         <button type="button" data-model-access="{{.ModelAccess}}" data-route-ids="{{range .ModelRouteIDs}}{{.}},{{end}}" onclick="openKeyEditDialog(this, '{{.Name}}', '{{.Owner}}', '{{.Purpose}}', '{{.Key}}')">{{$.T "Edit"}}</button>
-        <button type="button" class="danger" onclick="submitKeyDelete(this, '{{.Name}}', '{{.Purpose}}', '{{.Key}}')">{{$.T "Delete"}}</button>
+        <button type="button" class="danger" {{if and (not $.IsAdmin) (le (len $.Keys) 1)}}disabled title="{{$.T "Cannot delete your last API key"}}"{{else}}onclick="submitKeyDelete(this, '{{.Name}}', '{{.Purpose}}', '{{.Key}}')"{{end}}>{{$.T "Delete"}}</button>
       </td>
     </tr>
     {{else}}

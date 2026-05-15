@@ -115,9 +115,14 @@ func (s *AdminService) UpdateProvider(ctx context.Context, name string, update P
 	}
 	apiKey := strings.TrimSpace(update.APIKey)
 	apiKeyRef := strings.TrimSpace(update.APIKeyRef)
-	if apiKey == "" && apiKeyRef == "" {
+	if !update.APIKeySet {
 		apiKey = existing.APIKey
+	}
+	if !update.APIKeyRefSet {
 		apiKeyRef = existing.APIKeyRef
+	}
+	if update.APIKeySet && apiKey == "" {
+		apiKey = existing.APIKey
 	}
 	timeoutSeconds := existing.TimeoutSeconds
 	if update.TimeoutSeconds != nil {
@@ -438,7 +443,9 @@ type ProviderUpdate struct {
 	AnthropicBaseURL string
 	AnthropicVersion string
 	APIKey           string
+	APIKeySet        bool
 	APIKeyRef        string
+	APIKeyRefSet     bool
 	TimeoutSeconds   *int
 	Enabled          *bool
 }

@@ -23,8 +23,6 @@
 .chart-head{display:flex;align-items:center;justify-content:space-between}
 .chart-title{margin:0;color:var(--text-strong);font-size:15px;font-weight:650}
 .chart-subtitle{margin:4px 0 0;color:var(--muted);font-size:12px}
-.chart-metric-btn{padding:2px 7px;border-radius:999px;font-size:11px;font-weight:600;border:1px solid var(--line);background:var(--ghost);color:var(--muted);cursor:pointer;transition:all .18s ease;box-shadow:none}
-.chart-metric-btn:hover{color:var(--text);border-color:rgba(139,92,246,.3)}
 .chart{width:100%;height:230px;margin-top:8px}
 .trend-chart{height:250px}
 .no-data{display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:var(--muted);font-size:13px;text-align:center}
@@ -83,21 +81,30 @@
   <div class="chart-panel">
     <div class="chart-head">
       <h2 class="chart-title">{{.T "Top Keys"}}</h2>
-      <button type="button" class="chart-metric-btn" data-pie="keys">{{.T "Tokens"}}</button>
+      <div class="metric-toggle" aria-label="{{.T "Chart by"}}">
+        <button type="button" class="pie-metric-btn" data-pie="keys" data-metric="tokens">{{.T "By Token"}}</button>
+        <button type="button" class="pie-metric-btn" data-pie="keys" data-metric="requests">{{.T "By Requests"}}</button>
+      </div>
     </div>
     <div id="homeKeyPie" class="chart">{{if not .TopKeys}}<div class="no-data">{{.T "No key usage for today"}}</div>{{end}}</div>
   </div>
   <div class="chart-panel">
     <div class="chart-head">
       <h2 class="chart-title">{{.T "Top Providers"}}</h2>
-      <button type="button" class="chart-metric-btn" data-pie="provider">{{.T "Tokens"}}</button>
+      <div class="metric-toggle" aria-label="{{.T "Chart by"}}">
+        <button type="button" class="pie-metric-btn" data-pie="provider" data-metric="tokens">{{.T "By Token"}}</button>
+        <button type="button" class="pie-metric-btn" data-pie="provider" data-metric="requests">{{.T "By Requests"}}</button>
+      </div>
     </div>
     <div id="homeProviderPie" class="chart">{{if not .TopProviders}}<div class="no-data">{{.T "No provider usage for today"}}</div>{{end}}</div>
   </div>
   <div class="chart-panel">
     <div class="chart-head">
       <h2 class="chart-title">{{.T "Top Models"}}</h2>
-      <button type="button" class="chart-metric-btn" data-pie="model">{{.T "Tokens"}}</button>
+      <div class="metric-toggle" aria-label="{{.T "Chart by"}}">
+        <button type="button" class="pie-metric-btn" data-pie="model" data-metric="tokens">{{.T "By Token"}}</button>
+        <button type="button" class="pie-metric-btn" data-pie="model" data-metric="requests">{{.T "By Requests"}}</button>
+      </div>
     </div>
     <div id="homeModelPie" class="chart">{{if not .TopModels}}<div class="no-data">{{.T "No model usage for today"}}</div>{{end}}</div>
   </div>
@@ -190,7 +197,6 @@ function renderPie(chartId, data, filterName, metric){
 }
 
 var pieCharts = {};
-var pieMetricLabels = {tokens:{{toJSON (.T "Tokens")}},requests:{{toJSON (.T "Requests")}}};
 var pieConfigs = {
   keys:{chartId:'homeKeyPie',data:keyData,filterName:'key'},
   provider:{chartId:'homeProviderPie',data:providerData,filterName:'provider'},
@@ -201,18 +207,21 @@ var pieMetricState = {};
 Object.keys(pieConfigs).forEach(function(k){
   var cfg = pieConfigs[k];
   pieMetricState[k] = pieMetric(cfg.data);
-  var btn = document.querySelector('.chart-metric-btn[data-pie="'+k+'"]');
-  if(btn) btn.textContent = pieMetricLabels[pieMetricState[k]];
+  document.querySelectorAll('.pie-metric-btn[data-pie="'+k+'"]').forEach(function(btn){
+    btn.classList.toggle('active', btn.dataset.metric === pieMetricState[k]);
+  });
   renderPie(cfg.chartId, cfg.data, cfg.filterName, pieMetricState[k]);
 });
 
-document.querySelectorAll('.chart-metric-btn').forEach(function(btn){
+document.querySelectorAll('.pie-metric-btn').forEach(function(btn){
   btn.addEventListener('click', function(){
     var k = this.getAttribute('data-pie');
     var cfg = pieConfigs[k];
     if(!cfg) return;
-    pieMetricState[k] = pieMetricState[k] === 'tokens' ? 'requests' : 'tokens';
-    this.textContent = pieMetricLabels[pieMetricState[k]];
+    pieMetricState[k] = this.dataset.metric;
+    document.querySelectorAll('.pie-metric-btn[data-pie="'+k+'"]').forEach(function(b){
+      b.classList.toggle('active', b.dataset.metric === pieMetricState[k]);
+    });
     renderPie(cfg.chartId, cfg.data, cfg.filterName, pieMetricState[k]);
   });
 });

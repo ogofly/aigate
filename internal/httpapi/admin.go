@@ -438,7 +438,11 @@ func (h *Handler) handleAdminKeysSave(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "key is required")
 		return
 	}
-	if err := h.adminService.UpdateAuthKey(r.Context(), key); err != nil {
+	if err := h.constrainKeyAccessForSession(r.Context(), session, &key); err != nil {
+		writeAdminError(w, err, http.StatusForbidden, "admin_key_access_error")
+		return
+	}
+	if err := h.adminService.CreateAuthKey(r.Context(), key); err != nil {
 		writeAdminError(w, err, http.StatusInternalServerError, "admin_key_save_error")
 		return
 	}
@@ -460,13 +464,8 @@ func (h *Handler) handleAdminKeysDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if session.Role != roleAdmin {
-		keyCfg, err := h.store.GetAuthKey(r.Context(), key)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_request", "key not found")
-			return
-		}
-		if keyCfg.Owner != session.Username {
-			writeError(w, http.StatusForbidden, "forbidden", "cannot delete key of another user")
+		if err := h.authorizeUserKeyDelete(r.Context(), session, key); err != nil {
+			writeAdminError(w, err, http.StatusForbidden, "admin_key_delete_error")
 			return
 		}
 	}
@@ -555,7 +554,9 @@ func (h *Handler) handleAdminProviderUpdate(w http.ResponseWriter, r *http.Reque
 		AnthropicBaseURL: strings.TrimSpace(r.FormValue("anthropic_base_url")),
 		AnthropicVersion: strings.TrimSpace(r.FormValue("anthropic_version")),
 		APIKey:           strings.TrimSpace(r.FormValue("api_key")),
+		APIKeySet:        true,
 		APIKeyRef:        strings.TrimSpace(r.FormValue("api_key_ref")),
+		APIKeyRefSet:     true,
 	}
 	if _, ok := r.Form["_enabled_present"]; ok {
 		enabled := r.FormValue("enabled") == "true"
@@ -605,6 +606,19 @@ func (h *Handler) handleAdminModelsPage(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "admin_models_error", err.Error())
 		return
+	}
+	if session.Role != roleAdmin {
+		providers, err := h.store.ListProviders(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "admin_models_error", err.Error())
+			return
+		}
+		keys, err := h.visibleKeys(r.Context(), session)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "admin_models_error", err.Error())
+			return
+		}
+		models = filterModelsForKeys(models, providers, keys)
 	}
 	routingSettings, err := h.store.GetRoutingSettings(r.Context())
 	if err != nil {
@@ -875,6 +889,9 @@ func (h *Handler) buildPlaygroundViewData(ctx context.Context, r *http.Request, 
 		return adminViewData{}, err
 	}
 	models := h.router.ListModels()
+	if session.Role != roleAdmin {
+		models = h.playgroundModelsForKeys(keys)
+	}
 	providerOptions := h.buildPlaygroundProviderOptions(keys, models)
 
 	if selectedKey == "" && len(keys) > 0 {
@@ -933,6 +950,130 @@ func (h *Handler) buildPlaygroundProviderOptions(keys []config.KeyConfig, models
 		}
 		out[key.Key] = byModel
 	}
+	return out
+}
+
+type modelAccessLimit struct {
+	All      bool
+	RouteIDs map[string]struct{}
+}
+
+func (h *Handler) constrainKeyAccessForSession(ctx context.Context, session webSession, key *config.KeyConfig) error {
+	if session.Role == roleAdmin {
+		key.ModelRouteIDs = cleanRouteIDs(key.ModelRouteIDs)
+		return nil
+	}
+	key.Owner = session.Username
+	limit, err := h.modelAccessLimitForSession(ctx, session)
+	if err != nil {
+		return adminError(http.StatusInternalServerError, "key_access_check_error", err.Error(), err)
+	}
+	access := strings.TrimSpace(key.ModelAccess)
+	if access == "" {
+		if limit.All {
+			key.ModelAccess = "all"
+			key.ModelRouteIDs = nil
+			return nil
+		}
+		key.ModelAccess = "selected"
+		key.ModelRouteIDs = sortedMapKeys(limit.RouteIDs)
+		return nil
+	}
+	if !strings.EqualFold(access, "selected") {
+		if limit.All {
+			key.ModelAccess = "all"
+			key.ModelRouteIDs = nil
+			return nil
+		}
+		return adminError(http.StatusForbidden, "model_access_forbidden", "model access exceeds current user permissions", nil)
+	}
+	key.ModelAccess = "selected"
+	key.ModelRouteIDs = cleanRouteIDs(key.ModelRouteIDs)
+	if limit.All {
+		return nil
+	}
+	for _, routeID := range key.ModelRouteIDs {
+		if _, ok := limit.RouteIDs[routeID]; !ok {
+			return adminError(http.StatusForbidden, "model_access_forbidden", "model access exceeds current user permissions", nil)
+		}
+	}
+	return nil
+}
+
+func (h *Handler) modelAccessLimitForSession(ctx context.Context, session webSession) (modelAccessLimit, error) {
+	keys, err := h.visibleKeys(ctx, session)
+	if err != nil {
+		return modelAccessLimit{}, err
+	}
+	return modelAccessLimitForKeys(keys), nil
+}
+
+func modelAccessLimitForKeys(keys []config.KeyConfig) modelAccessLimit {
+	limit := modelAccessLimit{RouteIDs: make(map[string]struct{})}
+	for _, key := range keys {
+		access := strings.TrimSpace(key.ModelAccess)
+		if access == "" || strings.EqualFold(access, "all") {
+			limit.All = true
+			return limit
+		}
+		if strings.EqualFold(access, "selected") {
+			for _, routeID := range key.ModelRouteIDs {
+				routeID = strings.TrimSpace(routeID)
+				if routeID != "" {
+					limit.RouteIDs[routeID] = struct{}{}
+				}
+			}
+		}
+	}
+	return limit
+}
+
+func sortedMapKeys(values map[string]struct{}) []string {
+	out := make([]string, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func filterModelsForKeys(models []config.ModelConfig, providers []config.ProviderConfig, keys []config.KeyConfig) []config.ModelConfig {
+	limit := modelAccessLimitForKeys(keys)
+	providerEnabled := make(map[string]bool, len(providers))
+	for _, provider := range providers {
+		providerEnabled[provider.Name] = provider.Enabled
+	}
+	out := make([]config.ModelConfig, 0, len(models))
+	for _, model := range models {
+		if !model.Enabled {
+			continue
+		}
+		if enabled, ok := providerEnabled[model.Provider]; ok && !enabled {
+			continue
+		}
+		if !limit.All {
+			if _, ok := limit.RouteIDs[model.ID]; !ok {
+				continue
+			}
+		}
+		out = append(out, model)
+	}
+	return out
+}
+
+func (h *Handler) playgroundModelsForKeys(keys []config.KeyConfig) []string {
+	set := make(map[string]struct{})
+	for _, key := range keys {
+		access := router.Access{ModelAccess: key.ModelAccess, ModelRouteIDs: append([]string(nil), key.ModelRouteIDs...)}
+		for _, model := range h.router.ListModelsForAccess(access) {
+			set[model] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for model := range set {
+		out = append(out, model)
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -1315,6 +1456,24 @@ func (h *Handler) visibleKeys(ctx context.Context, session webSession) ([]config
 		return h.store.ListAuthKeys(ctx)
 	}
 	return h.store.ListAuthKeysByOwner(ctx, session.Username)
+}
+
+func (h *Handler) authorizeUserKeyDelete(ctx context.Context, session webSession, key string) error {
+	keyCfg, err := h.store.GetAuthKey(ctx, key)
+	if err != nil {
+		return adminError(http.StatusBadRequest, "invalid_request", "key not found", err)
+	}
+	if keyCfg.Owner != session.Username {
+		return adminError(http.StatusForbidden, "forbidden", "cannot delete key of another user", nil)
+	}
+	keys, err := h.store.ListAuthKeysByOwner(ctx, session.Username)
+	if err != nil {
+		return adminError(http.StatusInternalServerError, "key_delete_check_error", err.Error(), err)
+	}
+	if len(keys) <= 1 {
+		return adminError(http.StatusConflict, "last_key_required", "Cannot delete your last API key", nil)
+	}
+	return nil
 }
 
 func filterUsageByOwner(summaries []usage.Summary, owner string) []usage.Summary {

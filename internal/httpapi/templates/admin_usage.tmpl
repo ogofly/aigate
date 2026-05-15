@@ -25,9 +25,9 @@ a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
 .section-body[hidden]{display:none}
 #trendChart{width:100%;height:400px;margin-top:16px}
 .trend-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;font-size:13px}
-.trend-controls button,.pie-controls button{padding:6px 12px;font-size:13px;border:1px solid var(--line);background:rgba(210,214,220,.022);color:var(--muted);border-radius:4px;cursor:pointer;transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease}
-.trend-controls button:hover,.pie-controls button:hover{background:rgba(210,214,220,.032);color:var(--text)}
-.trend-controls button.active,.pie-controls button.active{background:rgba(210,214,220,.04);color:var(--text-strong);border-color:rgba(139,92,246,.26);box-shadow:inset 0 0 0 1px rgba(139,92,246,.1)}
+.trend-controls button{padding:6px 12px;font-size:13px;border:1px solid var(--line);background:rgba(210,214,220,.022);color:var(--muted);border-radius:4px;cursor:pointer;transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease}
+.trend-controls button:hover{background:rgba(210,214,220,.032);color:var(--text)}
+.trend-controls button.active{background:rgba(210,214,220,.04);color:var(--text-strong);border-color:rgba(139,92,246,.26);box-shadow:inset 0 0 0 1px rgba(139,92,246,.1)}
 .chart-group{margin-top:16px;padding-bottom:4px;border-bottom:1px solid var(--line)}
 .chart-group:last-child{border-bottom:0;padding-bottom:0}
 .chart-group .table-wrap{max-height:500px;overflow-y:auto}
@@ -100,9 +100,11 @@ a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
 <script id="modelPieData" type="application/json">{{range $i, $s := .ModelSummaries}}{{if $i}},{{end}}{"name":"{{.Model}}","tokens":{{.TotalTokens}},"requests":{{.RequestCount}}}{{end}}</script>
 <div class="chart-group">
 <div class="pie-controls">
-  <span>{{.T "By:"}}</span>
-  <button type="button" class="pm-btn-model{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">{{.T "Tokens"}}</button>
-  <button type="button" class="pm-btn-model{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">{{.T "Requests"}}</button>
+  <span>{{.T "Chart by:"}}</span>
+  <span class="metric-toggle">
+    <button type="button" class="pm-btn-model{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">{{.T "By Token"}}</button>
+    <button type="button" class="pm-btn-model{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">{{.T "By Requests"}}</button>
+  </span>
 </div>
 <div id="modelPieChart" class="pie-chart"></div>
 <div class="table-wrap"><table id="model-table"><thead><tr>
@@ -131,9 +133,11 @@ a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
 <script id="keyPieData" type="application/json">{{range $i, $u := .Usage}}{{if $i}},{{end}}{"name":"{{if .KeyName}}{{.KeyName}}{{else}}{{maskID .KeyID}}{{end}}","tokens":{{.TotalTokens}},"requests":{{.RequestCount}}}{{end}}</script>
 <div class="chart-group">
 <div class="pie-controls">
-  <span>{{.T "By:"}}</span>
-  <button type="button" class="pm-btn-key{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">{{.T "Tokens"}}</button>
-  <button type="button" class="pm-btn-key{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">{{.T "Requests"}}</button>
+  <span>{{.T "Chart by:"}}</span>
+  <span class="metric-toggle">
+    <button type="button" class="pm-btn-key{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">{{.T "By Token"}}</button>
+    <button type="button" class="pm-btn-key{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">{{.T "By Requests"}}</button>
+  </span>
 </div>
 <div id="keyPieChart" class="pie-chart"></div>
 <div class="table-wrap"><table id="key-table"><thead><tr>

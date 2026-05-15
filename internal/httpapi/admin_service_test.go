@@ -163,3 +163,43 @@ func TestAdminServiceReturnsReloadErrorAfterRetryExhausted(t *testing.T) {
 		t.Fatalf("error code = %q, want api_model_reload_error", adminErr.Code)
 	}
 }
+
+func TestAdminServiceUpdateProviderBlankAPIKeyKeepsExistingInlineKey(t *testing.T) {
+	repo := &adminServiceRepoStub{
+		providers: []config.ProviderConfig{{
+			Name:             "openai",
+			BaseURL:          "https://api.openai.test/v1",
+			APIKey:           "existing-secret",
+			APIKeyRef:        "OLD_SECRET_REF",
+			TimeoutSeconds:   60,
+			Enabled:          true,
+			AnthropicVersion: "2023-06-01",
+		}},
+		settings: config.RoutingConfig{Selection: "priority", FailoverEnabled: true, FailoverMaxAttempts: 2},
+	}
+	svc := &AdminService{
+		repo:           repo,
+		router:         &adminServiceRouterStub{},
+		auth:           auth.New(nil),
+		reloadAttempts: 1,
+	}
+
+	err := svc.UpdateProvider(context.Background(), "openai", ProviderUpdate{
+		BaseURL:          "https://api.openai.test/v1",
+		AnthropicVersion: "2023-06-01",
+		APIKey:           "",
+		APIKeySet:        true,
+		APIKeyRef:        "NEW_SECRET_REF",
+		APIKeyRefSet:     true,
+	})
+	if err != nil {
+		t.Fatalf("UpdateProvider() error = %v", err)
+	}
+	got := repo.providers[len(repo.providers)-1]
+	if got.APIKey != "existing-secret" {
+		t.Fatalf("APIKey = %q, want existing-secret", got.APIKey)
+	}
+	if got.APIKeyRef != "NEW_SECRET_REF" {
+		t.Fatalf("APIKeyRef = %q, want NEW_SECRET_REF", got.APIKeyRef)
+	}
+}

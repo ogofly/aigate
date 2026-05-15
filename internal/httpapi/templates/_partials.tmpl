@@ -18,6 +18,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(139,92,24
 button{padding:8px 11px;border:1px solid var(--line);background:linear-gradient(180deg, rgba(210,214,220,.054), rgba(210,214,220,.028));color:var(--text);border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;box-shadow:0 4px 10px rgba(0,0,0,.1),inset 0 1px 0 rgba(210,214,220,.03);transition:transform .18s ease,border-color .18s ease,background-color .18s ease,box-shadow .18s ease,color .18s ease}
 button:hover{border-color:rgba(139,92,246,.52);background:linear-gradient(180deg, rgba(210,214,220,.072), rgba(210,214,220,.035));transform:translateY(-1px)}
 button:active{transform:translateY(0)}
+button:disabled{opacity:.48;cursor:not-allowed;transform:none}
+button:disabled:hover{transform:none;border-color:var(--line)}
 .ghost{background:var(--ghost);color:var(--muted);box-shadow:none;border:1px solid rgba(210,214,220,.075)}
 .ghost:hover{color:var(--text);background:rgba(210,214,220,.038)}
 .danger{border-color:rgba(185,28,28,.32);background:rgba(185,28,28,.06);color:#f0a5a5}
@@ -50,6 +52,10 @@ button:active{transform:translateY(0)}
 .panel-toolbar .panel-copy{margin-bottom:0;max-width:760px}
 .panel-actions{display:flex;gap:10px;flex-wrap:wrap}
 .panel-actions button,.modal-actions button:last-child,.logout-form button,.actions button{border-color:rgba(139,92,246,.4);background:linear-gradient(180deg, rgba(139,92,246,.085), rgba(210,214,220,.032))}
+.metric-toggle{display:inline-flex;align-items:center;gap:4px;padding:3px;border:1px solid var(--line);border-radius:999px;background:rgba(210,214,220,.022)}
+.metric-toggle button{padding:5px 10px;border:0;border-radius:999px;background:transparent;color:var(--muted);box-shadow:none;font-size:12px;font-weight:650;white-space:nowrap}
+.metric-toggle button:hover{transform:none;background:rgba(210,214,220,.035);color:var(--text)}
+.metric-toggle button.active{background:rgba(139,92,246,.13);color:var(--text-strong);box-shadow:inset 0 0 0 1px rgba(139,92,246,.14)}
 .table-wrap{width:100%;overflow-x:auto;margin-top:20px;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:4px;background:linear-gradient(180deg, rgba(210,214,220,.04), rgba(210,214,220,.022));box-shadow:0 8px 16px rgba(0,0,0,.1)}
 table{width:100%;border-collapse:collapse;min-width:640px}
 th,td{padding:12px 14px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
@@ -177,7 +183,7 @@ tbody tr:hover td:first-child{box-shadow:inset 2px 0 0 rgba(139,92,246,.62)}
 .nav-user-dropdown button{width:100%;text-align:left;padding:8px 12px}
 .nav-user-prefs{display:flex;align-items:center;gap:4px;padding:6px 8px;border-bottom:1px solid var(--line);justify-content:space-between;min-width:140px}
 .nav>form.logout-form{display:none}
-.lang-toggle{display:inline-flex;align-items:center;justify-content:center;height:30px;padding:0 8px;font-size:12px;font-weight:700;letter-spacing:0;line-height:1}
+.lang-toggle{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border-radius:999px}
 @media (max-width:720px){
 body{padding:16px 4px}
 .nav{flex-wrap:nowrap;padding:8px 4px;gap:8px;position:sticky;top:0;z-index:1000}
@@ -446,7 +452,7 @@ async function copyWithFallback(value){
 
 {{define "admin_lang_switcher"}}
 <button type="button" class="ghost lang-toggle" id="langToggle" aria-label="Switch language" title="Switch language">
-<span class="lang-label">{{if eq .Lang "en"}}中文{{else}}EN{{end}}</span>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
 </button>
 <script>(function(){
 var b=document.getElementById('langToggle');if(!b)return;

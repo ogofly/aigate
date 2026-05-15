@@ -323,7 +323,7 @@ func TestAdminHomeUsageShareTranslations(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{`<html lang="zh">`, "密钥用量占比", "服务商用量占比", "模型用量占比"} {
+	for _, want := range []string{`<html lang="zh">`, "密钥用量占比", "服务商用量占比", "模型用量占比", "按Token", "按请求数"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("Chinese admin home expected %q: %q", want, body)
 		}
@@ -1850,7 +1850,7 @@ func TestAdminHomeRendersDashboardWithRealData(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"Home", "Today", "12.5K", "Users / Keys", "Top Keys", "Top Providers", "Top Models", "\"name\":\"alice-key\"", "\"name\":\"openai\"", "\"name\":\"gpt-4o-mini\"", "chartId:'homeKeyPie'", "chartId:'homeProviderPie'", "chartId:'homeModelPie'", "pieMetricLabels"} {
+	for _, want := range []string{"Home", "Today", "12.5K", "Users / Keys", "Top Keys", "Top Providers", "Top Models", "By Token", "By Requests", "\"name\":\"alice-key\"", "\"name\":\"openai\"", "\"name\":\"gpt-4o-mini\"", "chartId:'homeKeyPie'", "chartId:'homeProviderPie'", "chartId:'homeModelPie'", "pie-metric-btn"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("home page missing %q: %q", want, body)
 		}
@@ -1978,6 +1978,9 @@ func TestAdminUsageViewRendersSinglePageWithEmbeddedData(t *testing.T) {
 	}
 	if !strings.Contains(body, "data-section-target=\"trendSectionBody\"") || !strings.Contains(body, "data-section-target=\"modelSectionBody\"") || !strings.Contains(body, "data-section-target=\"keySectionBody\"") {
 		t.Fatalf("usage page missing collapsible section toggles: %q", body)
+	}
+	if !strings.Contains(body, "Chart by:") || !strings.Contains(body, "By Token") || !strings.Contains(body, "By Requests") {
+		t.Fatalf("usage page missing clear pie metric controls: %q", body)
 	}
 	if !strings.Contains(body, "name=\"key\"") || !strings.Contains(body, "name=\"owner\"") {
 		t.Fatalf("usage page missing key/owner filters: %q", body)
@@ -2443,6 +2446,102 @@ func TestAdminKeysSaveReloadsAuth(t *testing.T) {
 	}
 }
 
+func TestAdminKeysFormUserCannotOverwriteAnotherUsersKey(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{ID: "mrt_allowed", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini", Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	keys := []config.KeyConfig{
+		{Key: "sk-alice-001", Name: "alice-key", Owner: "alice", ModelAccess: "selected", ModelRouteIDs: []string{"mrt_allowed"}},
+		{Key: "sk-bob-001", Name: "bob-key", Owner: "bob"},
+	}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeysIfEmpty() error = %v", err)
+	}
+	handler := newHandlerWithStore(keys, rt, usage.New(100), &stubProvider{}, sqliteStore)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewBufferString("username=alice&password=sk-alice-001"))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected user session cookie")
+	}
+
+	form := url.Values{}
+	form.Set("key", "sk-bob-001")
+	form.Set("name", "taken")
+	form.Set("model_access", "selected")
+	form.Add("model_route_ids", "mrt_allowed")
+	req := httptest.NewRequest(http.MethodPost, "/admin/keys", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusConflict)
+	}
+	bob, err := sqliteStore.GetAuthKey(context.Background(), "sk-bob-001")
+	if err != nil {
+		t.Fatalf("GetAuthKey(bob) error = %v", err)
+	}
+	if bob.Owner != "bob" || bob.Name != "bob-key" {
+		t.Fatalf("bob key was overwritten: %+v", bob)
+	}
+}
+
+func TestAdminKeysFormUserCannotDeleteLastOwnKey(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{
+		{ID: "mrt_allowed", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini", Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	keys := []config.KeyConfig{
+		{Key: "sk-alice-001", Name: "alice-key", Owner: "alice", ModelAccess: "selected", ModelRouteIDs: []string{"mrt_allowed"}},
+	}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeysIfEmpty() error = %v", err)
+	}
+	handler := newHandlerWithStore(keys, rt, usage.New(100), &stubProvider{}, sqliteStore)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewBufferString("username=alice&password=sk-alice-001"))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected user session cookie")
+	}
+
+	form := url.Values{}
+	form.Set("key", "sk-alice-001")
+	req := httptest.NewRequest(http.MethodPost, "/admin/keys/delete", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusConflict)
+	}
+	if _, err := sqliteStore.GetAuthKey(context.Background(), "sk-alice-001"); err != nil {
+		t.Fatalf("last key was deleted: %v", err)
+	}
+}
+
 func TestAdminKeysPageMasksKeyByDefault(t *testing.T) {
 	rt, err := router.New([]config.ModelConfig{
 		{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"},
@@ -2634,6 +2733,68 @@ func TestAdminKeysPageRouteSelectorHidesRouteIDText(t *testing.T) {
 	}
 	if !strings.Contains(body, "value=\"mrt_key_route\"") {
 		t.Fatalf("keys page missing submitted route id value: %q", body)
+	}
+}
+
+func TestUserModelsAndPlaygroundOnlyShowAccessibleRoutes(t *testing.T) {
+	models := []config.ModelConfig{
+		{ID: "mrt_allowed", PublicName: "allowed-model", Provider: "openai-a", UpstreamName: "allowed-upstream", Enabled: true},
+		{ID: "mrt_denied", PublicName: "denied-model", Provider: "openai-b", UpstreamName: "denied-upstream", Enabled: true},
+	}
+	rt, err := router.New(models)
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertProvider(context.Background(), config.ProviderConfig{Name: "openai-a", BaseURL: "https://a.example/v1", APIKey: "secret", TimeoutSeconds: 60, Enabled: true}); err != nil {
+		t.Fatalf("UpsertProvider(openai-a) error = %v", err)
+	}
+	if err := sqliteStore.UpsertProvider(context.Background(), config.ProviderConfig{Name: "openai-b", BaseURL: "https://b.example/v1", APIKey: "secret", TimeoutSeconds: 60, Enabled: true}); err != nil {
+		t.Fatalf("UpsertProvider(openai-b) error = %v", err)
+	}
+	for _, model := range models {
+		if err := sqliteStore.UpsertModel(context.Background(), model); err != nil {
+			t.Fatalf("UpsertModel() error = %v", err)
+		}
+	}
+	keys := []config.KeyConfig{{Key: "sk-alice-001", Name: "alice-key", Owner: "alice", ModelAccess: "selected", ModelRouteIDs: []string{"mrt_allowed"}}}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeysIfEmpty() error = %v", err)
+	}
+	handler := newHandlerWithStore(keys, rt, usage.New(100), &stubProvider{}, sqliteStore)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewBufferString("username=alice&password=sk-alice-001"))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected user session cookie")
+	}
+
+	for _, path := range []string{"/admin/models", "/admin/playground"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.AddCookie(cookies[0])
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want %d", path, rr.Code, http.StatusOK)
+		}
+		body := rr.Body.String()
+		for _, want := range []string{"allowed-model", "openai-a"} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("%s missing accessible %q: %q", path, want, body)
+			}
+		}
+		for _, forbidden := range []string{"denied-model", "openai-b", "denied-upstream"} {
+			if strings.Contains(body, forbidden) {
+				t.Fatalf("%s leaked inaccessible %q: %q", path, forbidden, body)
+			}
+		}
 	}
 }
 

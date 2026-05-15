@@ -118,24 +118,34 @@ func (h *Handler) handleApiProviderUpdate(w http.ResponseWriter, r *http.Request
 	}
 
 	var body struct {
-		BaseURL          string `json:"base_url"`
-		AnthropicBaseURL string `json:"anthropic_base_url"`
-		AnthropicVersion string `json:"anthropic_version"`
-		APIKey           string `json:"api_key"`
-		APIKeyRef        string `json:"api_key_ref"`
-		TimeoutSeconds   *int   `json:"timeout"`
-		Enabled          *bool  `json:"enabled"`
+		BaseURL          string  `json:"base_url"`
+		AnthropicBaseURL string  `json:"anthropic_base_url"`
+		AnthropicVersion string  `json:"anthropic_version"`
+		APIKey           *string `json:"api_key"`
+		APIKeyRef        *string `json:"api_key_ref"`
+		TimeoutSeconds   *int    `json:"timeout"`
+		Enabled          *bool   `json:"enabled"`
 	}
 	if !decodeJSONBody(w, r, &body, "invalid JSON body") {
 		return
+	}
+	apiKey := ""
+	if body.APIKey != nil {
+		apiKey = *body.APIKey
+	}
+	apiKeyRef := ""
+	if body.APIKeyRef != nil {
+		apiKeyRef = *body.APIKeyRef
 	}
 
 	if err := h.adminService.UpdateProvider(r.Context(), name, ProviderUpdate{
 		BaseURL:          body.BaseURL,
 		AnthropicBaseURL: body.AnthropicBaseURL,
 		AnthropicVersion: body.AnthropicVersion,
-		APIKey:           body.APIKey,
-		APIKeyRef:        body.APIKeyRef,
+		APIKey:           apiKey,
+		APIKeySet:        body.APIKey != nil,
+		APIKeyRef:        apiKeyRef,
+		APIKeyRefSet:     body.APIKeyRef != nil,
 		TimeoutSeconds:   body.TimeoutSeconds,
 		Enabled:          body.Enabled,
 	}); err != nil {
@@ -343,6 +353,10 @@ func (h *Handler) handleApiKeysCreate(w http.ResponseWriter, r *http.Request) {
 	if session.Role != roleAdmin {
 		keyCfg.Owner = session.Username
 	}
+	if err := h.constrainKeyAccessForSession(r.Context(), session, &keyCfg); err != nil {
+		writeAdminError(w, err, http.StatusForbidden, "api_key_access_error")
+		return
+	}
 
 	if err := h.adminService.CreateAuthKey(r.Context(), keyCfg); err != nil {
 		writeAdminError(w, err, http.StatusInternalServerError, "api_key_create_error")
@@ -403,6 +417,10 @@ func (h *Handler) handleApiKeyUpdate(w http.ResponseWriter, r *http.Request) {
 	if session.Role != roleAdmin {
 		keyCfg.Owner = existing.Owner
 	}
+	if err := h.constrainKeyAccessForSession(r.Context(), session, &keyCfg); err != nil {
+		writeAdminError(w, err, http.StatusForbidden, "api_key_access_error")
+		return
+	}
 
 	if err := h.adminService.UpdateAuthKey(r.Context(), keyCfg); err != nil {
 		writeAdminError(w, err, http.StatusInternalServerError, "api_key_update_error")
@@ -426,13 +444,8 @@ func (h *Handler) handleApiKeysDelete(w http.ResponseWriter, r *http.Request) {
 
 	// Non-admin can only delete their own keys.
 	if session.Role != roleAdmin {
-		keyCfg, err := h.store.GetAuthKey(r.Context(), key)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_request", "key not found")
-			return
-		}
-		if keyCfg.Owner != session.Username {
-			writeError(w, http.StatusForbidden, "forbidden", "cannot delete key of another user")
+		if err := h.authorizeUserKeyDelete(r.Context(), session, key); err != nil {
+			writeAdminError(w, err, http.StatusForbidden, "api_key_delete_error")
 			return
 		}
 	}
