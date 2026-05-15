@@ -195,6 +195,108 @@ func newHandlerWithStore(keys []config.KeyConfig, rt *router.Router, recorder *u
 	return httpapi.NewWithClient(auth.New(keys), config.AdminConfig{Username: "admin", Password: "pass"}, client, rt, recorder, sqliteStore, []string{"openai"})
 }
 
+func TestAdminLoginPageDefaultsToEnglish(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"}})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), &stubProvider{})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/login", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{`<html lang="en">`, "Sign In", "Username", "Password or API key"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("login page missing %q: %q", want, body)
+		}
+	}
+}
+
+func TestAdminLoginPageUsesChineseAcceptLanguage(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"}})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), &stubProvider{})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/login", nil)
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{`<html lang="en">`, "Username", "Password or API key"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("English login page missing %q: %q", want, body)
+		}
+	}
+}
+
+func TestAdminLoginInvalidCredentialsUsesChineseAcceptLanguage(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"}})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), &stubProvider{})
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewBufferString("username=admin&password=wrong"))
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{`<html lang="en">`, "invalid credentials"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("English login error missing %q: %q", want, body)
+		}
+	}
+}
+
+func TestAdminHomeDefaultsToEnglish(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"}})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), &stubProvider{})
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewBufferString("username=admin&password=pass"))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+	req.AddCookie(cookies[0])
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{`<html lang="en">`, "Home", "Logout", "Providers", "Models", "Keys"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("English admin home expected %q: %q", want, body)
+		}
+	}
+}
+
 func TestChatCompletionsRoutesToExpectedProviderModel(t *testing.T) {
 	resp := provider.OpenAIResponse{
 		"id": "chatcmpl-test",

@@ -1,5 +1,5 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title>{{template "admin_head_assets" .}}
+<html lang="{{.Lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title>{{template "admin_head_assets" .}}
 {{template "admin_theme_init" .}}
 <style>
 {{template "admin_common_styles" .}}
@@ -66,19 +66,19 @@ textarea{min-height:64px}
 <div id="apiBaseData" class="hidden">{{.PlayAPIBase}}</div>
 <div class="grid">
 <section class="card">
-<h1 class="title">Playground</h1>
-<p class="muted subtle-copy">Send a quick test request with a managed key to verify auth, routing, and endpoint behavior.</p>
+<h1 class="title">{{.T "Playground"}}</h1>
+<p class="muted subtle-copy">{{.T "Send a quick test request with a managed key to verify auth, routing, and endpoint behavior."}}</p>
 <form id="playgroundForm">
 <div class="row">
-<div><label>API Key</label><select name="api_key" id="apiKey">{{range .Keys}}<option value="{{.Key}}" data-mask="{{maskID .Key}}" {{if eq $.PlayAPIKey .Key}}selected{{end}}>{{if .Name}}{{.Name}}{{else}}(unnamed){{end}} / {{maskID .Key}}</option>{{end}}</select></div>
-<div><label>Model</label><select name="model" id="model">{{range .PlayModels}}<option value="{{.}}" {{if eq $.PlayModel .}}selected{{end}}>{{.}}</option>{{end}}</select></div>
-<div><label>Provider</label><select name="provider" id="provider"><option value="">Default route</option></select><div class="hint" id="providerHint">Default route strategy</div></div>
+<div><label>{{.T "API Key"}}</label><select name="api_key" id="apiKey">{{range .Keys}}<option value="{{.Key}}" data-mask="{{maskID .Key}}" {{if eq $.PlayAPIKey .Key}}selected{{end}}>{{if .Name}}{{.Name}}{{else}}(unnamed){{end}} / {{maskID .Key}}</option>{{end}}</select></div>
+<div><label>{{.T "Model"}}</label><select name="model" id="model">{{range .PlayModels}}<option value="{{.}}" {{if eq $.PlayModel .}}selected{{end}}>{{.}}</option>{{end}}</select></div>
+<div><label>{{.T "Provider"}}</label><select name="provider" id="provider"><option value="">{{.T "Default route"}}</option></select><div class="hint" id="providerHint">{{.T "Default route strategy"}}</div></div>
 </div>
 
 <div id="playgroundMain" style="display:none">
 <div class="stack">
 <div class="section">
-<div class="field-label">API Style</div>
+<div class="field-label">{{.T "API Style"}}</div>
 <div class="radio-group">
 <label><input type="radio" name="api_style" value="openai" {{if not .PlayUseAnthropic}}checked{{end}}> OpenAI</label>
 <label><input type="radio" name="api_style" value="anthropic" {{if .PlayUseAnthropic}}checked{{end}}> Anthropic</label>
@@ -86,26 +86,26 @@ textarea{min-height:64px}
 </div>
 
 <div id="openaiSub" class="section" style="{{if .PlayUseAnthropic}}display:none{{end}}">
-<div class="field-label">OpenAI Endpoint</div>
+<div class="field-label">{{.T "OpenAI Endpoint"}}</div>
 <div class="radio-group">
-<label><input type="radio" name="api_type" value="chat_completions" {{if not .PlayUseResponses}}checked{{end}}> Chat Completions</label>
-<label><input type="radio" name="api_type" value="responses" {{if .PlayUseResponses}}checked{{end}}> Responses</label>
+<label><input type="radio" name="api_type" value="chat_completions" {{if not .PlayUseResponses}}checked{{end}}>{{.T "Chat Completions"}}</label>
+<label><input type="radio" name="api_type" value="responses" {{if .PlayUseResponses}}checked{{end}}>{{.T "Responses"}}</label>
 </div>
 </div>
 
 <div class="section">
-<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="stream" id="stream" {{if .PlayStream}}checked{{end}} style="width:auto"> Stream</label>
+<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="stream" id="stream" {{if .PlayStream}}checked{{end}} style="width:auto">{{.T "Stream"}}</label>
 </div>
 
 <div>
-<label>Message</label>
-<textarea name="message" id="message" placeholder="Say something...">{{.PlayMessage}}</textarea>
+<label>{{.T "Message"}}</label>
+<textarea name="message" id="message" placeholder="{{.T "Say something..."}}">{{.PlayMessage}}</textarea>
 <div class="hint-row">
-<span class="hint">Use this view for fast request checks before wiring a client application.</span>
-<span id="loadingHint" class="loading" style="display:none">Sending request...</span>
+<span class="hint">{{.T "Use this view for fast request checks before wiring a client application."}}</span>
+<span id="loadingHint" class="loading" style="display:none">{{.T "Sending request..."}}</span>
 </div>
 </div>
-<div class="actions"><button type="submit" id="sendBtn">Send</button><a class="hint" href="/admin/playground">Clear</a></div>
+<div class="actions"><button type="submit" id="sendBtn">{{.T "Send"}}</button><a class="hint" href="/admin/playground">{{.T "Clear"}}</a></div>
 </div>
 </div>
 </form>
@@ -113,31 +113,31 @@ textarea{min-height:64px}
 <div id="errorDiv" class="error" style="display:none"></div>
 <div id="resultWrap" style="display:none">
 <div class="view-toggle" id="viewToggle" style="display:none">
-<button id="parsedBtn" class="active" onclick="setView('parsed')">Parsed</button>
-<button id="rawBtn" onclick="setView('raw')">Raw SSE</button>
+<button id="parsedBtn" class="active" onclick="setView('parsed')">{{.T "Parsed"}}</button>
+<button id="rawBtn" onclick="setView('raw')">{{.T "Raw SSE"}}</button>
 </div>
 <div id="resultDiv" class="result"></div>
 </div>
-{{if .PlayResult}}<div class="result"><span class="result-title">Reply</span>{{.PlayResult}}</div>{{end}}
+{{if .PlayResult}}<div class="result"><span class="result-title">{{.T "Reply"}}</span>{{.PlayResult}}</div>{{end}}
 </section>
 <aside class="card">
-<h2 class="title">Connection Details</h2>
-<p class="muted subtle-copy" id="modeHint">OpenAI Chat Completions settings for your client.</p>
+<h2 class="title">{{.T "Connection Details"}}</h2>
+<p class="muted subtle-copy" id="modeHint">{{.T "OpenAI Chat Completions settings for your client."}}</p>
 <div id="connectKv" style="display:none" class="stack">
-<div class="kv"><div class="muted">API Base URL</div><div class="mono" id="cfgBase">{{.PlayAPIBase}}/v1</div><button type="button" class="ghost" onclick="copyText('cfgBase', this)">Copy</button></div>
-<div class="kv"><div class="muted">API Key</div><div class="mono" id="cfgKey" data-copy="{{.PlayAPIKey}}">{{maskID .PlayAPIKey}}</div><button type="button" class="ghost" onclick="copyText('cfgKey', this)">Copy</button></div>
-<div class="kv"><div class="muted">Model</div><div class="mono" id="cfgModel">{{.PlayModel}}</div><button type="button" class="ghost" onclick="copyText('cfgModel', this)">Copy</button></div>
-<div class="kv"><div class="muted">Provider</div><div class="mono" id="cfgProvider">Default route</div><button type="button" class="ghost" onclick="copyText('cfgProvider', this)">Copy</button></div>
+<div class="kv"><div class="muted">{{.T "API Base URL"}}</div><div class="mono" id="cfgBase">{{.PlayAPIBase}}/v1</div><button type="button" class="ghost" onclick="copyText('cfgBase', this)">{{.T "Copy"}}</button></div>
+<div class="kv"><div class="muted">{{.T "API Key"}}</div><div class="mono" id="cfgKey" data-copy="{{.PlayAPIKey}}">{{maskID .PlayAPIKey}}</div><button type="button" class="ghost" onclick="copyText('cfgKey', this)">{{.T "Copy"}}</button></div>
+<div class="kv"><div class="muted">{{.T "Model"}}</div><div class="mono" id="cfgModel">{{.PlayModel}}</div><button type="button" class="ghost" onclick="copyText('cfgModel', this)">{{.T "Copy"}}</button></div>
+<div class="kv"><div class="muted">{{.T "Provider"}}</div><div class="mono" id="cfgProvider">{{.T "Default route"}}</div><button type="button" class="ghost" onclick="copyText('cfgProvider', this)">{{.T "Copy"}}</button></div>
 <div class="metric">
-<div class="metric-label">Request Path</div>
-<div class="metric-value">Requests from this page use the same auth, routing, and upstream path as the public API.</div>
+<div class="metric-label">{{.T "Request Path"}}</div>
+<div class="metric-value">{{.T "Requests from this page use the same auth, routing, and upstream path as the public API."}}</div>
 </div>
 <div class="metric request-preview">
-<div class="request-preview-head"><div class="metric-label">Request Preview</div><button type="button" class="ghost" onclick="copyCurl(this)">Copy curl</button></div>
+<div class="request-preview-head"><div class="metric-label">{{.T "Request Preview"}}</div><button type="button" class="ghost" onclick="copyCurl(this)">{{.T "Copy curl"}}</button></div>
 <pre class="metric-value mono" id="requestPreview" data-copy=""></pre>
 </div>
 </div>
-<div class="hint" id="endpointHint">Endpoint: <span class="mono">/chat/completions</span></div>
+<div class="hint" id="endpointHint">{{.T "Endpoint"}}: <span class="mono">/chat/completions</span></div>
 </aside>
 </div>
 </div>
@@ -148,11 +148,11 @@ async function copyText(id, button){
 	try{
 		await copyWithFallback(el.dataset.copy || el.textContent || "");
 		const origin = button.textContent;
-		button.textContent = "Copied";
+		button.textContent = {{toJSON (.T "Copied")}};
 		setTimeout(()=>{button.textContent = origin;}, 1000);
 	}catch(_e){
-		button.textContent = "Failed";
-		setTimeout(()=>{button.textContent = "Copy";}, 1000);
+		button.textContent = {{toJSON (.T "Failed")}};
+		setTimeout(()=>{button.textContent = {{toJSON (.T "Copy")}};}, 1000);
 	}
 }
 
@@ -313,11 +313,11 @@ async function copyCurl(button){
 	try{
 		await copyWithFallback(requestPreview.dataset.copy || requestPreview.textContent || "");
 		const origin = button.textContent;
-		button.textContent = "Copied";
+		button.textContent = {{toJSON (.T "Copied")}};
 		setTimeout(()=>{button.textContent = origin;}, 1000);
 	}catch(_e){
-		button.textContent = "Failed";
-		setTimeout(()=>{button.textContent = "Copy curl";}, 1000);
+		button.textContent = {{toJSON (.T "Failed")}};
+		setTimeout(()=>{button.textContent = {{toJSON (.T "Copy curl")}};}, 1000);
 	}
 }
 
@@ -328,17 +328,17 @@ function updateModeUI(){
 	openaiSub.style.display = style === 'openai' ? '' : 'none';
 
 	if (style === 'anthropic') {
-		modeHint.textContent = 'Anthropic Messages settings for your client.';
+		modeHint.textContent = {{toJSON (.T "Anthropic Messages settings for your client.")}};
 		cfgBase.textContent = apiBase + '/anthropic';
-		endpointHint.innerHTML = 'Endpoint: <span class="mono">/messages</span>';
+		endpointHint.innerHTML = {{toJSON (.T "Endpoint")}} + ': <span class="mono">/messages</span>';
 	} else if (apiType === 'responses') {
-		modeHint.textContent = 'OpenAI Responses settings for your client.';
+		modeHint.textContent = {{toJSON (.T "OpenAI Responses settings for your client.")}};
 		cfgBase.textContent = apiBase + '/v1';
-		endpointHint.innerHTML = 'Endpoint: <span class="mono">/responses</span>';
+		endpointHint.innerHTML = {{toJSON (.T "Endpoint")}} + ': <span class="mono">/responses</span>';
 	} else {
-		modeHint.textContent = 'OpenAI Chat Completions settings for your client.';
+		modeHint.textContent = {{toJSON (.T "OpenAI Chat Completions settings for your client.")}};
 		cfgBase.textContent = apiBase + '/v1';
-		endpointHint.innerHTML = 'Endpoint: <span class="mono">/chat/completions</span>';
+		endpointHint.innerHTML = {{toJSON (.T "Endpoint")}} + ': <span class="mono">/chat/completions</span>';
 	}
 	updateRequestPreview();
 }
@@ -357,10 +357,10 @@ function updateConnectionValues(){
 	cfgKey.textContent = selectedKey ? selectedKey.dataset.mask || '' : '';
 	cfgKey.dataset.copy = apiKeySelect.value;
 	cfgModel.textContent = modelSelect.value;
-	const providerText = providerSelect.value || 'Default route';
+	const providerText = providerSelect.value || {{toJSON (.T "Default route")}};
 	cfgProvider.textContent = providerText;
 	cfgProvider.dataset.copy = providerSelect.value;
-	providerHint.textContent = providerSelect.value ? 'Adds X-Provider; failover stays within provider.' : 'Default route strategy';
+	providerHint.textContent = providerSelect.value ? {{toJSON (.T "Adds X-Provider; failover stays within provider.")}} : {{toJSON (.T "Default route strategy")}};
 	updateRequestPreview();
 }
 
@@ -371,7 +371,7 @@ function updateProviderOptions(){
 	providerSelect.innerHTML = '';
 	const defaultOption = document.createElement('option');
 	defaultOption.value = '';
-	defaultOption.textContent = 'Default route';
+	defaultOption.textContent = {{toJSON (.T "Default route")}};
 	providerSelect.appendChild(defaultOption);
 	for (const provider of providers) {
 		const option = document.createElement('option');
@@ -439,7 +439,7 @@ async function handleStream() {
 	}
 	if (!resp.ok) {
 		const message = await readError(resp);
-		errorDiv.textContent = message || 'Request failed';
+		errorDiv.textContent = message || {{toJSON (.T "Request failed")}};
 		errorDiv.style.display = 'block';
 		return;
 	}
@@ -517,7 +517,7 @@ async function handleNonStream() {
 		body: JSON.stringify(requestBody(false)),
 	});
 	const data = await resp.json().catch(() => null);
-	if (!resp.ok) { throw new Error(errorMessage(data) || 'Request failed'); }
+	if (!resp.ok) { throw new Error(errorMessage(data) || {{toJSON (.T "Request failed")}}); }
 	parsedText = extractResponseText(data) || JSON.stringify(data, null, 2);
 	viewToggle.style.display = 'flex';
 	resultDiv.textContent = parsedText;
@@ -538,7 +538,7 @@ function errorMessage(data){
 }
 
 function streamErrorMessage(data){
-	return errorMessage(data) || 'Stream error';
+	return errorMessage(data) || {{toJSON (.T "Stream error")}};
 }
 
 function extractResponseText(data){

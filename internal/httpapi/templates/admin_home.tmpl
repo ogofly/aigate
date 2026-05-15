@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="{{.Lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -20,8 +20,11 @@
 .chart-grid{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
 .chart-grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
 .chart-panel{border:1px solid var(--line);border-radius:8px;background:rgba(210,214,220,.018);padding:12px;min-width:0}
+.chart-head{display:flex;align-items:center;justify-content:space-between}
 .chart-title{margin:0;color:var(--text-strong);font-size:15px;font-weight:650}
 .chart-subtitle{margin:4px 0 0;color:var(--muted);font-size:12px}
+.chart-metric-btn{padding:2px 7px;border-radius:999px;font-size:11px;font-weight:600;border:1px solid var(--line);background:var(--ghost);color:var(--muted);cursor:pointer;transition:all .18s ease;box-shadow:none}
+.chart-metric-btn:hover{color:var(--text);border-color:rgba(139,92,246,.3)}
 .chart{width:100%;height:230px;margin-top:8px}
 .trend-chart{height:250px}
 .no-data{display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:var(--muted);font-size:13px;text-align:center}
@@ -41,56 +44,62 @@
 {{template "admin_nav" .}}
 <div class="home-head">
   <div>
-    <h1>Home</h1>
-    <div class="home-date">Today · {{.TodayLabel}}</div>
+    <h1>{{.T "Home"}}</h1>
+    <div class="home-date">{{.T "Today"}} · {{.TodayLabel}}</div>
   </div>
 </div>
 
 <section class="today-strip" aria-label="Today summary">
   <div class="today-main">
     <div class="today-item">
-      <div class="today-label">Requests</div>
+      <div class="today-label">{{.T "Requests"}}</div>
       <div class="today-value">{{compactNumber .TodayRequests}}</div>
     </div>
     <div class="today-item">
-      <div class="today-label">Tokens</div>
+      <div class="today-label">{{.T "Tokens"}}</div>
       <div class="today-value">{{compactNumber .TodayTokens}}</div>
     </div>
     <div class="today-item">
-      <div class="today-label">Errors</div>
+      <div class="today-label">{{.T "Errors"}}</div>
       <div class="today-value">{{compactNumber .TodayErrors}}</div>
     </div>
   </div>
   <div class="config-strip" aria-label="Configuration summary">
-    <span class="config-item">Providers <strong>{{.ProvidersEnabled}}/{{.ProvidersTotal}}</strong></span>
-    <span class="config-item">Models <strong>{{.ModelsEnabled}}/{{.ModelsTotal}}</strong></span>
-    <span class="config-item">Users / Keys <strong>{{.UsersTotal}}/{{.KeysTotal}}</strong></span>
+    <span class="config-item">{{.T "Providers"}} <strong>{{.ProvidersEnabled}}/{{.ProvidersTotal}}</strong></span>
+    <span class="config-item">{{.T "Models"}} <strong>{{.ModelsEnabled}}/{{.ModelsTotal}}</strong></span>
+    <span class="config-item">{{.T "Users / Keys"}} <strong>{{.UsersTotal}}/{{.KeysTotal}}</strong></span>
   </div>
 </section>
 
 <section class="chart-grid">
   <div class="chart-panel">
-    <h2 class="chart-title">Hourly Usage</h2>
-    <p class="chart-subtitle">Requests and errors by local hour.</p>
-    <div id="homeTrendChart" class="chart trend-chart">{{if not .TrendHourPoints}}<div class="no-data">No usage data for today</div>{{end}}</div>
+    <h2 class="chart-title">{{.T "Hourly Usage"}}</h2>
+    <p class="chart-subtitle">{{.T "Requests and errors by local hour."}}</p>
+    <div id="homeTrendChart" class="chart trend-chart">{{if not .TrendHourPoints}}<div class="no-data">{{.T "No usage data for today"}}</div>{{end}}</div>
   </div>
 </section>
 
 <section class="chart-grid three">
   <div class="chart-panel">
-    <h2 class="chart-title">Top Keys</h2>
-    <p class="chart-subtitle">Share by tokens or requests.</p>
-    <div id="homeKeyPie" class="chart">{{if not .TopKeys}}<div class="no-data">No key usage for today</div>{{end}}</div>
+    <div class="chart-head">
+      <h2 class="chart-title">{{.T "Top Keys"}}</h2>
+      <button type="button" class="chart-metric-btn" data-pie="keys">{{.T "Tokens"}}</button>
+    </div>
+    <div id="homeKeyPie" class="chart">{{if not .TopKeys}}<div class="no-data">{{.T "No key usage for today"}}</div>{{end}}</div>
   </div>
   <div class="chart-panel">
-    <h2 class="chart-title">Top Providers</h2>
-    <p class="chart-subtitle">Share by tokens or requests.</p>
-    <div id="homeProviderPie" class="chart">{{if not .TopProviders}}<div class="no-data">No provider usage for today</div>{{end}}</div>
+    <div class="chart-head">
+      <h2 class="chart-title">{{.T "Top Providers"}}</h2>
+      <button type="button" class="chart-metric-btn" data-pie="provider">{{.T "Tokens"}}</button>
+    </div>
+    <div id="homeProviderPie" class="chart">{{if not .TopProviders}}<div class="no-data">{{.T "No provider usage for today"}}</div>{{end}}</div>
   </div>
   <div class="chart-panel">
-    <h2 class="chart-title">Top Models</h2>
-    <p class="chart-subtitle">Share by tokens or requests.</p>
-    <div id="homeModelPie" class="chart">{{if not .TopModels}}<div class="no-data">No model usage for today</div>{{end}}</div>
+    <div class="chart-head">
+      <h2 class="chart-title">{{.T "Top Models"}}</h2>
+      <button type="button" class="chart-metric-btn" data-pie="model">{{.T "Tokens"}}</button>
+    </div>
+    <div id="homeModelPie" class="chart">{{if not .TopModels}}<div class="no-data">{{.T "No model usage for today"}}</div>{{end}}</div>
   </div>
 </section>
 
@@ -120,13 +129,13 @@ function renderTrend(){
   chart.setOption({
     backgroundColor:'transparent',
     tooltip:{trigger:'axis'},
-    legend:{data:['Requests','Errors'],textStyle:{color:muted},top:0},
+    legend:{data:[{{toJSON (.T "Requests")}},{{toJSON (.T "Errors")}}],textStyle:{color:muted},top:0},
     grid:{left:'3%',right:'3%',top:34,bottom:'3%',containLabel:true},
     xAxis:{type:'category',data:trendData.map(function(p){return p.date.slice(11);}),axisLabel:{color:muted},axisTick:{show:false}},
     yAxis:{type:'value',axisLabel:{color:muted},splitLine:{lineStyle:{color:line}}},
     series:[
-      {name:'Requests',type:'line',smooth:true,data:trendData.map(function(p){return p.request_count;}),itemStyle:{color:'#64748b'},areaStyle:{opacity:.05}},
-      {name:'Errors',type:'line',smooth:true,data:trendData.map(function(p){return p.error_count;}),itemStyle:{color:'#ef4444'},areaStyle:{opacity:.045}}
+      {name:{{toJSON (.T "Requests")}},type:'line',smooth:true,data:trendData.map(function(p){return p.request_count;}),itemStyle:{color:'#64748b'},areaStyle:{opacity:.05}},
+      {name:{{toJSON (.T "Errors")}},type:'line',smooth:true,data:trendData.map(function(p){return p.error_count;}),itemStyle:{color:'#ef4444'},areaStyle:{opacity:.045}}
     ]
   });
   window.addEventListener('resize', function(){chart.resize();});
@@ -144,16 +153,16 @@ function usageURL(filterName, value){
   return '/admin/usage/view?' + params.toString();
 }
 
-function renderPie(chartId, data, filterName){
+function renderPie(chartId, data, filterName, metric){
   if(!Array.isArray(data) || data.length === 0 || !window.echarts) return;
-  var metric = pieMetric(data);
+  if(!metric) metric = pieMetric(data);
   var chart = echarts.init(document.getElementById(chartId));
   var muted = cssValue('--muted', '#8b9098');
   chart.setOption({
     backgroundColor:'transparent',
     tooltip:{trigger:'item',formatter:function(item){
       var raw = data.find(function(row){return row.name === item.name;}) || {};
-      return item.name + '<br>Requests: ' + formatNumber(raw.requests || 0) + '<br>Errors: ' + formatNumber(raw.errors || 0) + '<br>Tokens: ' + formatNumber(raw.tokens || 0);
+      return item.name + '<br>{{.T "Requests"}}: ' + formatNumber(raw.requests || 0) + '<br>{{.T "Errors"}}: ' + formatNumber(raw.errors || 0) + '<br>{{.T "Tokens"}}: ' + formatNumber(raw.tokens || 0);
     }},
     series:[{
       type:'pie',
@@ -171,6 +180,17 @@ function renderPie(chartId, data, filterName){
   });
   window.addEventListener('resize', function(){chart.resize();});
 }
+
+var pieMetricState = {keys:'tokens',provider:'tokens',model:'tokens'};
+
+document.querySelectorAll('.chart-metric-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var k = this.getAttribute('data-pie');
+    pieMetricState[k] = pieMetricState[k] === 'tokens' ? 'requests' : 'tokens';
+    this.textContent = pieMetricState[k] === 'tokens' ? 'Tokens' : 'Requests';
+    renderPie(k+'Pie', k==='keys'?keyData:k==='provider'?providerData:modelData, k, pieMetricState[k]);
+  });
+});
 
 renderTrend();
 renderPie('homeProviderPie', providerData, 'provider');

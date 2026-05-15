@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="{{.Lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -40,28 +40,28 @@
 </head>
 <body><div class="page">
 {{template "admin_nav" .}}
-<h1>Keys</h1>
-{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+<h1>{{.T "Keys"}}</h1>
+{{if .Flash}}<div class="flash">{{.T .Flash}}</div>{{end}}
 <section class="panel">
 <div class="panel-toolbar">
   <div>
-    <h2 class="panel-title">Managed Keys</h2>
-    <p class="panel-copy">Create gateway keys for teammates, services, and test clients without exposing upstream provider secrets.</p>
+    <h2 class="panel-title">{{.T "Managed Keys"}}</h2>
+    <p class="panel-copy">{{.T "Create gateway keys for teammates, services, and test clients without exposing upstream provider secrets."}}</p>
   </div>
-  <div class="panel-actions"><button type="button" onclick="openDialog('keyCreateDialog')">New Key</button></div>
+  <div class="panel-actions"><button type="button" onclick="openDialog('keyCreateDialog')">{{.T "New Key"}}</button></div>
 </div>
-<div class="muted page-copy">OpenAI-compatible base URL: <span class="key-text copy-text" data-copy="{{.APIBase}}/v1" title="点击可复制" tabindex="0" role="button" onclick="copyInline(this)" onkeydown="copyInlineKeydown(event, this)">{{.APIBase}}/v1</span><span class="copy-feedback" aria-live="polite"></span> with <span class="key-text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
-<div class="muted" style="margin-top:4px">Anthropic-compatible base URL: <span class="key-text copy-text" data-copy="{{.APIBase}}/anthropic" title="点击可复制" tabindex="0" role="button" onclick="copyInline(this)" onkeydown="copyInlineKeydown(event, this)">{{.APIBase}}/anthropic</span><span class="copy-feedback" aria-live="polite"></span> with <span class="key-text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
+<div class="muted page-copy">{{.T "OpenAI-compatible base URL"}}: <span class="key-text copy-text" data-copy="{{.APIBase}}/v1" title="{{.T "Click to copy"}}" tabindex="0" role="button" onclick="copyInline(this)" onkeydown="copyInlineKeydown(event, this)">{{.APIBase}}/v1</span><span class="copy-feedback" aria-live="polite"></span> {{.T "with"}} <span class="key-text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
+<div class="muted" style="margin-top:4px">{{.T "Anthropic-compatible base URL"}}: <span class="key-text copy-text" data-copy="{{.APIBase}}/anthropic" title="{{.T "Click to copy"}}" tabindex="0" role="button" onclick="copyInline(this)" onkeydown="copyInlineKeydown(event, this)">{{.APIBase}}/anthropic</span><span class="copy-feedback" aria-live="polite"></span> {{.T "with"}} <span class="key-text">Authorization: Bearer &lt;api_key&gt;</span>.</div>
 </section>
 
 <div class="table-wrap"><table>
   <thead>
     <tr>
-      <th>Name</th>
-      {{if .IsAdmin}}<th>User</th>{{end}}
-      <th>Purpose</th>
-      <th>Model Access</th>
-      <th>Key</th>
+      <th>{{.T "Name"}}</th>
+      {{if .IsAdmin}}<th>{{.T "User"}}</th>{{end}}
+      <th>{{.T "Purpose"}}</th>
+      <th>{{.T "Model Access"}}</th>
+      <th>{{.T "Key"}}</th>
       <th></th>
     </tr>
   </thead>
@@ -71,20 +71,20 @@
       <td>{{.Name}}</td>
       {{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}
       <td>{{.Purpose}}</td>
-      <td>{{if eq .ModelAccess "selected"}}<span class="badge info">Selected · {{len .ModelRouteIDs}} routes</span>{{else}}<span class="badge ok">All</span>{{end}}</td>
+      <td>{{if eq .ModelAccess "selected"}}<span class="badge info">{{$.T "Selected"}} · {{len .ModelRouteIDs}} {{$.T "routes"}}</span>{{else}}<span class="badge ok">{{$.T "All"}}</span>{{end}}</td>
       <td>
         <div class="key-cell">
           <span class="key-text" data-key="{{.Key}}" onclick="toggleKeyText(this)">****</span>
-          <button type="button" class="ghost" onclick="copyKey(this)">Copy</button>
+          <button type="button" class="ghost" onclick="copyKey(this)">{{$.T "Copy"}}</button>
         </div>
       </td>
       <td>
-        <button type="button" data-model-access="{{.ModelAccess}}" data-route-ids="{{range .ModelRouteIDs}}{{.}},{{end}}" onclick="openKeyEditDialog(this, '{{.Name}}', '{{.Owner}}', '{{.Purpose}}', '{{.Key}}')">Edit</button>
-        <button type="button" class="danger" onclick="submitKeyDelete(this, '{{.Name}}', '{{.Purpose}}', '{{.Key}}')">Delete</button>
+        <button type="button" data-model-access="{{.ModelAccess}}" data-route-ids="{{range .ModelRouteIDs}}{{.}},{{end}}" onclick="openKeyEditDialog(this, '{{.Name}}', '{{.Owner}}', '{{.Purpose}}', '{{.Key}}')">{{$.T "Edit"}}</button>
+        <button type="button" class="danger" onclick="submitKeyDelete(this, '{{.Name}}', '{{.Purpose}}', '{{.Key}}')">{{$.T "Delete"}}</button>
       </td>
     </tr>
     {{else}}
-    <tr><td colspan="{{if .IsAdmin}}6{{else}}5{{end}}" class="muted">No keys configured</td></tr>
+    <tr><td colspan="{{if .IsAdmin}}6{{else}}5{{end}}" class="muted">{{.T "No keys configured"}}</td></tr>
     {{end}}
   </tbody>
 </table></div>
@@ -92,61 +92,61 @@
   <div class="modal-inner">
     <div class="modal-head">
       <div>
-        <h2 class="panel-title">New Key</h2>
-        <p class="modal-copy">Create a managed key and add optional user and usage context.</p>
+        <h2 class="panel-title">{{.T "New Key"}}</h2>
+        <p class="modal-copy">{{.T "Create a managed key and add optional user and usage context."}}</p>
       </div>
-      <button type="button" class="modal-close ghost" onclick="closeDialog('keyCreateDialog')" aria-label="Close">×</button>
+      <button type="button" class="modal-close ghost" onclick="closeDialog('keyCreateDialog')" aria-label="{{.T "Close"}}">×</button>
     </div>
     <form onsubmit="submitKeyCreate(this);return false" class="modal-form key-create-form">
       <div class="modal-grid key-create-grid">
         <div class="field-group key-span">
-          <label for="new-key-input">API Key</label>
+          <label for="new-key-input">{{.T "API Key"}}</label>
           <div class="key-gen">
-            <input id="new-key-input" name="key" placeholder="Managed API key">
-            <button type="button" class="ghost gen-btn" onclick="generateKey()">Generate</button>
+            <input id="new-key-input" name="key" placeholder="{{.T "Managed API key"}}">
+            <button type="button" class="ghost gen-btn" onclick="generateKey()">{{.T "Generate"}}</button>
           </div>
         </div>
         <div class="field-group">
-          <label for="key-name">Name</label>
-          <input id="key-name" name="name" placeholder="Display name">
+          <label for="key-name">{{.T "Name"}}</label>
+          <input id="key-name" name="name" placeholder="{{.T "Display name"}}">
         </div>
         {{if .IsAdmin}}
         <div class="field-group">
-          <label for="key-owner">User</label>
-          <input id="key-owner" name="owner" placeholder="User name">
+          <label for="key-owner">{{.T "User"}}</label>
+          <input id="key-owner" name="owner" placeholder="{{.T "User name"}}">
         </div>
         {{end}}
         <div class="field-group key-span">
-          <label for="key-purpose">Purpose</label>
-          <input id="key-purpose" name="purpose" placeholder="Usage context">
+          <label for="key-purpose">{{.T "Purpose"}}</label>
+          <input id="key-purpose" name="purpose" placeholder="{{.T "Usage context"}}">
         </div>
         <div class="field-group key-span">
-          <label for="key-model-access">Model Access</label>
+          <label for="key-model-access">{{.T "Model Access"}}</label>
           <select id="key-model-access" name="model_access" onchange="toggleRouteList(this)">
-            <option value="all">all</option>
-            <option value="selected">selected</option>
+            <option value="all">{{.T "All"}}</option>
+            <option value="selected">{{.T "Selected"}}</option>
           </select>
-          <p class="form-hint">All can use every enabled route. Selected only allows checked routes. Disabled providers/routes are never usable.</p>
+          <p class="form-hint">{{.T "All can use every enabled route. Selected only allows checked routes. Disabled providers/routes are never usable."}}</p>
         </div>
         <div class="field-group key-span route-access-block" hidden>
-          <label>Routes</label>
+          <label>{{.T "Routes"}}</label>
           <div class="route-list">
             {{range .ModelRouteGroups}}
             <div class="route-group">
-              <div class="route-group-title"><span>{{.PublicName}}</span><span class="route-selected-count">0 selected</span></div>
+              <div class="route-group-title"><span>{{.PublicName}}</span><span class="route-selected-count">0 {{$.T "selected"}}</span></div>
               <div class="route-group-items">
                 {{range .Routes}}
-                <label class="route-option"><input type="checkbox" name="model_route_ids" value="{{.ID}}"><span><span class="route-provider">{{.Provider}}</span>{{if ne .UpstreamName .PublicName}} <span class="muted">· upstream: {{.UpstreamName}}</span>{{end}}{{if not .Enabled}} <span class="badge off">Disabled</span>{{end}}</span></label>
+                <label class="route-option"><input type="checkbox" name="model_route_ids" value="{{.ID}}"><span><span class="route-provider">{{.Provider}}</span>{{if ne .UpstreamName .PublicName}} <span class="muted">· {{$.T "upstream"}}: {{.UpstreamName}}</span>{{end}}{{if not .Enabled}} <span class="badge off">{{$.T "Disabled"}}</span>{{end}}</span></label>
                 {{end}}
               </div>
             </div>
-            {{else}}<div class="muted">No routes configured</div>{{end}}
+            {{else}}<div class="muted">{{.T "No routes configured"}}</div>{{end}}
           </div>
         </div>
       </div>
       <div class="modal-actions">
-        <button type="button" class="ghost" onclick="closeDialog('keyCreateDialog')">Cancel</button>
-        <button type="submit">Save</button>
+        <button type="button" class="ghost" onclick="closeDialog('keyCreateDialog')">{{.T "Cancel"}}</button>
+        <button type="submit">{{.T "Save"}}</button>
       </div>
     </form>
   </div>
@@ -156,55 +156,55 @@
   <div class="modal-inner">
     <div class="modal-head">
       <div>
-        <h2 class="panel-title">Edit Key</h2>
-        <p class="modal-copy">Update the name, user, or purpose for this managed key.</p>
+        <h2 class="panel-title">{{.T "Edit Key"}}</h2>
+        <p class="modal-copy">{{.T "Update the name, user, or purpose for this managed key."}}</p>
       </div>
-      <button type="button" class="modal-close ghost" onclick="closeDialog('keyEditDialog')" aria-label="Close">×</button>
+      <button type="button" class="modal-close ghost" onclick="closeDialog('keyEditDialog')" aria-label="{{.T "Close"}}">×</button>
     </div>
     <form onsubmit="submitKeyUpdate(this);return false" class="modal-form key-create-form">
       <input type="hidden" id="edit-key-value" name="key">
       <div class="modal-grid key-create-grid">
         <div class="field-group">
-          <label for="edit-key-name">Name</label>
-          <input id="edit-key-name" name="name" placeholder="Display name">
+          <label for="edit-key-name">{{.T "Name"}}</label>
+          <input id="edit-key-name" name="name" placeholder="{{.T "Display name"}}">
         </div>
         {{if .IsAdmin}}
         <div class="field-group">
-          <label for="edit-key-owner">User</label>
-          <input id="edit-key-owner" name="owner" placeholder="User name">
+          <label for="edit-key-owner">{{.T "User"}}</label>
+          <input id="edit-key-owner" name="owner" placeholder="{{.T "User name"}}">
         </div>
         {{end}}
         <div class="field-group key-span">
-          <label for="edit-key-purpose">Purpose</label>
-          <input id="edit-key-purpose" name="purpose" placeholder="Usage context">
+          <label for="edit-key-purpose">{{.T "Purpose"}}</label>
+          <input id="edit-key-purpose" name="purpose" placeholder="{{.T "Usage context"}}">
         </div>
         <div class="field-group key-span">
-          <label for="edit-key-model-access">Model Access</label>
+          <label for="edit-key-model-access">{{.T "Model Access"}}</label>
           <select id="edit-key-model-access" name="model_access" onchange="toggleRouteList(this)">
-            <option value="all">all</option>
-            <option value="selected">selected</option>
+            <option value="all">{{.T "All"}}</option>
+            <option value="selected">{{.T "Selected"}}</option>
           </select>
-          <p class="form-hint">All can use every enabled route. Selected only allows checked routes. Disabled providers/routes are never usable.</p>
+          <p class="form-hint">{{.T "All can use every enabled route. Selected only allows checked routes. Disabled providers/routes are never usable."}}</p>
         </div>
         <div class="field-group key-span route-access-block" hidden>
-          <label>Routes</label>
+          <label>{{.T "Routes"}}</label>
           <div class="route-list">
             {{range .ModelRouteGroups}}
             <div class="route-group">
-              <div class="route-group-title"><span>{{.PublicName}}</span><span class="route-selected-count">0 selected</span></div>
+              <div class="route-group-title"><span>{{.PublicName}}</span><span class="route-selected-count">0 {{$.T "selected"}}</span></div>
               <div class="route-group-items">
                 {{range .Routes}}
-                <label class="route-option"><input type="checkbox" name="model_route_ids" value="{{.ID}}"><span><span class="route-provider">{{.Provider}}</span>{{if ne .UpstreamName .PublicName}} <span class="muted">· upstream: {{.UpstreamName}}</span>{{end}}{{if not .Enabled}} <span class="badge off">Disabled</span>{{end}}</span></label>
+                <label class="route-option"><input type="checkbox" name="model_route_ids" value="{{.ID}}"><span><span class="route-provider">{{.Provider}}</span>{{if ne .UpstreamName .PublicName}} <span class="muted">· {{$.T "upstream"}}: {{.UpstreamName}}</span>{{end}}{{if not .Enabled}} <span class="badge off">{{$.T "Disabled"}}</span>{{end}}</span></label>
                 {{end}}
               </div>
             </div>
-            {{else}}<div class="muted">No routes configured</div>{{end}}
+            {{else}}<div class="muted">{{.T "No routes configured"}}</div>{{end}}
           </div>
         </div>
       </div>
       <div class="modal-actions">
-        <button type="button" class="ghost" onclick="closeDialog('keyEditDialog')">Cancel</button>
-        <button type="submit">Save</button>
+        <button type="button" class="ghost" onclick="closeDialog('keyEditDialog')">{{.T "Cancel"}}</button>
+        <button type="submit">{{.T "Save"}}</button>
       </div>
     </form>
   </div>
@@ -232,11 +232,11 @@ async function copyKey(button){
   const value = text.dataset.key;
   try{
     await copyWithFallback(value);
-    button.textContent='Copied';
-    setTimeout(()=>{button.textContent='Copy';},1200);
+    button.textContent={{toJSON (.T "Copied")}};
+    setTimeout(()=>{button.textContent={{toJSON (.T "Copy")}};},1200);
   }catch(_e){
-    button.textContent='Copy failed';
-    setTimeout(()=>{button.textContent='Copy';},1200);
+    button.textContent={{toJSON (.T "Copy failed")}};
+    setTimeout(()=>{button.textContent={{toJSON (.T "Copy")}};},1200);
   }
 }
 
@@ -244,10 +244,10 @@ async function copyInline(el){
   const feedback = el.nextElementSibling;
   try{
     await copyWithFallback(el.dataset.copy || el.textContent || "");
-    if(feedback){feedback.textContent='Copied';}
+    if(feedback){feedback.textContent={{toJSON (.T "Copied")}};}
     setTimeout(()=>{if(feedback){feedback.textContent='';}},1200);
   }catch(_e){
-    if(feedback){feedback.textContent='Copy failed';}
+    if(feedback){feedback.textContent={{toJSON (.T "Copy failed")}};}
     setTimeout(()=>{if(feedback){feedback.textContent='';}},1200);
   }
 }
@@ -306,7 +306,7 @@ function generateKey(){
 }
 
 function confirmDeleteKey(name, purpose){
-  return confirm('Delete key: ' + name + (purpose ? ' (' + purpose + ')' : '') + '?');
+  return confirm({{toJSON (.T "Delete key: ")}} + name + (purpose ? ' (' + purpose + ')' : '') + '?');
 }
 
 function toggleRouteList(select){
@@ -320,7 +320,7 @@ function updateRouteSelectionCounts(form){
   form.querySelectorAll('.route-group').forEach(group => {
     const count = group.querySelectorAll('[name=model_route_ids]:checked').length;
     const label = group.querySelector('.route-selected-count');
-    if(label){label.textContent = count + ' selected';}
+    if(label){label.textContent = count + ' ' + {{toJSON (.T "selected")}};}
   });
 }
 
@@ -343,16 +343,16 @@ async function submitKeyCreate(form){
   const result = await apiCall('POST', '/api/admin/keys', data);
   if (result && result.ok) {
     closeDialog('keyCreateDialog');
-    reloadAfterToast('Key saved');
+    reloadAfterToast({{toJSON (.T "Key saved")}});
   }
 }
 
 async function submitKeyDelete(btn, name, purpose, key){
-  if(!confirm('Delete key: ' + name + (purpose ? ' (' + purpose + ')' : '') + '?')) return;
+  if(!confirm({{toJSON (.T "Delete key: ")}} + name + (purpose ? ' (' + purpose + ')' : '') + '?')) return;
   const result = await apiCall('DELETE', '/api/admin/keys/' + encodeURIComponent(key));
   if (result && result.ok) {
     btn.closest('tr').remove();
-    showToast('Key deleted');
+    showToast({{toJSON (.T "Key deleted")}});
   }
 }
 
@@ -385,7 +385,7 @@ async function submitKeyUpdate(form){
   const result = await apiCall('PUT', '/api/admin/keys/' + encodeURIComponent(key), data);
   if (result && result.ok) {
     closeDialog('keyEditDialog');
-    reloadAfterToast('Key saved');
+    reloadAfterToast({{toJSON (.T "Key saved")}});
   }
 }
 

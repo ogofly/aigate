@@ -39,11 +39,11 @@ type adminSessionStore struct {
 	tokens map[string]webSession
 }
 
-func adminPageTitle(page string) string {
+func adminPageTitle(lang adminLang, page string) string {
 	if page == "" {
 		return adminSystemName
 	}
-	return page + " · " + adminSystemName
+	return adminText(lang, page) + " · " + adminSystemName
 }
 
 func newAdminSessionStore() *adminSessionStore {
@@ -84,6 +84,8 @@ func (s *adminSessionStore) Delete(token string) {
 }
 
 type adminViewData struct {
+	Lang                 string
+	LangCookie           string
 	Title                string
 	Error                string
 	IsAdmin              bool
@@ -129,7 +131,13 @@ type adminViewData struct {
 	TrendDayPoints       []store.TrendPoint
 }
 
+func (d adminViewData) T(key string) string {
+	return adminText(adminLang(d.Lang), key)
+}
+
 type adminHomeViewData struct {
+	Lang             string
+	LangCookie       string
 	Title            string
 	IsAdmin          bool
 	CurrentUser      string
@@ -151,6 +159,10 @@ type adminHomeViewData struct {
 	TopProviders     []adminHomeUsageSlice
 	TopModels        []adminHomeUsageSlice
 	TopKeys          []adminHomeUsageSlice
+}
+
+func (d adminHomeViewData) T(key string) string {
+	return adminText(adminLang(d.Lang), key)
 }
 
 type adminHomeUsageSlice struct {
@@ -201,16 +213,18 @@ func groupModelsByPublicName(models []config.ModelConfig) []adminModelRouteGroup
 }
 
 func (h *Handler) handleAdminLoginPage(w http.ResponseWriter, r *http.Request) {
+	lang := resolveAdminLang(r)
 	if _, ok := h.webSession(r); ok {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 		return
 	}
-	_ = adminLoginTemplate.Execute(w, adminViewData{Title: adminPageTitle("Login")})
+	_ = adminLoginTemplate.Execute(w, adminViewData{Lang: string(lang), LangCookie: adminLangCookie, Title: adminPageTitle(lang, "Login")})
 }
 
 func (h *Handler) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
+	lang := resolveAdminLang(r)
 	if err := r.ParseForm(); err != nil {
-		_ = adminLoginTemplate.Execute(w, adminViewData{Title: adminPageTitle("Login"), Error: "invalid form"})
+		_ = adminLoginTemplate.Execute(w, adminViewData{Lang: string(lang), LangCookie: adminLangCookie, Title: adminPageTitle(lang, "Login"), Error: "invalid form"})
 		return
 	}
 	username := strings.TrimSpace(r.FormValue("username"))
@@ -222,7 +236,7 @@ func (h *Handler) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	default:
 		keyCfg, err := h.store.GetAuthKey(r.Context(), password)
 		if err != nil || keyCfg.Owner == "" || keyCfg.Owner != username {
-			_ = adminLoginTemplate.Execute(w, adminViewData{Title: adminPageTitle("Login"), Error: "invalid credentials"})
+			_ = adminLoginTemplate.Execute(w, adminViewData{Lang: string(lang), LangCookie: adminLangCookie, Title: adminPageTitle(lang, "Login"), Error: "invalid credentials"})
 			return
 		}
 		session = webSession{Role: roleUser, Username: username}
@@ -267,15 +281,19 @@ func (h *Handler) handleAdminHome(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	data, err := h.buildAdminHomeViewData(r.Context(), session)
+	lang := resolveAdminLang(r)
+	data, err := h.buildAdminHomeViewData(r.Context(), session, lang)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "admin_home_error", err.Error())
 		return
 	}
+	data.Lang = string(lang)
+	data.LangCookie = adminLangCookie
+	data.Title = adminPageTitle(lang, "Home")
 	_ = adminHomeTemplate.Execute(w, data)
 }
 
-func (h *Handler) buildAdminHomeViewData(ctx context.Context, session webSession) (adminHomeViewData, error) {
+func (h *Handler) buildAdminHomeViewData(ctx context.Context, session webSession, lang adminLang) (adminHomeViewData, error) {
 	providers, err := h.store.ListProviders(ctx)
 	if err != nil {
 		return adminHomeViewData{}, err
@@ -336,7 +354,8 @@ func (h *Handler) buildAdminHomeViewData(ctx context.Context, session webSession
 	}
 
 	return adminHomeViewData{
-		Title:            adminPageTitle("Home"),
+		Lang:             string(lang),
+		Title:            adminPageTitle(lang, "Home"),
 		IsAdmin:          session.Role == roleAdmin,
 		CurrentUser:      session.Username,
 		CurrentPath:      "/admin",
@@ -365,6 +384,7 @@ func (h *Handler) handleAdminKeysPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	lang := resolveAdminLang(r)
 	keys, err := h.visibleKeys(r.Context(), session)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "admin_keys_error", err.Error())
@@ -376,7 +396,9 @@ func (h *Handler) handleAdminKeysPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := adminViewData{
-		Title:            adminPageTitle("Keys"),
+		Lang:             string(lang),
+		LangCookie:       adminLangCookie,
+		Title:            adminPageTitle(lang, "Keys"),
 		IsAdmin:          session.Role == roleAdmin,
 		CurrentUser:      session.Username,
 		Keys:             keys,
@@ -420,7 +442,7 @@ func (h *Handler) handleAdminKeysSave(w http.ResponseWriter, r *http.Request) {
 		writeAdminError(w, err, http.StatusInternalServerError, "admin_key_save_error")
 		return
 	}
-	http.Redirect(w, r, "/admin/keys?flash=key+saved", http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/keys?flash=Key+saved", http.StatusSeeOther)
 }
 
 func (h *Handler) handleAdminKeysDelete(w http.ResponseWriter, r *http.Request) {
@@ -452,7 +474,7 @@ func (h *Handler) handleAdminKeysDelete(w http.ResponseWriter, r *http.Request) 
 		writeAdminError(w, err, http.StatusInternalServerError, "admin_key_delete_error")
 		return
 	}
-	http.Redirect(w, r, "/admin/keys?flash=key+deleted", http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/keys?flash=Key+deleted", http.StatusSeeOther)
 }
 
 func (h *Handler) handleAdminProvidersPage(w http.ResponseWriter, r *http.Request) {
@@ -460,6 +482,7 @@ func (h *Handler) handleAdminProvidersPage(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
+	lang := resolveAdminLang(r)
 	if session.Role != roleAdmin {
 		writeError(w, http.StatusForbidden, "forbidden", "admin required")
 		return
@@ -470,7 +493,9 @@ func (h *Handler) handleAdminProvidersPage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	data := adminViewData{
-		Title:        adminPageTitle("Providers"),
+		Lang:         string(lang),
+		LangCookie:   adminLangCookie,
+		Title:        adminPageTitle(lang, "Providers"),
 		IsAdmin:      true,
 		CurrentUser:  session.Username,
 		ProvidersCfg: providersCfg,
@@ -521,7 +546,7 @@ func (h *Handler) handleAdminProvidersSave(w http.ResponseWriter, r *http.Reques
 		writeAdminError(w, err, http.StatusBadRequest, "admin_provider_save_error")
 		return
 	}
-	http.Redirect(w, r, "/admin/providers?flash=provider+saved", http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/providers?flash=Provider+saved", http.StatusSeeOther)
 }
 
 func (h *Handler) handleAdminProviderUpdate(w http.ResponseWriter, r *http.Request, name string) {
@@ -547,7 +572,7 @@ func (h *Handler) handleAdminProviderUpdate(w http.ResponseWriter, r *http.Reque
 		writeAdminError(w, err, http.StatusBadRequest, "admin_provider_update_error")
 		return
 	}
-	http.Redirect(w, r, "/admin/providers?flash=provider+updated", http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/providers?flash=Provider+updated", http.StatusSeeOther)
 }
 
 func (h *Handler) handleAdminProvidersDelete(w http.ResponseWriter, r *http.Request) {
@@ -567,7 +592,7 @@ func (h *Handler) handleAdminProvidersDelete(w http.ResponseWriter, r *http.Requ
 		writeAdminError(w, err, http.StatusInternalServerError, "admin_provider_delete_error")
 		return
 	}
-	http.Redirect(w, r, "/admin/providers?flash=provider+deleted", http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/providers?flash=Provider+deleted", http.StatusSeeOther)
 }
 
 func (h *Handler) handleAdminModelsPage(w http.ResponseWriter, r *http.Request) {
@@ -575,6 +600,7 @@ func (h *Handler) handleAdminModelsPage(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	lang := resolveAdminLang(r)
 	models, err := h.store.ListModels(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "admin_models_error", err.Error())
@@ -586,7 +612,9 @@ func (h *Handler) handleAdminModelsPage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	data := adminViewData{
-		Title:       adminPageTitle("Models"),
+		Lang:        string(lang),
+		LangCookie:  adminLangCookie,
+		Title:       adminPageTitle(lang, "Models"),
 		IsAdmin:     session.Role == roleAdmin,
 		CurrentUser: session.Username,
 		Providers:   h.listProviderNames(),
@@ -628,7 +656,7 @@ func (h *Handler) handleAdminModelsSave(w http.ResponseWriter, r *http.Request) 
 		writeAdminError(w, err, http.StatusBadRequest, "admin_model_save_error")
 		return
 	}
-	http.Redirect(w, r, "/admin/models?flash=model+saved", http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/models?flash=Model+saved", http.StatusSeeOther)
 }
 
 func (h *Handler) handleAdminModelsDelete(w http.ResponseWriter, r *http.Request) {
@@ -651,7 +679,7 @@ func (h *Handler) handleAdminModelsDelete(w http.ResponseWriter, r *http.Request
 		writeAdminError(w, err, http.StatusInternalServerError, "admin_model_delete_error")
 		return
 	}
-	http.Redirect(w, r, "/admin/models?flash=model+deleted", http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/models?flash=Model+deleted", http.StatusSeeOther)
 }
 
 func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
@@ -659,6 +687,7 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	lang := resolveAdminLang(r)
 	startStr := strings.TrimSpace(r.URL.Query().Get("start"))
 	endStr := strings.TrimSpace(r.URL.Query().Get("end"))
 	model := strings.TrimSpace(r.URL.Query().Get("model"))
@@ -746,7 +775,9 @@ func (h *Handler) handleAdminUsagePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := adminViewData{
-		Title:           adminPageTitle("Usage"),
+		Lang:            string(lang),
+		LangCookie:      adminLangCookie,
+		Title:           adminPageTitle(lang, "Usage"),
 		IsAdmin:         session.Role == roleAdmin,
 		CurrentUser:     session.Username,
 		Usage:           summaries,
@@ -826,15 +857,19 @@ func (h *Handler) handleAdminPlaygroundPage(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	data, err := h.buildPlaygroundViewData(r.Context(), r, session, "", "", false, false, false, "", "", "")
+	lang := resolveAdminLang(r)
+	data, err := h.buildPlaygroundViewData(r.Context(), r, session, "", "", false, false, false, "", "", "", lang)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "admin_playground_error", err.Error())
 		return
 	}
+	data.Lang = string(lang)
+	data.LangCookie = adminLangCookie
+	data.Title = adminPageTitle(lang, "Playground")
 	_ = adminPlaygroundTemplate.Execute(w, data)
 }
 
-func (h *Handler) buildPlaygroundViewData(ctx context.Context, r *http.Request, session webSession, selectedKey, selectedModel string, stream, useAnthropic, useResponses bool, message, result, errMsg string) (adminViewData, error) {
+func (h *Handler) buildPlaygroundViewData(ctx context.Context, r *http.Request, session webSession, selectedKey, selectedModel string, stream, useAnthropic, useResponses bool, message, result, errMsg string, lang adminLang) (adminViewData, error) {
 	keys, err := h.visibleKeys(ctx, session)
 	if err != nil {
 		return adminViewData{}, err
@@ -863,7 +898,9 @@ func (h *Handler) buildPlaygroundViewData(ctx context.Context, r *http.Request, 
 	}
 
 	return adminViewData{
-		Title:                adminPageTitle("Playground"),
+		Lang:                 string(lang),
+		LangCookie:           adminLangCookie,
+		Title:                adminPageTitle(lang, "Playground"),
 		IsAdmin:              session.Role == roleAdmin,
 		CurrentUser:          session.Username,
 		CurrentPath:          "/admin/playground",

@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="{{.Lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -42,24 +42,24 @@
 </head>
 <body><div class="page">
 {{template "admin_nav" .}}
-<h1>Providers</h1>
-{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+<h1>{{.T "Providers"}}</h1>
+{{if .Flash}}<div class="flash">{{.T .Flash}}</div>{{end}}
 <section class="panel">
 <div class="panel-toolbar">
   <div>
-    <h2 class="panel-title">Provider Connections</h2>
-    <p class="panel-copy">Configure upstream endpoints, credentials, and timeouts for each provider connection.</p>
+    <h2 class="panel-title">{{.T "Provider Connections"}}</h2>
+    <p class="panel-copy">{{.T "Configure upstream endpoints, credentials, and timeouts for each provider connection."}}</p>
   </div>
-  <div class="panel-actions"><button type="button" onclick="openDialog('providerCreateDialog')">New Provider</button></div>
+  <div class="panel-actions"><button type="button" onclick="openDialog('providerCreateDialog')">{{.T "New Provider"}}</button></div>
 </div>
 </section>
 <div class="table-wrap"><table id="providers-table" class="providers-table">
   <thead>
     <tr>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',0,'text')">Name</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',1,'text')">Connection</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',2,'num')">Timeout</button></th>
-      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',3,'text')">Enabled</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',0,'text')">{{.T "Name"}}</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',1,'text')">{{.T "Connection"}}</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',2,'num')">{{.T "Timeout"}}</button></th>
+      <th><button type="button" class="sort-btn" onclick="sortTable('providers-table',3,'text')">{{.T "Enabled"}}</button></th>
       <th></th>
     </tr>
   </thead>
@@ -69,22 +69,22 @@
       <td>{{$provider.Name}}</td>
       <td><div class="connection-stack">
         <div class="connection-badges">
-          <span class="badge info">OpenAI</span>
-          {{if $provider.AnthropicBaseURL}}<span class="badge info">Anthropic</span>{{end}}
-          {{if and $provider.APIKey $provider.APIKeyRef}}<span class="badge warn">Key + env</span>{{else if $provider.APIKey}}<span class="badge ok">Key</span>{{else if $provider.APIKeyRef}}<span class="badge ok">Key env</span>{{else}}<span class="badge off">Missing key</span>{{end}}
+          <span class="badge info">{{$.T "OpenAI"}}</span>
+          {{if $provider.AnthropicBaseURL}}<span class="badge info">{{$.T "Anthropic"}}</span>{{end}}
+          {{if and $provider.APIKey $provider.APIKeyRef}}<span class="badge warn">{{$.T "Key + env"}}</span>{{else if $provider.APIKey}}<span class="badge ok">{{$.T "Key"}}</span>{{else if $provider.APIKeyRef}}<span class="badge ok">{{$.T "Key env"}}</span>{{else}}<span class="badge off">{{$.T "Missing key"}}</span>{{end}}
         </div>
       </div></td>
       <td>{{$provider.TimeoutSeconds}}s</td>
-      <td>{{if $provider.Enabled}}<span class="badge ok">Enabled</span>{{else}}<span class="badge off">Disabled</span>{{end}}</td>
+      <td>{{if $provider.Enabled}}<span class="badge ok">{{$.T "Enabled"}}</span>{{else}}<span class="badge off">{{$.T "Disabled"}}</span>{{end}}</td>
       <td>
         <div class="table-actions">
-          <button type="button" class="ghost" onclick="openDialog('providerEditDialog{{$i}}')">Edit</button>
-          <button type="button" class="danger" onclick="submitProviderDelete(this, '{{$provider.Name}}')">Delete</button>
+          <button type="button" class="ghost" onclick="openDialog('providerEditDialog{{$i}}')">{{$.T "Edit"}}</button>
+          <button type="button" class="danger" onclick="submitProviderDelete(this, '{{$provider.Name}}')">{{$.T "Delete"}}</button>
         </div>
       </td>
     </tr>
     {{else}}
-    <tr><td colspan="5" class="muted">No providers configured</td></tr>
+    <tr><td colspan="5" class="muted">{{.T "No providers configured"}}</td></tr>
     {{end}}
   </tbody>
 </table></div>
@@ -92,51 +92,51 @@
   <div class="modal-inner">
     <div class="modal-head">
       <div>
-        <h2 class="panel-title">New Provider</h2>
-        <p class="modal-copy">Add an upstream provider configuration for routing and playground access.</p>
+        <h2 class="panel-title">{{.T "New Provider"}}</h2>
+        <p class="modal-copy">{{.T "Create an upstream provider configuration for routing and playground access."}}</p>
       </div>
-      <button type="button" class="modal-close ghost" onclick="closeDialog('providerCreateDialog')" aria-label="Close">×</button>
+      <button type="button" class="modal-close ghost" onclick="closeDialog('providerCreateDialog')" aria-label="{{.T "Close"}}">×</button>
     </div>
     <form onsubmit="submitProviderCreate(this);return false" class="modal-form">
       <div class="modal-grid">
         <div class="field-group">
-          <label for="provider-name">Name</label>
-          <input id="provider-name" name="name" placeholder="Provider name">
+          <label for="provider-name">{{.T "Name"}}</label>
+          <input id="provider-name" name="name" placeholder="{{.T "Provider name"}}">
         </div>
         <div class="field-group">
-          <label for="provider-timeout">Timeout</label>
-          <input id="provider-timeout" name="timeout" placeholder="Timeout in seconds" value="60">
+          <label for="provider-timeout">{{.T "Timeout"}}</label>
+          <input id="provider-timeout" name="timeout" placeholder="{{.T "Timeout in seconds"}}" value="60">
         </div>
       </div>
       <div class="field-group">
         <label for="provider-base-url">Base URL</label>
-        <input id="provider-base-url" name="base_url" placeholder="Provider base URL">
+        <input id="provider-base-url" name="base_url" placeholder="{{.T "Provider base URL"}}">
       </div>
-      <label class="checkline"><input type="checkbox" name="enabled" checked> Enabled</label>
+      <label class="checkline"><input type="checkbox" name="enabled" checked>{{.T "Enabled"}}</label>
       <div class="modal-grid">
         <div class="field-group">
           <label for="provider-anthropic-base-url">Anthropic Base URL</label>
-          <input id="provider-anthropic-base-url" name="anthropic_base_url" placeholder="Anthropic base URL (optional)">
+          <input id="provider-anthropic-base-url" name="anthropic_base_url" placeholder="{{.T "Anthropic base URL (optional)"}}">
         </div>
         <div class="field-group">
           <label for="provider-anthropic-version">Anthropic Version</label>
-          <input id="provider-anthropic-version" name="anthropic_version" placeholder="Anthropic version (optional)">
+          <input id="provider-anthropic-version" name="anthropic_version" placeholder="{{.T "Anthropic version (optional)"}}">
         </div>
       </div>
       <div class="modal-grid">
         <div class="field-group">
           <label for="provider-api-key">API Key</label>
-          <input id="provider-api-key" name="api_key" placeholder="Inline API key (optional)">
+          <input id="provider-api-key" name="api_key" placeholder="{{.T "Inline API key (optional)"}}">
         </div>
         <div class="field-group">
           <label for="provider-api-key-ref">Secret Ref</label>
-          <input id="provider-api-key-ref" name="api_key_ref" placeholder="Environment variable name (optional)">
+          <input id="provider-api-key-ref" name="api_key_ref" placeholder="{{.T "Environment variable name (optional)"}}">
         </div>
       </div>
-      <p class="form-hint">Inline key takes precedence. Use env ref when you do not want to store the key here.</p>
+      <p class="form-hint">{{.T "Inline key takes precedence. Use env ref when you do not want to store the key here."}}</p>
       <div class="modal-actions">
-        <button type="button" class="ghost" onclick="closeDialog('providerCreateDialog')">Cancel</button>
-        <button type="submit">Save</button>
+        <button type="button" class="ghost" onclick="closeDialog('providerCreateDialog')">{{.T "Cancel"}}</button>
+        <button type="submit">{{.T "Save"}}</button>
       </div>
     </form>
   </div>
@@ -146,53 +146,53 @@
   <div class="modal-inner">
     <div class="modal-head">
       <div>
-        <h2 class="panel-title">Edit Provider</h2>
-        <p class="modal-copy">Update the endpoint, credentials, or timeout for {{$provider.Name}}.</p>
+        <h2 class="panel-title">{{$.T "Edit Provider"}}</h2>
+        <p class="modal-copy">{{$.T "Update the endpoint, credentials, or timeout for "}}{{$provider.Name}}</p>
       </div>
-      <button type="button" class="modal-close ghost" onclick="closeDialog('providerEditDialog{{$i}}')" aria-label="Close">×</button>
+      <button type="button" class="modal-close ghost" onclick="closeDialog('providerEditDialog{{$i}}')" aria-label="{{$.T "Close"}}">×</button>
     </div>
     <form onsubmit="submitProviderUpdate(this, {{$i}});return false" class="modal-form provider-edit-form">
       <input type="hidden" name="name" value="{{$provider.Name}}">
       <input type="hidden" name="_enabled_present" value="1">
       <div class="modal-grid">
         <div class="field-group">
-          <label>Name</label>
+          <label>{{$.T "Name"}}</label>
           <input value="{{$provider.Name}}" disabled>
         </div>
         <div class="field-group">
-          <label for="provider-timeout-{{$i}}">Timeout</label>
-          <input id="provider-timeout-{{$i}}" name="timeout" value="{{$provider.TimeoutSeconds}}" placeholder="Timeout in seconds">
+          <label for="provider-timeout-{{$i}}">{{$.T "Timeout"}}</label>
+          <input id="provider-timeout-{{$i}}" name="timeout" value="{{$provider.TimeoutSeconds}}" placeholder="{{$.T "Timeout in seconds"}}">
         </div>
       </div>
       <div class="field-group">
         <label for="provider-base-url-{{$i}}">Base URL</label>
-        <input id="provider-base-url-{{$i}}" name="base_url" value="{{$provider.BaseURL}}" placeholder="Provider base URL">
+        <input id="provider-base-url-{{$i}}" name="base_url" value="{{$provider.BaseURL}}" placeholder="{{$.T "Provider base URL"}}">
       </div>
-      <label class="checkline"><input type="checkbox" name="enabled" value="true" {{if $provider.Enabled}}checked{{end}}> Enabled</label>
+      <label class="checkline"><input type="checkbox" name="enabled" value="true" {{if $provider.Enabled}}checked{{end}}>{{$.T "Enabled"}}</label>
       <div class="modal-grid">
         <div class="field-group">
           <label for="provider-anthropic-base-url-{{$i}}">Anthropic Base URL</label>
-          <input id="provider-anthropic-base-url-{{$i}}" name="anthropic_base_url" value="{{$provider.AnthropicBaseURL}}" placeholder="Anthropic base URL (optional)">
+          <input id="provider-anthropic-base-url-{{$i}}" name="anthropic_base_url" value="{{$provider.AnthropicBaseURL}}" placeholder="{{$.T "Anthropic base URL (optional)"}}">
         </div>
         <div class="field-group">
           <label for="provider-anthropic-version-{{$i}}">Anthropic Version</label>
-          <input id="provider-anthropic-version-{{$i}}" name="anthropic_version" value="{{$provider.AnthropicVersion}}" placeholder="Anthropic version (optional)">
+          <input id="provider-anthropic-version-{{$i}}" name="anthropic_version" value="{{$provider.AnthropicVersion}}" placeholder="{{$.T "Anthropic version (optional)"}}">
         </div>
       </div>
       <div class="modal-grid">
         <div class="field-group">
           <label for="provider-api-key-{{$i}}">API Key</label>
-          <input id="provider-api-key-{{$i}}" name="api_key" placeholder="Inline API key (optional)">
+          <input id="provider-api-key-{{$i}}" name="api_key" placeholder="{{$.T "Inline API key (optional)"}}">
         </div>
         <div class="field-group">
           <label for="provider-api-key-ref-{{$i}}">Secret Ref</label>
-          <input id="provider-api-key-ref-{{$i}}" name="api_key_ref" value="{{$provider.APIKeyRef}}" placeholder="Environment variable name (optional)">
+          <input id="provider-api-key-ref-{{$i}}" name="api_key_ref" value="{{$provider.APIKeyRef}}" placeholder="{{$.T "Environment variable name (optional)"}}">
         </div>
       </div>
-      <p class="form-hint">Leave API Key blank to keep the current inline key. Inline key takes precedence over env ref.</p>
+      <p class="form-hint">{{$.T "Leave API Key blank to keep the current inline key. Inline key takes precedence over env ref."}}</p>
       <div class="modal-actions">
-        <button type="button" class="ghost" onclick="closeDialog('providerEditDialog{{$i}}')">Cancel</button>
-        <button type="submit">Save</button>
+        <button type="button" class="ghost" onclick="closeDialog('providerEditDialog{{$i}}')">{{$.T "Cancel"}}</button>
+        <button type="submit">{{$.T "Save"}}</button>
       </div>
     </form>
   </div>
@@ -234,7 +234,7 @@ function sortTable(tableId, col, kind){
 }
 
 function confirmDeleteProvider(name){
-  return confirm('Delete provider: ' + name + '?');
+  return confirm({{toJSON (.T "Delete provider: ")}} + name + '?');
 }
 
 async function submitProviderCreate(form){
@@ -251,7 +251,7 @@ async function submitProviderCreate(form){
   const result = await apiCall('POST', '/api/admin/providers', data);
   if (result && result.ok) {
     closeDialog('providerCreateDialog');
-    reloadAfterToast('Provider saved');
+    reloadAfterToast({{toJSON (.T "Provider saved")}});
   }
 }
 
@@ -269,16 +269,16 @@ async function submitProviderUpdate(form, idx){
   const result = await apiCall('PUT', '/api/admin/providers/' + encodeURIComponent(name), data);
   if (result && result.ok) {
     closeDialog('providerEditDialog'+idx);
-    reloadAfterToast('Provider saved');
+    reloadAfterToast({{toJSON (.T "Provider updated")}});
   }
 }
 
 async function submitProviderDelete(btn, name){
-  if(!confirm('Delete provider: ' + name + '?')) return;
+  if(!confirm({{toJSON (.T "Delete provider: ")}} + name + '?')) return;
   const result = await apiCall('DELETE', '/api/admin/providers/' + encodeURIComponent(name));
   if (result && result.ok) {
     btn.closest('tr').remove();
-    showToast('Provider deleted');
+    showToast({{toJSON (.T "Provider deleted")}});
   }
 }
 

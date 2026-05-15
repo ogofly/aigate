@@ -1,5 +1,5 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title>{{template "admin_head_assets" .}}
+<html lang="{{.Lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title>{{template "admin_head_assets" .}}
 {{template "admin_theme_init" .}}
 <style>
 {{template "admin_common_styles" .}}
@@ -52,112 +52,112 @@ a.clear-filters{color:var(--muted);text-decoration:none;font-size:13px}
 </style>
 </head><body class="usage-page"><div class="page">
 {{template "admin_nav" .}}
-<h1>Usage</h1>
+<h1>{{.T "Usage"}}</h1>
 <section class="panel">
-<h2 class="panel-title">Usage Analytics</h2>
-<p class="panel-copy page-intro">Trend, key, and model views share the same filters and render together on one page.</p>
+<h2 class="panel-title">{{.T "Usage Analytics"}}</h2>
+<p class="panel-copy page-intro">{{.T "Trend, key, and model views share the same filters and render together on one page."}}</p>
 <form method="get" action="/admin/usage/view" class="filters">
-  <label>Start Date <input type="date" name="start" value="{{.FilterStart}}"></label>
-  <label>End Date <input type="date" name="end" value="{{.FilterEnd}}"></label>
-  <label>Model <select name="model"><option value="">All</option>{{range .UsageModels}}<option value="{{.}}" {{if eq . $.FilterModel}}selected{{end}}>{{.}}</option>{{end}}</select></label>
-  <label>Provider <select name="provider"><option value="">All</option>{{range .UsageProviders}}<option value="{{.}}" {{if eq . $.FilterProvider}}selected{{end}}>{{.}}</option>{{end}}</select></label>
-  <label>Key <select name="key"><option value="">All</option>{{range .UsageKeys}}<option value="{{.Value}}" {{if eq .Value $.FilterKey}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
-  {{if .IsAdmin}}<label>User <select name="owner"><option value="">All</option>{{range .UsageOwners}}<option value="{{.}}" {{if eq . $.FilterOwner}}selected{{end}}>{{.}}</option>{{end}}</select></label>{{end}}
-  <div class="quick-dates" aria-label="Quick date filters">
-    <button type="button" class="ghost" onclick="setQuickDate(1)">Today</button>
-    <button type="button" class="ghost" onclick="setQuickDate(7)">7d</button>
-    <button type="button" class="ghost" onclick="setQuickDate(30)">30d</button>
+  <label>{{.T "Start Date"}} <input type="date" name="start" value="{{.FilterStart}}"></label>
+  <label>{{.T "End Date"}} <input type="date" name="end" value="{{.FilterEnd}}"></label>
+  <label>{{.T "Model"}} <select name="model"><option value="">{{.T "All"}}</option>{{range .UsageModels}}<option value="{{.}}" {{if eq . $.FilterModel}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <label>{{.T "Provider"}} <select name="provider"><option value="">{{.T "All"}}</option>{{range .UsageProviders}}<option value="{{.}}" {{if eq . $.FilterProvider}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <label>{{.T "Key"}} <select name="key"><option value="">{{.T "All"}}</option>{{range .UsageKeys}}<option value="{{.Value}}" {{if eq .Value $.FilterKey}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+  {{if .IsAdmin}}<label>{{.T "User"}} <select name="owner"><option value="">{{.T "All"}}</option>{{range .UsageOwners}}<option value="{{.}}" {{if eq . $.FilterOwner}}selected{{end}}>{{.}}</option>{{end}}</select></label>{{end}}
+  <div class="quick-dates" aria-label="{{.T "Quick date filters"}}">
+    <button type="button" class="ghost" onclick="setQuickDate(1)">{{.T "Today"}}</button>
+    <button type="button" class="ghost" onclick="setQuickDate(7)">{{.T "7d"}}</button>
+    <button type="button" class="ghost" onclick="setQuickDate(30)">{{.T "30d"}}</button>
   </div>
   <div class="filter-actions">
-    <button type="submit">Filter</button>
-    {{if or .FilterStart .FilterEnd .FilterModel .FilterProvider .FilterKey .FilterOwner}}<a class="clear-filters" href="/admin/usage/view">Clear Filters</a>{{end}}
+    <button type="submit">{{.T "Filter"}}</button>
+    {{if or .FilterStart .FilterEnd .FilterModel .FilterProvider .FilterKey .FilterOwner}}<a class="clear-filters" href="/admin/usage/view">{{.T "Clear Filters"}}</a>{{end}}
   </div>
 </form>
 </section>
 
 <section class="panel section-card">
 <div class="section-toggle-row">
-<h2 class="panel-title section-title"><button type="button" class="section-toggle" data-section-target="trendSectionBody" data-resize-target="trendChart" aria-expanded="true">Trend <span class="section-toggle-indicator">▾</span></button></h2>
+<h2 class="panel-title section-title"><button type="button" class="section-toggle" data-section-target="trendSectionBody" data-resize-target="trendChart" aria-expanded="true">{{.T "Trend"}} <span class="section-toggle-indicator">▾</span></button></h2>
 </div>
 <div id="trendSectionBody" class="section-body">
 <div id="trendControls" class="trend-controls">
-  <span>Granularity:</span>
-  <button type="button" class="gb-btn active" data-group="hour">Hour</button>
-  <button type="button" class="gb-btn" data-group="day">Day</button>
+  <span>{{.T "Granularity:"}}</span>
+  <button type="button" class="gb-btn active" data-group="hour">{{.T "Hour"}}</button>
+  <button type="button" class="gb-btn" data-group="day">{{.T "Day"}}</button>
 </div>
 <script id="trendHourData" type="application/json">{{range $i, $p := .TrendHourPoints}}{{if $i}},{{end}}{"date":"{{.Date}}","request_count":{{.RequestCount}},"error_count":{{.ErrorCount}},"total_tokens":{{.TotalTokens}}}{{end}}</script>
 <script id="trendDayData" type="application/json">{{range $i, $p := .TrendDayPoints}}{{if $i}},{{end}}{"date":"{{.Date}}","request_count":{{.RequestCount}},"error_count":{{.ErrorCount}},"total_tokens":{{.TotalTokens}}}{{end}}</script>
-<div id="trendChart">{{if not (or .TrendHourPoints .TrendDayPoints)}}<div class="no-data">No usage data for the selected filters</div>{{end}}</div>
+<div id="trendChart">{{if not (or .TrendHourPoints .TrendDayPoints)}}<div class="no-data">{{.T "No usage data for the selected filters"}}</div>{{end}}</div>
 </div>
 </section>
 
 <section class="panel section-card">
 <div class="section-toggle-row">
-<h2 class="panel-title section-title"><button type="button" class="section-toggle" data-section-target="modelSectionBody" data-resize-target="modelPieChart" aria-expanded="true">By Model <span class="section-toggle-indicator">▾</span></button></h2>
+<h2 class="panel-title section-title"><button type="button" class="section-toggle" data-section-target="modelSectionBody" data-resize-target="modelPieChart" aria-expanded="true">{{.T "By Model"}} <span class="section-toggle-indicator">▾</span></button></h2>
 </div>
 <div id="modelSectionBody" class="section-body">
 {{if .ModelSummaries}}
 <script id="modelPieData" type="application/json">{{range $i, $s := .ModelSummaries}}{{if $i}},{{end}}{"name":"{{.Model}}","tokens":{{.TotalTokens}},"requests":{{.RequestCount}}}{{end}}</script>
 <div class="chart-group">
 <div class="pie-controls">
-  <span>By:</span>
-  <button type="button" class="pm-btn-model{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">Tokens</button>
-  <button type="button" class="pm-btn-model{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">Requests</button>
+  <span>{{.T "By:"}}</span>
+  <button type="button" class="pm-btn-model{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">{{.T "Tokens"}}</button>
+  <button type="button" class="pm-btn-model{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">{{.T "Requests"}}</button>
 </div>
 <div id="modelPieChart" class="pie-chart"></div>
 <div class="table-wrap"><table id="model-table"><thead><tr>
-<th><button type="button" class="sort-btn" onclick="sortTable('model-table',0,'text')">Model</button></th>
-<th><button type="button" class="sort-btn" onclick="sortTable('model-table',1,'num')">Requests</button></th>
-<th><button type="button" class="sort-btn" onclick="sortTable('model-table',2,'num')">Success</button></th>
-<th><button type="button" class="sort-btn" onclick="sortTable('model-table',3,'num')">Errors</button></th>
-<th><button type="button" class="sort-btn" onclick="sortTable('model-table',4,'num')">Total Tokens</button></th>
-<th><button type="button" class="sort-btn" onclick="sortTable('model-table',5,'num')">Active Keys</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('model-table',0,'text')">{{.T "Model"}}</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('model-table',1,'num')">{{.T "Requests"}}</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('model-table',2,'num')">{{.T "Success"}}</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('model-table',3,'num')">{{.T "Errors"}}</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('model-table',4,'num')">{{.T "Total Tokens"}}</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('model-table',5,'num')">{{.T "Active Keys"}}</button></th>
 </tr></thead><tbody>
 {{range .ModelSummaries}}<tr><td>{{.Model}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td><td>{{.KeyCount}}</td></tr>{{end}}
 </tbody></table></div>
 </div>
 {{else}}
-<div class="no-data">No usage data for the selected filters</div>
+<div class="no-data">{{.T "No usage data for the selected filters"}}</div>
 {{end}}
 </div>
 </section>
 
 <section class="panel section-card">
 <div class="section-toggle-row">
-<h2 class="panel-title section-title"><button type="button" class="section-toggle" data-section-target="keySectionBody" data-resize-target="keyPieChart" aria-expanded="true">By Key <span class="section-toggle-indicator">▾</span></button></h2>
+<h2 class="panel-title section-title"><button type="button" class="section-toggle" data-section-target="keySectionBody" data-resize-target="keyPieChart" aria-expanded="true">{{.T "By Key"}} <span class="section-toggle-indicator">▾</span></button></h2>
 </div>
 <div id="keySectionBody" class="section-body">
 {{if .Usage}}
 <script id="keyPieData" type="application/json">{{range $i, $u := .Usage}}{{if $i}},{{end}}{"name":"{{if .KeyName}}{{.KeyName}}{{else}}{{maskID .KeyID}}{{end}}","tokens":{{.TotalTokens}},"requests":{{.RequestCount}}}{{end}}</script>
 <div class="chart-group">
 <div class="pie-controls">
-  <span>By:</span>
-  <button type="button" class="pm-btn-key{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">Tokens</button>
-  <button type="button" class="pm-btn-key{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">Requests</button>
+  <span>{{.T "By:"}}</span>
+  <button type="button" class="pm-btn-key{{if eq .PieMetric "tokens"}} active{{end}}" data-metric="tokens">{{.T "Tokens"}}</button>
+  <button type="button" class="pm-btn-key{{if eq .PieMetric "requests"}} active{{end}}" data-metric="requests">{{.T "Requests"}}</button>
 </div>
 <div id="keyPieChart" class="pie-chart"></div>
 <div class="table-wrap"><table id="key-table"><thead><tr>
-<th><button type="button" class="sort-btn" onclick="sortTable('key-table',0,'text')">Name</button></th>
-{{if .IsAdmin}}<th><button type="button" class="sort-btn" onclick="sortTable('key-table',1,'text')">User</button></th>{{end}}
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',0,'text')">{{.T "Name"}}</button></th>
+{{if .IsAdmin}}<th><button type="button" class="sort-btn" onclick="sortTable('key-table',1,'text')">{{.T "User"}}</button></th>{{end}}
 {{if .IsAdmin}}
-<th><button type="button" class="sort-btn" onclick="sortTable('key-table',2,'text')">Purpose</button></th>
-<th><button type="button" class="sort-btn" onclick="sortTable('key-table',3,'num')">Requests</button></th>
-<th><button type="button" class="sort-btn" onclick="sortTable('key-table',4,'num')">Success</button></th>
-<th><button type="button" class="sort-btn" onclick="sortTable('key-table',5,'num')">Errors</button></th>
-<th><button type="button" class="sort-btn" onclick="sortTable('key-table',6,'num')">Total Tokens</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',2,'text')">{{.T "Purpose"}}</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',3,'num')">{{.T "Requests"}}</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',4,'num')">{{.T "Success"}}</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',5,'num')">{{.T "Errors"}}</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',6,'num')">{{.T "Total Tokens"}}</button></th>
 {{else}}
-<th><button type="button" class="sort-btn" onclick="sortTable('key-table',1,'text')">Purpose</button></th>
-<th><button type="button" class="sort-btn" onclick="sortTable('key-table',2,'num')">Requests</button></th>
-<th><button type="button" class="sort-btn" onclick="sortTable('key-table',3,'num')">Success</button></th>
-<th><button type="button" class="sort-btn" onclick="sortTable('key-table',4,'num')">Errors</button></th>
-<th><button type="button" class="sort-btn" onclick="sortTable('key-table',5,'num')">Total Tokens</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',1,'text')">{{.T "Purpose"}}</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',2,'num')">{{.T "Requests"}}</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',3,'num')">{{.T "Success"}}</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',4,'num')">{{.T "Errors"}}</button></th>
+<th><button type="button" class="sort-btn" onclick="sortTable('key-table',5,'num')">{{.T "Total Tokens"}}</button></th>
 {{end}}
 </tr></thead><tbody>
 {{range .Usage}}<tr><td>{{if .KeyName}}{{.KeyName}}{{else}}{{maskID .KeyID}}{{end}}</td>{{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}<td>{{.Purpose}}</td><td>{{.RequestCount}}</td><td>{{.SuccessCount}}</td><td>{{.ErrorCount}}</td><td class="token-cell" data-tokens="{{.TotalTokens}}">{{.TotalTokens}}</td></tr>{{end}}
 </tbody></table></div>
 </div>
 {{else}}
-<div class="no-data">No usage data for the selected filters</div>
+<div class="no-data">{{.T "No usage data for the selected filters"}}</div>
 {{end}}
 </div>
 </section>
@@ -208,7 +208,7 @@ document.querySelectorAll('.token-cell').forEach(function(el){
 
 function renderTrend(chart, data){
   if(!data.length){
-    document.getElementById('trendChart').innerHTML = '<div class="no-data">No usage data for the selected filters</div>';
+    document.getElementById('trendChart').innerHTML = '<div class="no-data">' + {{toJSON (.T "No usage data for the selected filters")}} + '</div>';
     return null;
   }
   var dates = data.map(function(d){return d.date});
@@ -224,33 +224,33 @@ function renderTrend(chart, data){
       if(!params||!params.length)return '';
       var s=params[0].axisValue+'<br/>';
       for(var i=0;i<params.length;i++){
-        var v=params[i].seriesName==='Total Tokens'?formatTokensTable(params[i].data):params[i].data.toLocaleString();
+        var v=params[i].seriesName==={{toJSON (.T "Total Tokens")}}?formatTokensTable(params[i].data):params[i].data.toLocaleString();
         s+='<span style="display:inline-block;margin-right:4px;border-radius:50%;width:10px;height:10px;background-color:'+params[i].color+';"></span>';
         s+=params[i].seriesName+': '+v+'<br/>';
       }
       return s;
     }},
-    legend:{data:['Requests','Errors','Total Tokens'],textStyle:{color:chartMuted}},
+    legend:{data:[{{toJSON (.T "Requests")}},{{toJSON (.T "Errors")}},{{toJSON (.T "Total Tokens")}}],textStyle:{color:chartMuted}},
     grid:{left:'3%',right:'4%',bottom:'3%',containLabel:true},
     xAxis:{type:'category',data:dates,axisLabel:{color:chartMuted}},
     yAxis:[
-      {type:'value',name:'Requests',position:'left',axisLabel:{color:chartMuted},splitLine:{lineStyle:{color:chartLine}}},
-      {type:'value',name:'Tokens',position:'right',axisLabel:{formatter:function(v){return formatTokens(v)},color:chartMuted},splitLine:{show:false}}
+      {type:'value',name:{{toJSON (.T "Requests")}},position:'left',axisLabel:{color:chartMuted},splitLine:{lineStyle:{color:chartLine}}},
+      {type:'value',name:{{toJSON (.T "Tokens")}},position:'right',axisLabel:{formatter:function(v){return formatTokens(v)},color:chartMuted},splitLine:{show:false}}
     ],
     series:[
-      {name:'Requests',type:'line',yAxisIndex:0,smooth:true,areaStyle:{opacity:0.045},data:requests,itemStyle:{color:'#aeb2ba'}},
-      {name:'Errors',type:'line',yAxisIndex:0,smooth:true,areaStyle:{opacity:0.06},data:errors,itemStyle:{color:'#ef4444'}},
-      {name:'Total Tokens',type:'line',yAxisIndex:1,smooth:true,areaStyle:{opacity:0.055},data:total,itemStyle:{color:'#8b5cf6'}}
+      {name:{{toJSON (.T "Requests")}},type:'line',yAxisIndex:0,smooth:true,areaStyle:{opacity:0.045},data:requests,itemStyle:{color:'#aeb2ba'}},
+      {name:{{toJSON (.T "Errors")}},type:'line',yAxisIndex:0,smooth:true,areaStyle:{opacity:0.06},data:errors,itemStyle:{color:'#ef4444'}},
+      {name:{{toJSON (.T "Total Tokens")}},type:'line',yAxisIndex:1,smooth:true,areaStyle:{opacity:0.055},data:total,itemStyle:{color:'#8b5cf6'}}
     ]
   });
   return chart;
 }
 
 function formatPieValue(metric, n){
-  if(metric==='requests') return String(n) + ' requests';
-  if(n<10000) return String(n) + ' tokens';
-  if(n<1000000) return (Math.round(n/100)/10).toFixed(1)+'K tokens';
-  return (Math.round(n/10000)/100).toFixed(2)+'M tokens';
+  if(metric==='requests') return String(n) + ' ' + {{toJSON (.T "requests")}};
+  if(n<10000) return String(n) + ' ' + {{toJSON (.T "tokens")}};
+  if(n<1000000) return (Math.round(n/100)/10).toFixed(1)+'K ' + {{toJSON (.T "tokens")}};
+  return (Math.round(n/10000)/100).toFixed(2)+'M ' + {{toJSON (.T "tokens")}};
 }
 
 function renderPieChart(chartId, dataElId, metric){
@@ -316,7 +316,7 @@ function updatePieChart(chart, metric){
   var trendHourData = readJSONList('trendHourData');
   var trendDayData = readJSONList('trendDayData');
   if(!trendHourData.length && !trendDayData.length){
-    document.getElementById('trendChart').innerHTML = '<div class="no-data">No usage data for the selected filters</div>';
+    document.getElementById('trendChart').innerHTML = '<div class="no-data">' + {{toJSON (.T "No usage data for the selected filters")}} + '</div>';
     return;
   }
   var chart = echarts.init(document.getElementById('trendChart'));
