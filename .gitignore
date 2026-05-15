@@ -4,3 +4,6 @@ sqlite.db
 sqlite.db-journal
 aigate
 .qwen/
+Makefile
+deploy.sh
+run-dev.sh
