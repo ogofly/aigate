@@ -333,7 +333,7 @@ function parseBatchModelLines(value){
       }
     }
     if(!publicName || !upstreamName){
-      errors.push({line:i + 1, text:line, message:{{toJSON (.T "missing public or upstream name")}});
+      errors.push({line:i + 1, text:line, message:{{toJSON (.T "missing public or upstream name")}}});
       continue;
     }
     routes.push({line:i + 1, public_name: publicName, upstream_name: upstreamName});
