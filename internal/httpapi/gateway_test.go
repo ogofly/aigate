@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"aigate/internal/auth"
-	"aigate/internal/config"
-	"aigate/internal/provider"
-	"aigate/internal/router"
-	"aigate/internal/usage"
+	"llmgate/internal/auth"
+	"llmgate/internal/config"
+	"llmgate/internal/provider"
+	"llmgate/internal/router"
+	"llmgate/internal/usage"
 )
 
 type gatewayTestStore struct {

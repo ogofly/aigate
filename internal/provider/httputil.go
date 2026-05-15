@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"aigate/internal/config"
+	"llmgate/internal/config"
 )
 
 const (

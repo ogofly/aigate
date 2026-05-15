@@ -250,7 +250,7 @@ var adminTranslations = map[string]map[string]string{
 	},
 }
 
-const adminLangCookie = "aigate_lang"
+const adminLangCookie = "llmgate_lang"
 
 func resolveAdminLang(r *http.Request) adminLang {
 	// Only honor user-set cookie; otherwise default to English.

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"aigate/internal/config"
+	"llmgate/internal/config"
 )
 
 type apiProviderResponse struct {

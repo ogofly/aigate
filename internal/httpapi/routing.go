@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"aigate/internal/auth"
-	"aigate/internal/router"
+	"llmgate/internal/auth"
+	"llmgate/internal/router"
 )
 
 func routeAccess(principal auth.Principal) router.Access {

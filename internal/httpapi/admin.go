@@ -11,13 +11,13 @@ import (
 	"sync"
 	"time"
 
-	"aigate/internal/config"
-	"aigate/internal/router"
-	"aigate/internal/store"
-	"aigate/internal/usage"
+	"llmgate/internal/config"
+	"llmgate/internal/router"
+	"llmgate/internal/store"
+	"llmgate/internal/usage"
 )
 
-const adminSessionCookie = "aigate_admin_session"
+const adminSessionCookie = "llmgate_admin_session"
 const adminSystemName = "LLM Gateway"
 const adminSessionTTL = 24 * time.Hour
 

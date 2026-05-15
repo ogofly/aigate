@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	"aigate/internal/config"
+	"llmgate/internal/config"
 )
 
 type ChatRequest struct {

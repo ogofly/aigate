@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"sync"
 
-	"aigate/internal/config"
+	"llmgate/internal/config"
 )
 
 type OpenAILikeProvider struct {

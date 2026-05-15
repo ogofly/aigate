@@ -1,8 +1,8 @@
-# aigate
+# llmgate
 
 A lightweight Go gateway for LLM APIs. Put OpenAI-compatible, Anthropic-compatible, and Responses-style traffic behind one clean entrypoint with routing, API keys, usage analytics, and a built-in admin UI.
 
-## Why aigate
+## Why llmgate
 
 - **One gateway, multiple API styles**: OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, Embeddings, and Models.
 - **Model routing without client changes**: map public model names to upstream providers and models; switch providers from the admin UI.
@@ -35,7 +35,7 @@ A lightweight Go gateway for LLM APIs. Put OpenAI-compatible, Anthropic-compatib
 
 ```bash
 cp .env.example .env
-go run ./cmd/aigate -config config.example.json
+go run ./cmd/llmgate -config config.example.json
 ```
 
 Open the admin UI:

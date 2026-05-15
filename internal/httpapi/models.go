@@ -1,7 +1,7 @@
 package httpapi
 
 import (
-	"aigate/internal/logger"
+	"llmgate/internal/logger"
 	"net/http"
 )
 
@@ -62,6 +62,6 @@ func buildModelResponse(model string) modelResponse {
 		ID:      model,
 		Object:  "model",
 		Created: 0,
-		OwnedBy: "aigate",
+		OwnedBy: "llmgate",
 	}
 }

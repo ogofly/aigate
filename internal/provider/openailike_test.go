@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"aigate/internal/config"
+	"llmgate/internal/config"
 )
 
 func TestNewOpenAILikeReadsAPIKeyFromEnvRef(t *testing.T) {

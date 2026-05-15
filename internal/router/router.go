@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"aigate/internal/config"
+	"llmgate/internal/config"
 )
 
 const stickyTTL = time.Hour

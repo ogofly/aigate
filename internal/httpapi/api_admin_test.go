@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"aigate/internal/auth"
-	"aigate/internal/config"
-	"aigate/internal/httpapi"
-	"aigate/internal/router"
-	"aigate/internal/store"
-	"aigate/internal/usage"
+	"llmgate/internal/auth"
+	"llmgate/internal/config"
+	"llmgate/internal/httpapi"
+	"llmgate/internal/router"
+	"llmgate/internal/store"
+	"llmgate/internal/usage"
 )
 
 // ---------------------------------------------------------------------------
@@ -25,7 +25,7 @@ import (
 const (
 	testAdminUser     = "admin"
 	testAdminPass     = "pass"
-	testSessionCookie = "aigate_admin_session"
+	testSessionCookie = "llmgate_admin_session"
 )
 
 type providerAPIResponse struct {

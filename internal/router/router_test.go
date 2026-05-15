@@ -3,8 +3,8 @@ package router_test
 import (
 	"testing"
 
-	"aigate/internal/config"
-	"aigate/internal/router"
+	"llmgate/internal/config"
+	"llmgate/internal/router"
 )
 
 func TestResolve(t *testing.T) {

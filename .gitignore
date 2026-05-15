@@ -2,7 +2,7 @@ config.json
 .env
 sqlite.db
 sqlite.db-journal
-aigate
+llmgate
 .qwen/
 Makefile
 deploy.sh

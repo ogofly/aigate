@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"aigate/internal/config"
+	"llmgate/internal/config"
 )
 
 func TestLoadDotEnvSetsMissingValuesOnly(t *testing.T) {

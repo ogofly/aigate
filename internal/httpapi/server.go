@@ -9,12 +9,12 @@ import (
 	"sort"
 	"sync"
 
-	"aigate/internal/auth"
-	"aigate/internal/config"
-	"aigate/internal/provider"
-	"aigate/internal/router"
-	"aigate/internal/store"
-	"aigate/internal/usage"
+	"llmgate/internal/auth"
+	"llmgate/internal/config"
+	"llmgate/internal/provider"
+	"llmgate/internal/router"
+	"llmgate/internal/store"
+	"llmgate/internal/usage"
 )
 
 const maxRequestBodyBytes int64 = 32 << 20

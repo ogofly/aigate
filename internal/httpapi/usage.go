@@ -1,10 +1,10 @@
 package httpapi
 
 import (
-	"aigate/internal/auth"
-	"aigate/internal/logger"
-	"aigate/internal/store"
-	"aigate/internal/usage"
+	"llmgate/internal/auth"
+	"llmgate/internal/logger"
+	"llmgate/internal/store"
+	"llmgate/internal/usage"
 	"fmt"
 	"net/http"
 	"strings"

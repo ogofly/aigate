@@ -8,9 +8,9 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"aigate/internal/config"
-	"aigate/internal/store"
-	"aigate/internal/usage"
+	"llmgate/internal/config"
+	"llmgate/internal/store"
+	"llmgate/internal/usage"
 )
 
 func TestNewSQLiteMigratesLegacyProvidersTable(t *testing.T) {

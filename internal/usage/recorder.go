@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"aigate/internal/auth"
+	"llmgate/internal/auth"
 )
 
 type ModelSummary struct {

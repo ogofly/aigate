@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"time"
 
-	"aigate/internal/config"
-	"aigate/internal/logger"
-	"aigate/internal/provider"
-	"aigate/internal/router"
-	"aigate/internal/usage"
+	"llmgate/internal/config"
+	"llmgate/internal/logger"
+	"llmgate/internal/provider"
+	"llmgate/internal/router"
+	"llmgate/internal/usage"
 )
 
 // OpenAI-like response API

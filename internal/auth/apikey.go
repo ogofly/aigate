@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"aigate/internal/config"
+	"llmgate/internal/config"
 )
 
 type Auth struct {

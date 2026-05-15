@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"aigate/internal/auth"
-	"aigate/internal/config"
-	"aigate/internal/logger"
-	"aigate/internal/router"
+	"llmgate/internal/auth"
+	"llmgate/internal/config"
+	"llmgate/internal/logger"
+	"llmgate/internal/router"
 )
 
 const (

@@ -1,4 +1,4 @@
-module aigate
+module llmgate
 
 go 1.23.0
 

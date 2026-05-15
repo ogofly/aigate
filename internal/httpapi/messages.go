@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"time"
 
-	"aigate/internal/config"
-	"aigate/internal/logger"
-	"aigate/internal/provider"
-	"aigate/internal/router"
+	"llmgate/internal/config"
+	"llmgate/internal/logger"
+	"llmgate/internal/provider"
+	"llmgate/internal/router"
 )
 
 func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {

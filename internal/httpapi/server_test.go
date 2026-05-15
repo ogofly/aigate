@@ -15,14 +15,14 @@ import (
 	"testing"
 	"time"
 
-	"aigate/internal/auth"
-	"aigate/internal/config"
-	"aigate/internal/httpapi"
-	"aigate/internal/logger"
-	"aigate/internal/provider"
-	"aigate/internal/router"
-	"aigate/internal/store"
-	"aigate/internal/usage"
+	"llmgate/internal/auth"
+	"llmgate/internal/config"
+	"llmgate/internal/httpapi"
+	"llmgate/internal/logger"
+	"llmgate/internal/provider"
+	"llmgate/internal/router"
+	"llmgate/internal/store"
+	"llmgate/internal/usage"
 )
 
 type stubProvider struct {
@@ -315,7 +315,7 @@ func TestAdminHomeUsageShareTranslations(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
 	req.AddCookie(cookies[0])
-	req.AddCookie(&http.Cookie{Name: "aigate_lang", Value: "zh"})
+	req.AddCookie(&http.Cookie{Name: "llmgate_lang", Value: "zh"})
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -804,8 +804,8 @@ func TestModelDetailReturnsConfiguredModel(t *testing.T) {
 	if payload.Object != "model" {
 		t.Fatalf("object = %q, want %q", payload.Object, "model")
 	}
-	if payload.OwnedBy != "aigate" {
-		t.Fatalf("owned_by = %q, want %q", payload.OwnedBy, "aigate")
+	if payload.OwnedBy != "llmgate" {
+		t.Fatalf("owned_by = %q, want %q", payload.OwnedBy, "llmgate")
 	}
 }
 
@@ -2641,7 +2641,7 @@ func TestAdminKeysPageChineseModelAccessCopy(t *testing.T) {
 
 	pageReq := httptest.NewRequest(http.MethodGet, "/admin/keys", nil)
 	pageReq.AddCookie(cookies[0])
-	pageReq.AddCookie(&http.Cookie{Name: "aigate_lang", Value: "zh"})
+	pageReq.AddCookie(&http.Cookie{Name: "llmgate_lang", Value: "zh"})
 	pageRR := httptest.NewRecorder()
 	handler.ServeHTTP(pageRR, pageReq)
 

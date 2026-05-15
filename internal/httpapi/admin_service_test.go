@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"aigate/internal/auth"
-	"aigate/internal/config"
+	"llmgate/internal/auth"
+	"llmgate/internal/config"
 )
 
 type adminServiceRepoStub struct {

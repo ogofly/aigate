@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"aigate/internal/auth"
-	"aigate/internal/config"
-	"aigate/internal/logger"
-	"aigate/internal/provider"
-	"aigate/internal/router"
-	"aigate/internal/store"
-	"aigate/internal/usage"
+	"llmgate/internal/auth"
+	"llmgate/internal/config"
+	"llmgate/internal/logger"
+	"llmgate/internal/provider"
+	"llmgate/internal/router"
+	"llmgate/internal/store"
+	"llmgate/internal/usage"
 )
 
 type chatCompletionClient interface {

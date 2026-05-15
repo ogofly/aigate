@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"aigate/internal/config"
+	"llmgate/internal/config"
 )
 
 func TestLoadResolvesSQLitePathRelativeToConfigFile(t *testing.T) {

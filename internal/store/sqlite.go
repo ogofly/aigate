@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 
-	"aigate/internal/config"
-	"aigate/internal/usage"
+	"llmgate/internal/config"
+	"llmgate/internal/usage"
 )
 
 type SQLiteStore struct {
