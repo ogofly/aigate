@@ -1850,7 +1850,7 @@ func TestAdminHomeRendersDashboardWithRealData(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"Home", "Today", "12.5K", "Users / Keys", "Top Keys", "Top Providers", "Top Models", "By Token", "By Requests", "\"name\":\"alice-key\"", "\"name\":\"openai\"", "\"name\":\"gpt-4o-mini\"", "chartId:'homeKeyPie'", "chartId:'homeProviderPie'", "chartId:'homeModelPie'", "pie-metric-btn"} {
+	for _, want := range []string{"Home", "Today", "12.5K", "Users / Keys", "Top Keys", "Top Providers", "Top Models", "By Token", "By Requests", "\"name\":\"alice-key\"", "\"name\":\"openai\"", "\"name\":\"gpt-4o-mini\"", "\"total_tokens\":12500", "data:trendData.map(function(p){return p.total_tokens;})", "item.seriesName === \"Tokens\" ? formatNumber(item.value || 0)", "yAxisIndex:1", "chartId:'homeKeyPie'", "chartId:'homeProviderPie'", "chartId:'homeModelPie'", "pie-metric-btn"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("home page missing %q: %q", want, body)
 		}

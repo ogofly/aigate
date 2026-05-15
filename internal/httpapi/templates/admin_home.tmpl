@@ -72,7 +72,7 @@
 <section class="chart-grid">
   <div class="chart-panel">
     <h2 class="chart-title">{{.T "Hourly Usage"}}</h2>
-    <p class="chart-subtitle">{{.T "Requests and errors by local hour."}}</p>
+    <p class="chart-subtitle">{{.T "Requests, errors, and tokens by local hour."}}</p>
     <div id="homeTrendChart" class="chart trend-chart">{{if not .TrendHourPoints}}<div class="no-data">{{.T "No usage data for today"}}</div>{{end}}</div>
   </div>
 </section>
@@ -135,14 +135,24 @@ function renderTrend(){
   var line = cssValue('--line', 'rgba(210,214,220,.1)');
   chart.setOption({
     backgroundColor:'transparent',
-    tooltip:{trigger:'axis'},
-    legend:{data:[{{toJSON (.T "Requests")}},{{toJSON (.T "Errors")}}],textStyle:{color:muted},top:0},
+    tooltip:{trigger:'axis',formatter:function(items){
+      if(!Array.isArray(items) || items.length === 0) return '';
+      return items[0].axisValueLabel + '<br>' + items.map(function(item){
+        var value = item.seriesName === {{toJSON (.T "Tokens")}} ? formatNumber(item.value || 0) : item.value;
+        return item.marker + item.seriesName + ': ' + value;
+      }).join('<br>');
+    }},
+    legend:{data:[{{toJSON (.T "Requests")}},{{toJSON (.T "Errors")}},{{toJSON (.T "Tokens")}}],textStyle:{color:muted},top:0},
     grid:{left:'3%',right:'3%',top:34,bottom:'3%',containLabel:true},
     xAxis:{type:'category',data:trendData.map(function(p){return p.date.slice(11);}),axisLabel:{color:muted},axisTick:{show:false}},
-    yAxis:{type:'value',axisLabel:{color:muted},splitLine:{lineStyle:{color:line}}},
+    yAxis:[
+      {type:'value',axisLabel:{color:muted},splitLine:{lineStyle:{color:line}}},
+      {type:'value',axisLabel:{color:muted,formatter:function(v){return formatNumber(v);}},splitLine:{show:false}}
+    ],
     series:[
       {name:{{toJSON (.T "Requests")}},type:'line',smooth:true,data:trendData.map(function(p){return p.request_count;}),itemStyle:{color:'#64748b'},areaStyle:{opacity:.05}},
-      {name:{{toJSON (.T "Errors")}},type:'line',smooth:true,data:trendData.map(function(p){return p.error_count;}),itemStyle:{color:'#ef4444'},areaStyle:{opacity:.045}}
+      {name:{{toJSON (.T "Errors")}},type:'line',smooth:true,data:trendData.map(function(p){return p.error_count;}),itemStyle:{color:'#ef4444'},areaStyle:{opacity:.045}},
+      {name:{{toJSON (.T "Tokens")}},type:'line',smooth:true,yAxisIndex:1,data:trendData.map(function(p){return p.total_tokens;}),itemStyle:{color:'#8b5cf6'},areaStyle:{opacity:.035}}
     ]
   });
   window.addEventListener('resize', function(){chart.resize();});
