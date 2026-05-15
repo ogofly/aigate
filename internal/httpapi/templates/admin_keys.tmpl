@@ -46,7 +46,7 @@
 <div class="panel-toolbar">
   <div>
     <h2 class="panel-title">{{.T "Managed Keys"}}</h2>
-    <p class="panel-copy">{{.T "Create gateway keys for teammates, services, and test clients without exposing upstream provider secrets."}}</p>
+    <p class="panel-copy">{{.T "Create API keys for users, services, and test clients."}}</p>
   </div>
   <div class="panel-actions"><button type="button" onclick="openDialog('keyCreateDialog')">{{.T "New Key"}}</button></div>
 </div>
@@ -71,7 +71,7 @@
       <td>{{.Name}}</td>
       {{if $.IsAdmin}}<td>{{.Owner}}</td>{{end}}
       <td>{{.Purpose}}</td>
-      <td>{{if eq .ModelAccess "selected"}}<span class="badge info">{{$.T "Selected"}} · {{len .ModelRouteIDs}} {{$.T "routes"}}</span>{{else}}<span class="badge ok">{{$.T "All"}}</span>{{end}}</td>
+      <td>{{if eq .ModelAccess "selected"}}<span class="badge info">{{$.T "Limited"}} · {{len .ModelRouteIDs}} {{$.T "routes"}}</span>{{else}}<span class="badge ok">{{$.T "All"}}</span>{{end}}</td>
       <td>
         <div class="key-cell">
           <span class="key-text" data-key="{{.Key}}" onclick="toggleKeyText(this)">****</span>
@@ -93,7 +93,7 @@
     <div class="modal-head">
       <div>
         <h2 class="panel-title">{{.T "New Key"}}</h2>
-        <p class="modal-copy">{{.T "Create a managed key and add optional user and usage context."}}</p>
+        <p class="modal-copy">{{.T "Create an API key with optional user and purpose."}}</p>
       </div>
       <button type="button" class="modal-close ghost" onclick="closeDialog('keyCreateDialog')" aria-label="{{.T "Close"}}">×</button>
     </div>
@@ -126,7 +126,7 @@
             <option value="all">{{.T "All"}}</option>
             <option value="selected">{{.T "Selected"}}</option>
           </select>
-          <p class="form-hint">{{.T "All can use every enabled route. Selected only allows checked routes. Disabled providers/routes are never usable."}}</p>
+          <p class="form-hint">{{.T "All routes are allowed. Selected allows only checked routes. Disabled providers/routes are never usable."}}</p>
         </div>
         <div class="field-group key-span route-access-block" hidden>
           <label>{{.T "Routes"}}</label>
@@ -157,7 +157,7 @@
     <div class="modal-head">
       <div>
         <h2 class="panel-title">{{.T "Edit Key"}}</h2>
-        <p class="modal-copy">{{.T "Update the name, user, or purpose for this managed key."}}</p>
+        <p class="modal-copy">{{.T "Update this API key's name, user, or purpose."}}</p>
       </div>
       <button type="button" class="modal-close ghost" onclick="closeDialog('keyEditDialog')" aria-label="{{.T "Close"}}">×</button>
     </div>
@@ -184,7 +184,7 @@
             <option value="all">{{.T "All"}}</option>
             <option value="selected">{{.T "Selected"}}</option>
           </select>
-          <p class="form-hint">{{.T "All can use every enabled route. Selected only allows checked routes. Disabled providers/routes are never usable."}}</p>
+          <p class="form-hint">{{.T "All routes are allowed. Selected allows only checked routes. Disabled providers/routes are never usable."}}</p>
         </div>
         <div class="field-group key-span route-access-block" hidden>
           <label>{{.T "Routes"}}</label>

@@ -142,6 +142,7 @@ function renderTrend(){
 }
 
 function pieMetric(data){
+  if(!Array.isArray(data) || data.length === 0) return 'tokens';
   var tokens = data.reduce(function(sum, item){return sum + (item.tokens || 0);}, 0);
   return tokens > 0 ? 'tokens' : 'requests';
 }
@@ -156,7 +157,14 @@ function usageURL(filterName, value){
 function renderPie(chartId, data, filterName, metric){
   if(!Array.isArray(data) || data.length === 0 || !window.echarts) return;
   if(!metric) metric = pieMetric(data);
-  var chart = echarts.init(document.getElementById(chartId));
+  var el = document.getElementById(chartId);
+  if(!el) return;
+  var chart = pieCharts[chartId];
+  if(!chart){
+    chart = echarts.init(el);
+    pieCharts[chartId] = chart;
+    window.addEventListener('resize', function(){chart.resize();});
+  }
   var muted = cssValue('--muted', '#8b9098');
   chart.setOption({
     backgroundColor:'transparent',
@@ -173,29 +181,43 @@ function renderPie(chartId, data, filterName, metric){
       data:data.map(function(item){return {name:item.name,value:item[metric] || 0};})
     }]
   });
+  chart.off('click');
   chart.on('click', function(params){
     var row = data.find(function(item){return item.name === params.name;}) || {};
     var url = usageURL(filterName, row.filter_value || row.name);
     if(url){window.location.href = url;}
   });
-  window.addEventListener('resize', function(){chart.resize();});
 }
 
-var pieMetricState = {keys:'tokens',provider:'tokens',model:'tokens'};
+var pieCharts = {};
+var pieMetricLabels = {tokens:{{toJSON (.T "Tokens")}},requests:{{toJSON (.T "Requests")}}};
+var pieConfigs = {
+  keys:{chartId:'homeKeyPie',data:keyData,filterName:'key'},
+  provider:{chartId:'homeProviderPie',data:providerData,filterName:'provider'},
+  model:{chartId:'homeModelPie',data:modelData,filterName:'model'}
+};
+var pieMetricState = {};
+
+Object.keys(pieConfigs).forEach(function(k){
+  var cfg = pieConfigs[k];
+  pieMetricState[k] = pieMetric(cfg.data);
+  var btn = document.querySelector('.chart-metric-btn[data-pie="'+k+'"]');
+  if(btn) btn.textContent = pieMetricLabels[pieMetricState[k]];
+  renderPie(cfg.chartId, cfg.data, cfg.filterName, pieMetricState[k]);
+});
 
 document.querySelectorAll('.chart-metric-btn').forEach(function(btn){
   btn.addEventListener('click', function(){
     var k = this.getAttribute('data-pie');
+    var cfg = pieConfigs[k];
+    if(!cfg) return;
     pieMetricState[k] = pieMetricState[k] === 'tokens' ? 'requests' : 'tokens';
-    this.textContent = pieMetricState[k] === 'tokens' ? 'Tokens' : 'Requests';
-    renderPie(k+'Pie', k==='keys'?keyData:k==='provider'?providerData:modelData, k, pieMetricState[k]);
+    this.textContent = pieMetricLabels[pieMetricState[k]];
+    renderPie(cfg.chartId, cfg.data, cfg.filterName, pieMetricState[k]);
   });
 });
 
 renderTrend();
-renderPie('homeProviderPie', providerData, 'provider');
-renderPie('homeModelPie', modelData, 'model');
-renderPie('homeKeyPie', keyData, 'key');
 </script>
 </div>{{template "admin_theme_toggle" .}}</body>
 </html>

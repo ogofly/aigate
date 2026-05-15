@@ -297,6 +297,39 @@ func TestAdminHomeDefaultsToEnglish(t *testing.T) {
 	}
 }
 
+func TestAdminHomeUsageShareTranslations(t *testing.T) {
+	rt, err := router.New([]config.ModelConfig{{PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini"}})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	handler := newHandler(t, []config.KeyConfig{{Key: "sk-app-001"}}, rt, usage.New(100), &stubProvider{})
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewBufferString("username=admin&password=pass"))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req.AddCookie(cookies[0])
+	req.AddCookie(&http.Cookie{Name: "aigate_lang", Value: "zh"})
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{`<html lang="zh">`, "密钥用量占比", "服务商用量占比", "模型用量占比"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("Chinese admin home expected %q: %q", want, body)
+		}
+	}
+}
+
 func TestChatCompletionsRoutesToExpectedProviderModel(t *testing.T) {
 	resp := provider.OpenAIResponse{
 		"id": "chatcmpl-test",
@@ -1817,10 +1850,13 @@ func TestAdminHomeRendersDashboardWithRealData(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"Home", "Today", "12.5K", "Users / Keys", "Top Keys", "Top Providers", "Top Models", "\"name\":\"alice-key\"", "\"name\":\"openai\"", "\"name\":\"gpt-4o-mini\""} {
+	for _, want := range []string{"Home", "Today", "12.5K", "Users / Keys", "Top Keys", "Top Providers", "Top Models", "\"name\":\"alice-key\"", "\"name\":\"openai\"", "\"name\":\"gpt-4o-mini\"", "chartId:'homeKeyPie'", "chartId:'homeProviderPie'", "chartId:'homeModelPie'", "pieMetricLabels"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("home page missing %q: %q", want, body)
 		}
+	}
+	if strings.Contains(body, "k+'Pie'") {
+		t.Fatalf("home page should not derive pie chart IDs from metric keys: %q", body)
 	}
 	if strings.Contains(body, "Public Models") {
 		t.Fatalf("home page should not use public models label: %q", body)
@@ -2457,8 +2493,76 @@ func TestAdminKeysPageMasksKeyByDefault(t *testing.T) {
 	if !strings.Contains(body, "submitKeyDelete") {
 		t.Fatalf("body missing key delete handler: %q", body)
 	}
-	if !strings.Contains(body, "Selected · 2 routes") {
-		t.Fatalf("body missing selected route count: %q", body)
+	if !strings.Contains(body, "Limited · 2 routes") {
+		t.Fatalf("body missing limited route count: %q", body)
+	}
+}
+
+func TestAdminKeysPageChineseModelAccessCopy(t *testing.T) {
+	models := []config.ModelConfig{
+		{ID: "mrt_a", PublicName: "gpt-4o-mini", Provider: "openai", UpstreamName: "gpt-4o-mini", Enabled: true},
+		{ID: "mrt_b", PublicName: "deepseek-chat", Provider: "deepseek", UpstreamName: "deepseek-chat", Enabled: true},
+	}
+	rt, err := router.New([]config.ModelConfig{
+		models[0],
+		models[1],
+	})
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	sqliteStore, err := store.NewSQLite("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("store.NewSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	for _, model := range models {
+		if err := sqliteStore.UpsertModel(context.Background(), model); err != nil {
+			t.Fatalf("UpsertModel() error = %v", err)
+		}
+	}
+	keys := []config.KeyConfig{
+		{Key: "sk-bootstrap-001"},
+		{Key: "sk-user-001", Name: "user1", ModelAccess: "selected", ModelRouteIDs: []string{"mrt_a", "mrt_b"}},
+	}
+	if err := sqliteStore.SeedAuthKeysIfEmpty(context.Background(), keys); err != nil {
+		t.Fatalf("SeedAuthKeysIfEmpty() error = %v", err)
+	}
+	handler := newHandlerWithStore(keys, rt, usage.New(100), &stubProvider{}, sqliteStore)
+
+	loginBody := bytes.NewBufferString("username=admin&password=pass")
+	loginReq := httptest.NewRequest(http.MethodPost, "/admin/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	handler.ServeHTTP(loginRR, loginReq)
+	cookies := loginRR.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected admin session cookie")
+	}
+
+	pageReq := httptest.NewRequest(http.MethodGet, "/admin/keys", nil)
+	pageReq.AddCookie(cookies[0])
+	pageReq.AddCookie(&http.Cookie{Name: "aigate_lang", Value: "zh"})
+	pageRR := httptest.NewRecorder()
+	handler.ServeHTTP(pageRR, pageReq)
+
+	if pageRR.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", pageRR.Code, http.StatusOK)
+	}
+	body := pageRR.Body.String()
+	for _, want := range []string{
+		"创建 API Key，可选填写用户和用途。",
+		"更新此 API Key 的名称、用户或用途。",
+		"<option value=\"selected\">选择</option>",
+		"指定模型 · 2 条路由",
+		"<span class=\"route-selected-count\">0 已选</span>",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("Chinese keys page missing %q: %q", want, body)
+		}
+	}
+	if strings.Contains(body, "已选 · 2 条路由") {
+		t.Fatalf("Chinese keys page should not use selected state copy for limited route badge: %q", body)
 	}
 }
 
