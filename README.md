@@ -1,17 +1,14 @@
 # aigate
 
-Minimal Go gateway for OpenAI-like LLM APIs.
+A lightweight Go gateway for LLM APIs. Put OpenAI-compatible, Anthropic-compatible, and Responses-style traffic behind one clean entrypoint with routing, API keys, usage analytics, and a built-in admin UI.
 
-## Features
+## Why aigate
 
-- OpenAI-compatible `POST /v1/chat/completions` (non-stream + `stream=true`)
-- Anthropic-compatible `POST /anthropic/v1/messages` (non-stream + `stream=true`)
-- OpenAI Responses API `POST /v1/responses` (non-stream + `stream=true`)
-- `POST /v1/embeddings`, `GET /v1/models`
-- Configurable model-to-provider mapping
-- Client API key authentication
-- SQLite-backed usage analytics with trend charts
-- Web admin UI with dark/light theme
+- **One gateway, multiple API styles**: OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, Embeddings, and Models.
+- **Model routing without client changes**: map public model names to upstream providers and models; switch providers from the admin UI.
+- **Operational controls built in**: API keys, per-key model access, provider credentials, routing strategy, failover, and usage analytics.
+- **Useful admin UI**: manage providers, models, keys, playground tests, dark/light theme, and token/request charts.
+- **Simple deployment**: a single Go service with SQLite storage and `.env` support.
 
 ## Screenshots
 
@@ -31,47 +28,33 @@ Minimal Go gateway for OpenAI-like LLM APIs.
 
 <a href="./docs/screenshots/login-dark.jpeg"><img src="./docs/screenshots/login-dark.jpeg" width="48%" /></a>
 
-**Usage Analytics:**
+**Usage Analytics:**  
 <a href="./docs/screenshots/usage-dark.jpeg"><img src="./docs/screenshots/usage-dark.jpeg" width="48%" /></a>
 
 ## Quick Start
 
-1. Prepare config.
-
 ```bash
 cp .env.example .env
-```
-
-2. Start the server.
-
-```bash
 go run ./cmd/aigate -config config.example.json
 ```
 
-3. Open the admin.
+Open the admin UI:
 
 ```text
 http://localhost:8080/admin/login
-```
-
-Default credentials:
-
-```text
 username: admin
 password: admin123
 ```
 
-4. Add a provider, model, and key in the admin UI:
+Then create these in the admin UI:
 
-- **Provider**: `name`, `base_url`, `api_key` or `api_key_ref`, `timeout`
-- **Model**: `public_name`, `provider`, `upstream_name`
-- **Key**: `key`, `name`, `owner` (optional), `purpose`
+- **Provider**: upstream `base_url` plus `api_key` or `api_key_ref`
+- **Model**: public model alias mapped to a provider and upstream model
+- **API Key**: client key with optional owner, purpose, and model access
 
-Use either:
-- `api_key`: the real upstream secret
-- `api_key_ref`: an environment variable name such as `OPENAI_API_KEY`
+## API Examples
 
-5. Call the gateway.
+Chat Completions:
 
 ```bash
 curl http://localhost:8080/v1/chat/completions \
@@ -83,18 +66,7 @@ curl http://localhost:8080/v1/chat/completions \
   }'
 ```
 
-Stream mode:
-
-```bash
-curl http://localhost:8080/v1/chat/completions \
-  -H 'Authorization: Bearer sk-app-001' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model": "gpt-4o-mini",
-    "stream": true,
-    "messages": [{"role": "user", "content": "hello"}]
-  }'
-```
+Streaming uses the same endpoint with `"stream": true`.
 
 Embeddings:
 
@@ -105,26 +77,38 @@ curl http://localhost:8080/v1/embeddings \
   -d '{"model": "text-embedding-3-small", "input": "hello"}'
 ```
 
-Read usage:
+Usage summary:
 
 ```bash
-curl http://localhost:8080/v1/usage -H 'Authorization: Bearer sk-app-001'
+curl http://localhost:8080/v1/usage \
+  -H 'Authorization: Bearer sk-app-001'
 ```
 
-## Config
+## Supported Endpoints
 
-JSON config. Example: [config.example.json](./config.example.json)
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+- `POST /v1/embeddings`
+- `GET /v1/models`
+- `POST /anthropic/v1/messages`
+- `GET /v1/usage`
+- `GET /admin/login`
 
-The server loads `.env` if present; process environment variables take precedence.
+## Configuration
 
-- `auth.keys`: supports plain string or object with `key`, `name`, `owner`, `purpose`
-- `admin.username` / `admin.password`: admin login credentials
+Start from [config.example.json](./config.example.json). The service also loads `.env` when present; process environment variables take precedence.
+
+Key settings:
+
+- `admin.username` / `admin.password`: admin login
 - `storage.sqlite_path`: SQLite database path
-- `storage.flush_interval`: seconds between usage flushes
-- `providers[]`: `api_key` (inline secret) or `api_key_ref` (env var name)
+- `storage.flush_interval`: usage flush interval in seconds
+- `providers[]`: upstream credentials via inline `api_key` or env `api_key_ref`
+- `models[]`: public model routing to provider/upstream model
+- `routing`: `priority`, `weight`, or `random` selection with optional failover
 
 ## Test
 
 ```bash
-GOCACHE=/tmp/go-build GOMODCACHE=/tmp/go-mod-cache go test ./...
+go test ./...
 ```
