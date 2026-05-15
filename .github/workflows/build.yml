@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -25,20 +28,26 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: go build -o llmgate-${{ matrix.goarch }} ./cmd/llmgate
 
-      - name: Create release
-        if: ${{ matrix.goarch == 'amd64' }}
-        uses: ncipollo/release-action@v1
-        with:
-          tag: ${{ github.ref_name }}
-          draft: true
-          generateReleaseNotes: true
-
       - name: Upload binary
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-artifact@v4
+        with:
+          name: llmgate-${{ matrix.goarch }}
+          path: llmgate-${{ matrix.goarch }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: https://uploads.github.com/repos/${{ github.repository }}/releases/assets?name=llmgate-${{ matrix.goarch }}
-          asset_path: llmgate-${{ matrix.goarch }}
-          asset_name: llmgate-${{ matrix.goarch }}
-          asset_content_type: application/octet-stream
